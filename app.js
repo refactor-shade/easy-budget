@@ -542,17 +542,30 @@
       "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
       "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-    // коротко о деньгах: сначала цифра, потом понятное пояснение — и плюсы, и минусы
-    var facts = [], ytd = r.cap[w] - (r.startCap || 0), toEnd = r.cap[59] - r.cap[w];
-    var sgnI = function (v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }, EP = function (v) { return eur(rnd(v), { dec: 0, plus: true }); };
-    if (Math.abs(ytd) >= 1000) facts.push({ k: sgnI(ytd), h: EP(ytd), t: "капитал с 1 января: было " + eur(rnd(r.startCap || 0), { dec: 0 }) + ", сейчас " + eur(rnd(r.cap[w]), { dec: 0 }) });
-    if (w < 59 && Math.abs(toEnd) >= 1000) facts.push({ k: sgnI(toEnd), h: EP(toEnd), t: "капитал до 31 декабря по плану — будет " + eur(rnd(r.cap[59]), { dec: 0 }) });
-    var monLoc = E.MONTHS[wk.month - 1].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те");
-    facts.push(mon.saved >= 1000 ? { k: "flat", h: eur(rnd(mon.saved), { dec: 0 }), t: "отложить в накопления в " + monLoc + " по плану" } : { k: "flat", h: "0 €", t: "в накопления в " + monLoc + " по плану" });
-    var fwH = finishedWeek(), frH = fwH ? E.compute(state, fwH.year) : null;
-    if (fwH && frH.diff[fwH.week] !== null) { var dd = frH.diff[fwH.week]; facts.push({ k: sgnI(dd), h: EP(dd), t: "на счетах " + (dd >= 0 ? "больше" : "меньше") + " плана по сверке " + shortWeek(fwH.year, fwH.week) }); }
-    else if (fwH) { var missed = 0; for (var mi = fwH.week; mi > fwH.week - 4 && mi >= 0; mi--) if (frH.fact[mi] === null) missed++; if (missed) facts.push({ k: "flat", h: missed + " из 4", t: "последних недель без сверки" }); }
-    if (facts.length && !ro) html += "<div class='facts'><div class='facts-h small muted'>Коротко</div>" + facts.slice(0, 4).map(function (x) {
+    // «Заметное» — только когда есть повод: крупные траты недели, необычная категория месяца, накопления
+    var facts = [], EP = function (v) { return eur(rnd(v), { dec: 0, plus: true }); }, E0 = function (v) { return eur(rnd(Math.abs(v)), { dec: 0 }); };
+    // 1) крупные траты этой недели (от 200 €), не регулярные
+    var bigW = cats().filter(function (c) { var x = r.cells[c.id][w]; return x && x.cents <= -20000 && c.block !== "savings" && c.block !== "income" && x.src === "manual"; })
+      .map(function (c) { return { c: c, v: r.cells[c.id][w].cents }; }).sort(function (a2, b2) { return a2.v - b2.v; }).slice(0, 2);
+    bigW.forEach(function (x) { facts.push({ k: "down", h: E.fmt(x.v, { cur: cur(x.c), dec: 0 }), t: x.c.name + " на этой неделе" + (r.cells[x.c.id][w].note ? " · " + r.cells[x.c.id][w].note : "") }); });
+    // 2) категория месяца заметно выше своего среднего (в 1,5 раза и на 150 €+)
+    var mIdx = wk.month - 1, monthSum = function (cid, m) { var t = 0; for (var k = m * 5; k < m * 5 + 5; k++) { var x = r.cells[cid][k]; if (x) t -= x.cents; } return t; };
+    var unusual = cats().filter(function (c) { return c.block !== "income" && c.block !== "savings" && c.currency !== "RUB"; }).map(function (c) {
+      var cur0 = monthSum(c.id, mIdx), others = 0, n = 0;
+      for (var m = 0; m < 12; m++) if (m !== mIdx) { others += monthSum(c.id, m); n++; }
+      var avgM = n ? others / n : 0;
+      return { c: c, cur: cur0, avg: avgM };
+    }).filter(function (x) { return x.cur >= 15000 && x.cur > x.avg * 1.5 && x.cur - x.avg >= 15000; }).sort(function (a2, b2) { return (b2.cur - b2.avg) - (a2.cur - a2.avg); }).slice(0, 1);
+    unusual.forEach(function (x) { facts.push({ k: "flat", h: E0(x.cur), t: x.c.name + " в " + E.MONTHS[mIdx].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те") + " — обычно около " + E0(x.avg) + " в месяц" }); });
+    // 3) накопления: прирост за прошлый месяц (в первые две недели нового) и переводы этой недели
+    if (wk.wim <= 2 && mIdx > 0) {
+      var endPrev = mIdx * 5 - 1, endPrev2 = endPrev - 5, sv = r.savEur;
+      var dS = sv[endPrev] - (endPrev2 >= 0 ? sv[endPrev2] : (r.start ? r.start.sav + r.start.inv + r.start.cash : sv[endPrev]));
+      if (Math.abs(dS) >= 5000) facts.push({ k: dS > 0 ? "up" : "down", h: EP(dS), t: "накопления за " + E.MONTHS[mIdx - 1] + " — теперь " + E0(sv[endPrev]) });
+    }
+    var savW = 0; cats().forEach(function (c) { if (c.block === "savings" && c.currency !== "RUB") { var x = r.cells[c.id][w]; if (x) savW -= x.cents; } });
+    if (savW >= 5000) facts.push({ k: "up", h: eur(rnd(savW), { dec: 0 }), t: "переводишь в накопления на этой неделе" });
+    if (facts.length && !ro) html += "<div class='facts'><div class='facts-h small muted'>Заметное</div>" + facts.slice(0, 4).map(function (x) {
       return "<div class='fact " + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + esc(x.h) + "</b> " + esc(x.t) + "</span></div>";
     }).join("") + "</div>";
 
@@ -1765,24 +1778,30 @@
       "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
       "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["transfer", "переводы между вами"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div>";
     html += "<div class='small muted' style='margin:-2px 0 8px'>" + (filtered.length ? "Найдено " + filtered.length + (filtered.length > st.limit ? " · показаны последние " + st.limit : "") : "") + "</div>";
-    html += "<div class='tbl-wrap tbl-scroll'><table class='t feed'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Твоя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
+    // лента как в Splitwise: по месяцам, кто платил, кто кому должен — цветом
+    var monthG = null, feedHtml = "";
     filtered.slice(0, st.limit).forEach(function (e) {
-      var k = e.kind, catSel;
-      if (k === "settlement") catSel = "<span class='badge'>перевод между вами</span>";
-      else if (k === "refund") catSel = "<span class='badge'>перевод между вами</span> <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='expense'>это трата</button>";
-      else {
+      var k = e.kind, c$ = e.currency === "EUR" ? "€" : e.currency, mKey = e.date.slice(0, 7);
+      if (mKey !== monthG) { monthG = mKey; var mi = Number(mKey.slice(5)) - 1; feedHtml += "<li class='fd-month'>" + E.MONTHS[mi][0].toUpperCase() + E.MONTHS[mi].slice(1) + " " + mKey.slice(0, 4) + "</li>"; }
+      var day = "<span class='fd-date'><small>" + E.MONTHS_SHORT[Number(e.date.slice(5, 7)) - 1] + "</small><b>" + Number(e.date.slice(8, 10)) + "</b></span>";
+      var right, sub, catHtml = "";
+      if (k === "settlement" || k === "refund") {
+        sub = (e.paidByMe ? "Ты → " + esc(partner) : esc(partner) + " → тебе") + " · перевод между вами" + (k === "refund" ? " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='expense'>это трата</button>" : "");
+        right = "<span class='fd-amt transfer'><small>перевод</small>" + E.fmt(e.cost, { cur: c$ }) + "</span>";
+      } else {
         var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
-        catSel = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button>" +
-          " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт'>↩</button>";
+        sub = (e.paidByMe ? "Ты заплатила " : esc(partner) + " заплатила ") + E.fmt(e.cost, { cur: c$ }) + (e.method === "cash" ? " · нал" : "");
+        catHtml = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button><button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт'>↩</button>";
+        right = Math.abs(e.net) < 1 ? "<span class='fd-amt even'><small>без долга</small>—</span>" :
+          e.net > 0 ? "<span class='fd-amt lent'><small>тебе должны</small>" + E.fmt(e.net, { cur: c$ }) + "</span>" :
+            "<span class='fd-amt owe'><small>ты должна</small>" + E.fmt(-e.net, { cur: c$ }) + "</span>";
       }
-      var c$ = e.currency === "EUR" ? "€" : e.currency;
-      html += "<tr><td class='small'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + "</td><td class='open' data-open='" + esc(e.id) + "' title='Открыть'>" + esc(e.desc) + (e.method === "cash" ? " <span class='badge'>нал</span>" : "") + (e.note ? " <span class='muted small'>· " + esc(e.note) + "</span>" : "") + "</td><td>" + catSel + "</td>" +
-        "<td class='n'>" + E.fmt(e.cost, { cur: c$ }) + "</td><td class='n'>" + (k === "settlement" ? "" : E.fmt(e.share, { cur: c$ })) + "</td>" +
-        "<td class='small'>" + (k === "settlement" ? (e.paidByMe ? "я → " + esc(partner) : esc(partner) + " → я") : e.paidByMe ? "я" : esc(partner)) + "</td>" +
-        "<td class='n'><button class='btn sm ghost' data-open='" + esc(e.id) + "' aria-label='Изменить'>✎</button></td></tr>";
+      feedHtml += "<li class='fd-row" + (k === "settlement" || k === "refund" ? " is-transfer" : "") + "'>" + day +
+        "<span class='fd-main'><button class='fd-desc' data-open='" + esc(e.id) + "'>" + esc(e.desc || "без описания") + "</button><small>" + sub + (e.note ? " · " + esc(e.note) : "") + "</small>" + (catHtml ? "<span class='fd-cat'>" + catHtml + "</span>" : "") + "</span>" +
+        right + "</li>";
     });
-    if (!filtered.length) html += "<tr><td colspan='7' class='muted'>Ничего не найдено.</td></tr>";
-    html += "</tbody></table></div>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё " + Math.min(50, filtered.length - st.limit) + "</button><span class='small muted'>осталось " + (filtered.length - st.limit) + "</span></div>" : "") + "</div>";
+    if (!filtered.length) feedHtml = "<li class='fd-empty muted'>Ничего не найдено.</li>";
+    html += "<ul class='feed2 tbl-scroll'>" + feedHtml + "</ul>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё " + Math.min(50, filtered.length - st.limit) + "</button><span class='small muted'>осталось " + (filtered.length - st.limit) + "</span></div>" : "") + "</div>";
 
     var ms = S.monthlyShares(calc, set, st.year);
     var catsUsed = S.SHARED_CATS.filter(function (c) { return ms.byCat[c] && ms.byCat[c].some(function (v) { return Math.abs(v) >= 50; }); });

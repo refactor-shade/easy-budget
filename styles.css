@@ -662,3 +662,26 @@ button.sync:hover { border-color: var(--line-strong); color: var(--ink-2); }
 .fact-tx small { font-size: 13px; color: var(--ink-2); }
 .fact { align-items: flex-start; }
 .fact-ic { margin-top: 2px; }
+
+/* ---------- лента общих трат как в Splitwise ---------- */
+.feed2 { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.feed2 .fd-month { position: sticky; top: 0; z-index: 2; background: var(--surface-2); padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); letter-spacing: .02em; }
+.feed2 .fd-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); }
+.feed2 .fd-month + .fd-row { border-top: 0; }
+.fd-date { display: flex; flex-direction: column; align-items: center; line-height: 1.1; color: var(--muted); }
+.fd-date small { font-size: 11px; text-transform: lowercase; }
+.fd-date b { font-size: 18px; font-weight: 500; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.fd-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fd-desc { border: 0; background: none; padding: 0; font: inherit; font-size: 15.5px; color: var(--ink); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-desc:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fd-main > small { color: var(--muted); font-size: 13px; }
+.fd-cat { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.fd-amt { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fd-amt small { font-size: 12px; font-weight: 500; }
+.fd-amt.lent { color: var(--pos); }
+.fd-amt.owe { color: #d0601e; }
+.fd-amt.transfer, .fd-amt.even { color: var(--muted); }
+.fd-row.is-transfer .fd-desc { color: var(--ink-2); }
+.fd-empty { padding: 16px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fd-amt.owe { color: #f0955a; } }
+@media (max-width: 820px) { .feed2 .fd-row { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; padding: 11px 12px; } .fd-amt { font-size: 15px; } }
