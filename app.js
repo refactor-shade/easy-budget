@@ -769,6 +769,30 @@
     return S.toLog(state, c, o).filter(function (x) { return !x.maybe; }).length + S.coverageGaps(state, c, o).length;
   }
 
+
+  // Плановая сумма категории за месяц недели w (без того, что уже внесено фактом из общих)
+  function monthPlan(y, catId, w) {
+    var r = E.compute(state, y), m0 = Math.floor(w / 5) * 5, t = 0;
+    for (var k = m0; k < m0 + 5; k++) { var c = r.cells[catId] && r.cells[catId][k]; if (c && !/из общих/.test(c.note || "")) t -= c.cents; }
+    return t > 0 ? t : 0;
+  }
+  function replacedSoFar(y, catId, w) {
+    var r = E.compute(state, y), m0 = Math.floor(w / 5) * 5, t = 0;
+    for (var k = m0; k < m0 + 5; k++) { var c = r.cells[catId] && r.cells[catId][k]; if (c && /из общих/.test(c.note || "")) t -= c.cents; }
+    return t;
+  }
+  // Заменить план месяца фактом: плановые недели месяца — в 0, неделя счёта — сумма из общих
+  function replaceWithFact(y, catId, w, share, desc) {
+    var r = E.compute(state, y), m0 = Math.floor(w / 5) * 5;
+    for (var k = m0; k < m0 + 5; k++) {
+      var c = r.cells[catId] && r.cells[catId][k];
+      if (k !== w && c && !/из общих/.test(c.note || "")) E.setEntry(state, y, catId, String(k), "0", "план заменён фактом из общих");
+    }
+    var cur = r.cells[catId] && r.cells[catId][w], base = cur && /из общих/.test(cur.note || "") ? -cur.cents : 0;
+    var note = (cur && /из общих/.test(cur.note || "") ? cur.note.replace(/ \(из общих\)$/, "") + ", " : "") + desc + " (из общих)";
+    E.setEntry(state, y, catId, String(w), String(-(base + share) / 100), note);
+  }
+
   // Коммуналка: план против факта из общих (свет, вода, газ)
   function utilitiesCard() {
     var set = state.settings, y = E.todayISO().slice(0, 4), yr = state.years[y];
@@ -819,7 +843,7 @@
             var inWeek = bills.filter(function (e) { var k = E.weekOfDate(e.date); return k && k.idx === w; });
             var sum = inWeek.reduce(function (t, e) { return t + S.toEur(e.share, e.currency, e.date, set); }, 0);
             var had = r.cells[ucat][w];
-            if (sum) E.setEntry(state, y, ucat, String(w), String(-Math.round(sum) / 100), "счета из общих: " + inWeek.map(function (e) { return e.desc; }).join(", "));
+            if (sum) E.setEntry(state, y, ucat, String(w), String(-Math.round(sum) / 100), inWeek.map(function (e) { return e.desc; }).join(", ") + " (из общих)");
             else if (had) E.setEntry(state, y, ucat, String(w), "0", "счетов не было");
             inWeek.forEach(function (e) { set.sharedLog[e.id] = "added"; });
           }
@@ -882,9 +906,24 @@
           if (a === "add") {
             var cat = li.querySelector("[data-lc]").value;
             if (!cat) { toast("Выбери категорию"); li.querySelector("[data-lc]").focus(); return; }
-            addToCell(x.year, cat, x.week, String(x.share / 100), x.e.desc + " (общая)");
             if (x.sharedCat !== "Прочее") set.sharedMap[x.sharedCat] = cat;
-            toast("Внесено в «" + catName(cat) + "» · " + shortWeek(x.year, x.week));
+            var planned = monthPlan(x.year, cat, x.week);
+            var finish = function (how) {
+              if (how === "replace") replaceWithFact(x.year, cat, x.week, x.share, x.e.desc);
+              else addToCell(x.year, cat, x.week, String(x.share / 100), x.e.desc + " (общая)");
+              set.sharedLog[x.e.id] = "added"; changed();
+              toast((how === "replace" ? "План заменён фактом" : "Добавлено") + " в «" + catName(cat) + "» · " + shortWeek(x.year, x.week));
+            };
+            if (!planned) return finish("add");
+            var mName = E.MONTHS[Math.floor(x.week / 5)];
+            modal("<div class='m-body'><h2>В плане уже есть " + E.eur(planned, { dec: 0 }) + "</h2><p class='muted' style='margin:6px 0 0'>«" + esc(catName(cat)) + "» на " + mName + " уже запланирована. Как внести " + E.eur(x.share) + " — " + esc(x.e.desc) + "?</p>" +
+              "<div class='rem-opts'><button class='rem-opt' data-how='replace'><span><b>Заменить план фактом</b><small>за " + mName + " будет " + E.eur(x.share + replacedSoFar(x.year, cat, x.week)) + " — плановые суммы этого месяца обнулятся</small></span></button>" +
+              "<button class='rem-opt' data-how='add'><span><b>Добавить сверху</b><small>за " + mName + " будет " + E.eur(planned + x.share) + " — если это отдельная трата</small></span></button></div></div>" +
+              "<div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button></div>", function (m) {
+              m.querySelector("[data-act=x]").onclick = closeModal;
+              m.querySelectorAll("[data-how]").forEach(function (bb) { bb.onclick = function () { closeModal(); finish(bb.dataset.how); }; });
+            });
+            return;
           }
           set.sharedLog[x.e.id] = a; changed();
         };
@@ -2287,6 +2326,8 @@
     document.body.classList.remove("auth");
     $main.classList.toggle("wide", route === "year");
     document.querySelectorAll("#nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === route); });
+    var tl = document.getElementById("navToLog");
+    if (tl) { var n = myState && !RO() ? toLogCount() : 0; tl.querySelector(".cnt").textContent = n ? String(n) : ""; }
     var extra = document.querySelector("#nav a.x[data-route='" + route + "']");
     document.getElementById("navMore").classList.toggle("active", !!extra);
     profileBar();

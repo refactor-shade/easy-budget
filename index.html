@@ -6,11 +6,12 @@
 <title>Easy Budget</title>
 <meta name="theme-color" content="#f6f5f1">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Budget">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6f4f'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='Georgia'>€</text></svg>">
-<link rel="stylesheet" href="styles.css?v=202610081335">
+<link rel="stylesheet" href="styles.css?v=202610081350">
 </head>
 <body>
 <div class="shell">
@@ -19,6 +20,7 @@
     <a href="#home" data-route="home"><span class="ico">⌂</span><span>Главная</span></a>
     <a href="#week" data-route="week"><span class="ico">◷</span><span>Неделя</span></a>
     <a href="#shared" data-route="shared"><span class="ico">⇄</span><span>Общие</span></a>
+    <a href="#tolog" data-route="tolog" class="x nav-sub" id="navToLog"><span class="ico">↳</span><span>в личный план</span><span class="cnt"></span></a>
     <a href="#us" data-route="us" class="x"><span class="ico">♡</span><span>Мы</span></a>
     <a href="#cash" data-route="cash"><span class="ico">₵</span><span>Наличка</span></a>
     <a href="#recon" data-route="recon" class="x"><span class="ico">✓</span><span>Сверка</span></a>
@@ -38,16 +40,16 @@
 <div class="tip" id="tip" role="tooltip"></div>
 <dialog class="modal" id="modal"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="config.js?v=202610081335" onerror="window.EASY_BUDGET_CONFIG={}"></script>
+<script src="config.js?v=202610081350" onerror="window.EASY_BUDGET_CONFIG={}"></script>
 <script src="vendor/supabase.min.js"></script>
 <script src="vendor/xlsx.full.min.js" defer></script>
 <script>if (!(window.EASY_BUDGET_CONFIG || {}).SUPABASE_URL) document.write('<script src="data/seed.js" onerror="window.SEED=null"><\/script>');</script>
-<script src="engine.js?v=202610081335"></script>
-<script src="shared.js?v=202610081335"></script>
-<script src="cash.js?v=202610081335"></script>
-<script src="importer.js?v=202610081335"></script>
-<script src="charts.js?v=202610081335"></script>
-<script src="store.js?v=202610081335"></script>
-<script src="app.js?v=202610081335"></script>
+<script src="engine.js?v=202610081350"></script>
+<script src="shared.js?v=202610081350"></script>
+<script src="cash.js?v=202610081350"></script>
+<script src="importer.js?v=202610081350"></script>
+<script src="charts.js?v=202610081350"></script>
+<script src="store.js?v=202610081350"></script>
+<script src="app.js?v=202610081350"></script>
 </body>
 </html>
