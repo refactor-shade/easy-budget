@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Easy Budget</title>
+<meta name="theme-color" content="#f6f5f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6f4f'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='Georgia'>€</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="nav" id="nav">
+    <div class="brand"><span class="brand-mark">€</span><span class="brand-name">Easy Budget</span></div>
+    <a href="#week" data-route="week"><span class="ico">◷</span><span>Неделя</span></a>
+    <a href="#year" data-route="year"><span class="ico">▦</span><span>Год</span></a>
+    <a href="#recon" data-route="recon"><span class="ico">✓</span><span>Сверка</span></a>
+    <a href="#recurring" data-route="recurring"><span class="ico">↻</span><span>Регулярные</span></a>
+    <a href="#shared" data-route="shared"><span class="ico">⇄</span><span>Общие</span></a>
+    <a href="#analysis" data-route="analysis"><span class="ico">◔</span><span>Анализ</span></a>
+    <a href="#insights" data-route="insights"><span class="ico">✦</span><span>Выводы</span></a>
+    <a href="#settings" data-route="settings"><span class="ico">⚙</span><span>Настройки</span></a>
+  </nav>
+  <div class="content">
+    <div class="topbar" id="profiles"></div>
+    <main class="main" id="main"><p class="loading">Загружаю…</p></main>
+  </div>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+<dialog class="modal" id="modal"></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="config.js" onerror="window.EASY_BUDGET_CONFIG={}"></script>
+<script src="vendor/supabase.min.js"></script>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<script>if (!(window.EASY_BUDGET_CONFIG || {}).SUPABASE_URL) document.write('<script src="data/seed.js" onerror="window.SEED=null"><\/script>');</script>
+<script src="engine.js"></script>
+<script src="shared.js"></script>
+<script src="importer.js"></script>
+<script src="charts.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
