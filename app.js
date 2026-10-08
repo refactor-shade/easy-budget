@@ -435,11 +435,11 @@
     // главный блок
     var ok = minV >= 0;
     html += "<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении сейчас</div>" +
-      "<div class='hero-value'>" + eur(rnd(r.base[w]), { dec: 0 }) + "</div>" +
+      "<button class='hero-value' data-ob='1' title='Из чего складывается'>" + eur(rnd(r.base[w]), { dec: 0 }) + "</button>" +
       "<div class='hero-status " + (ok ? "good" : "bad") + "'><span class='dot'></span>" + "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + "</div>" +
       "<div class='hero-min small'>" + esc(shortWeek(y, minW)) + ", если всё пойдёт по плану</div>" +
       "<div class='hero-note small muted'>" + (r.fact[w] === null ? (lastRec >= 0 ? "Посчитано от сверки " + esc(shortWeek(y, lastRec)) : "Посчитано по плану, сверок ещё не было") : "По сверке этой недели") +
-      " · <button class='linkish' data-explain='obr'>что это?</button></div></div>" +
+      " · <button class='linkish' data-ob='1'>из чего складывается</button></div></div>" +
       "<div class='hero-side'><div class='hero-label'>Капитал</div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
       "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
       "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
@@ -510,6 +510,7 @@
     });
     $main.querySelectorAll("[data-explain]").forEach(function (el) { el.onclick = function () { explain(el.dataset.explain); }; });
     bindRecCal(y);
+    $main.querySelectorAll("[data-ob]").forEach(function (b) { b.onclick = function () { obrBreakdown(y, w); }; });
     if (!ro && !state.settings.tourDone && !ui.tourShown) { ui.tourShown = true; setTimeout(function () { showTour(0); }, 350); }
   };
 
@@ -920,6 +921,50 @@
     var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
   };
 
+
+  // Из чего складывается сумма «в обращении» на неделю w
+  function obrBreakdown(y, w) {
+    var r = E.compute(state, y), yr = state.years[y], L = -1;
+    for (var i = w; i >= 0; i--) if (r.fact[i] !== null) { L = i; break; }
+    var html = "<div class='m-body ob'><h2>Из чего складывается " + eur(rnd(r.base[w]), { dec: 0 }) + "</h2><p class='small muted' style='margin:2px 0 12px'>В обращении на " + esc(shortWeek(y, w)) + " — деньги на картах и в наличке, без накоплений.</p>";
+    var startV;
+    if (L >= 0) {
+      startV = r.fact[L];
+      var accRows = state.accounts.filter(function (a) { var e = (yr.recon[L] || {})[a.id]; return e && e.cents !== null && E.accountActive(a, r.weeks[L]); })
+        .map(function (a) { return { n: a.name, v: yr.recon[L][a.id].cents }; }).filter(function (x) { return x.v; }).sort(function (a, b) { return b.v - a.v; });
+      html += "<div class='ob-sec'><div class='ob-row head'><span>Сверка " + esc(shortWeek(y, L)) + "</span><b>" + eur(startV) + "</b></div>" +
+        accRows.map(function (x) { return "<div class='ob-row sub'><span>" + esc(x.n) + "</span><span>" + eur(x.v) + "</span></div>"; }).join("") + "</div>";
+    } else {
+      startV = r.start ? r.start.obr : 0;
+      html += "<div class='ob-sec'><div class='ob-row head'><span>Старт года</span><b>" + eur(startV) + "</b></div><div class='ob-row sub'><span>Сверок в " + y + " ещё не было — считаю от остатка на 1 января</span><span></span></div></div>";
+    }
+    if (w > L) {
+      var from = L + 1, groups = {};
+      state.categories.forEach(function (c) {
+        if (c.currency === "RUB") return;
+        var sum = 0;
+        for (var k = from; k <= w; k++) { var x = r.cells[c.id][k]; if (x) sum += x.cents; }
+        if (!sum) return;
+        var g = c.block === "income" ? "income" : c.block === "savings" ? "savings" : "spend";
+        (groups[g] = groups[g] || []).push({ n: c.name, v: sum });
+      });
+      var titles = { income: "Доходы по плану", spend: "Расходы по плану", savings: "Переводы в накопления" };
+      html += "<p class='small muted' style='margin:14px 0 6px'>С тех пор по плану" + (from === w ? " (" + esc(shortWeek(y, w)) + ")" : ": " + esc(shortWeek(y, from)) + " — " + esc(shortWeek(y, w))) + "</p>";
+      ["income", "spend", "savings"].forEach(function (g) {
+        var list = (groups[g] || []).sort(function (a, b) { return Math.abs(b.v) - Math.abs(a.v); });
+        if (!list.length) return;
+        var tot = list.reduce(function (t, x) { return t + x.v; }, 0), top = list.slice(0, 5), rest = list.slice(5).reduce(function (t, x) { return t + x.v; }, 0);
+        html += "<div class='ob-sec'><div class='ob-row head'><span>" + titles[g] + "</span><b class='" + sign(tot) + "'>" + eur(tot, { plus: true }) + "</b></div>" +
+          top.map(function (x) { return "<div class='ob-row sub'><span>" + esc(x.n) + "</span><span>" + eur(x.v, { plus: true }) + "</span></div>"; }).join("") +
+          (rest ? "<div class='ob-row sub'><span>остальное (" + (list.length - 5) + ")</span><span>" + eur(rest, { plus: true }) + "</span></div>" : "") + "</div>";
+      });
+    }
+    html += "<div class='ob-row total'><span>В обращении на " + esc(shortWeek(y, w)) + "</span><b>" + eur(r.base[w]) + "</b></div>" +
+      (r.fact[w] === null ? "<p class='small muted' style='margin:10px 0 0'>Это расчёт: сверка покажет, сколько на самом деле.</p>" : "") + "</div>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='def'>Что такое «в обращении»</button><button class='btn primary' data-act='ok'>Понятно</button></div>";
+    modal(html, function (m) { m.querySelector("[data-act=ok]").onclick = closeModal; m.querySelector("[data-act=def]").onclick = function () { explain("obr"); }; });
+  }
+
   // ===== ЗНАКОМСТВО И СПРАВКА =====
   var GLOSSARY = {
     obr: ["В обращении", "Деньги для жизни: карты и наличка, с которых ты платишь каждый день. Накопления и инвестиции сюда не входят. Приложение считает, сколько их будет в каждую неделю, если всё пойдёт по плану."],
@@ -1025,7 +1070,7 @@
       "<button class='btn' data-act='next' aria-label='Следующая неделя'>›</button></div></div>";
 
     html += "<div class='kpis'>" +
-      kpi("В обращении", eur(rnd(r.base[w]), { dec: 0 }), fact === null ? "расчёт по плану" : "по факту сверки") +
+      kpi("В обращении", eur(rnd(r.base[w]), { dec: 0 }), (fact === null ? "расчёт по плану" : "по факту сверки") + " · <button class='linkish' data-ob='1'>из чего</button>") +
       kpi("Расхождение", diff === null ? "—" : eur(rnd(diff), { dec: 0, plus: true }), diff === null ? (weekDone(y, w) ? "<button class='btn sm primary' data-act='recon'>Сделать сверку</button>" : "сверка — когда неделя закончится") :
         (diff < alert ? "<span class='neg'>⚠ больше порога в " + eur(-alert, { dec: 0 }) + "</span>" : "<span class='pos'>✓ в пределах плана</span>"), diff !== null && diff < alert) +
       kpi("Капитал", eur(rnd(r.cap[w]), { dec: 0 }), "за неделю " + "<span class='" + sign(r.dweek[w]) + "'>" + eur(rnd(r.dweek[w]), { dec: 0, plus: true }) + "</span>" +
@@ -1070,6 +1115,7 @@
     $main.querySelector("[data-act=today]").onclick = function () { var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week; render(); };
     var rb = $main.querySelector("[data-act=recon]"); if (rb && RO()) rb.remove(); else if (rb) rb.onclick = function () { ui.recWeek = { year: y, week: w }; location.hash = "#recon"; };
     $main.querySelectorAll("[data-cell]").forEach(function (li) { li.onclick = function () { editCell(y, li.dataset.cell, w); }; });
+    $main.querySelectorAll("[data-ob]").forEach(function (b) { b.onclick = function () { obrBreakdown(y, w); }; });
     var sb = $main.querySelector("[data-act=spend]");
     if (sb) sb.onclick = function () { spendModal({ date: isNow(y, w) ? E.todayISO() : wk.from, after: function (t) { ui.year = t.year; ui.week = t.week; } }); };
   };
@@ -1235,12 +1281,13 @@
     var fwk = finishedWeek();
     if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 16px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
       (fwk ? " <button class='btn sm' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
-    html += "<div class='grid2'><div class='card'><h2>Остатки · " + esc(E.weekTitle(Number(y), w)) + "</h2><form id='recForm' class='form-grid'>";
+    html += "<div class='grid2'><div class='card'><h2>Остатки · " + esc(E.weekTitle(Number(y), w)) + "</h2><form id='recForm' class='rec-list'>";
     accs.forEach(function (a) {
       var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
-      html += "<label class='f'>" + esc(a.name) + (a.kind === "info" ? " <span class='badge'>не в факте</span>" : !active ? " <span class='badge'>с " + esc(a.countsFrom) + "</span>" : "") +
-        "<input type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk)) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + ">" +
-        (/налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name) ? "<button type='button' class='linkish small' data-cashfill='" + a.id + "' style='text-align:left'>по учёту налички: " + E.eur(cashEurTotal()) + " — подставить</button>" : "") + "</label>";
+      html += "<div class='rec-row" + (a.kind === "info" ? " info" : "") + "'><label for='rf_" + a.id + "' class='rec-name'><span>" + esc(a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, "")) + "</span>" +
+        "<small>" + (a.kind === "info" ? "для справки, в факт не входит" : !active ? "считается с " + esc(a.countsFrom) : lk !== null ? "было " + esc(E.fmt(lk)) : "") + "</small>" +
+        (/налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name) ? "<button type='button' class='linkish small' data-cashfill='" + a.id + "'>по учёту налички " + E.eur(cashEurTotal()) + " — подставить</button>" : "") + "</label>" +
+        "<input id='rf_" + a.id + "' type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk)) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></div>";
     });
     html += "</form><details style='margin-top:14px'" + (Object.keys(srec).length ? " open" : "") + "><summary>Накопления, рубли и доллары (по желанию, раз в квартал)</summary>" +
       "<p class='small muted'>Впиши весь остаток, а не изменение: он заменит расчёт. Так учитываются рост инвестиций и проценты.</p><form id='savForm' class='form-grid'>";

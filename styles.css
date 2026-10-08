@@ -518,3 +518,27 @@ a.btn.primary { color: var(--accent-ink); }
 .win { display: flex; gap: 10px; align-items: center; background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--ink-2); }
 .win b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .win-ic { flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+
+/* ---------- форма сверки: список ---------- */
+.rec-list { display: flex; flex-direction: column; }
+.rec-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 12px; align-items: center; padding: 9px 0; }
+.rec-row + .rec-row { border-top: 1px solid var(--line); }
+.rec-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: pointer; }
+.rec-name span { font-size: 15px; color: var(--ink); }
+.rec-name small { font-size: 12px; color: var(--muted); }
+.rec-name .linkish { text-align: left; font-size: 12.5px; margin-top: 2px; }
+.rec-row input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 12px; background: var(--surface); }
+.rec-row.info .rec-name span { color: var(--ink-2); }
+.rec-row.info input { background: var(--surface-2); }
+/* ---------- из чего складывается ---------- */
+button.hero-value { border: 0; background: none; padding: 0; color: inherit; cursor: pointer; text-align: left; display: block; }
+button.hero-value:hover { text-decoration: underline dotted; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+.ob-sec { padding: 6px 0; border-top: 1px solid var(--line); }
+.ob-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.ob-row.head span { font-weight: 600; }
+.ob-row.sub { font-size: 13.5px; color: var(--ink-2); padding-left: 12px; }
+.ob-row.total { border-top: 2px solid var(--ink); margin-top: 6px; padding-top: 10px; font-size: 16px; }
+.ob { max-height: 70vh; overflow: auto; }
+.ob-row.total { position: sticky; bottom: -20px; background: var(--surface); padding-bottom: 6px; }
+@media (max-width: 520px) { .rec-row { grid-template-columns: minmax(0, 1fr) 128px; } }
+.ob-row b, .ob-row > span:last-child { white-space: nowrap; }
