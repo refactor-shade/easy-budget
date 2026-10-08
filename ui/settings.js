@@ -52,15 +52,16 @@ routes.settings = function () {
     }).join("") + "</tbody></table></div><div class='row' style='margin-top:8px'><button class='btn' id='addAcc'>+ счёт</button></div></div>";
 
   // категории
-  html += "<div class='section'><h2>Категории</h2><div class='tbl-wrap'><table class='t mcard'><thead><tr><th>Название</th><th>Блок</th><th>Валюта</th><th>Налоги и обязательные</th><th title='не видна партнёру ни в деталях, ни в итогах'>Личная</th><th>Счёт в капитале</th><th></th></tr></thead><tbody>";
+  html += "<div class='section'><h2>Категории</h2><div class='tbl-wrap'><table class='t mcard'><thead><tr><th>Название</th><th>Блок</th><th>Валюта</th><th>Налоги и обязательные</th><th title='развлечения, путешествия, одежда, уход, хобби — для структуры трат в «Выводах»'>На радость</th><th title='не видна партнёру ни в деталях, ни в итогах'>Личная</th><th>Счёт в капитале</th><th></th></tr></thead><tbody>";
   E.BLOCKS.forEach(function (b) {
     var inBlock = cats().filter(function (c) { return c.block === b.id; });
-    if (inBlock.length) html += "<tr class='mc-group'><td colspan='7'>" + esc(b.name) + "</td></tr>";
+    if (inBlock.length) html += "<tr class='mc-group'><td colspan='8'>" + esc(b.name) + "</td></tr>";
     inBlock.forEach(function (c) {
       html += "<tr" + (c.archived ? " class='muted'" : "") + "><td class='mc-title'><input type='text' data-cat2='" + c.id + "' data-f='name' value='" + esc(c.name) + "' aria-label='Название категории'></td>" +
         "<td data-l='Блок'><select data-cat2='" + c.id + "' data-f='block'>" + E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'" + (x.id === c.block ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</select></td>" +
         "<td data-l='Валюта'><select data-cat2='" + c.id + "' data-f='currency'><option" + (c.currency === "EUR" ? " selected" : "") + ">EUR</option><option" + (c.currency === "RUB" ? " selected" : "") + ">RUB</option></select></td>" +
         "<td class='mc-chk'><label class='chk'><input type='checkbox' data-cat2='" + c.id + "' data-f='mandatory'" + (c.mandatory ? " checked" : "") + "><span>налоги и обязательные траты</span></label></td>" +
+        "<td class='mc-chk'>" + (c.block === "income" || c.block === "savings" ? "" : "<label class='chk'><input type='checkbox' data-cat2='" + c.id + "' data-f='joy'" + (window.BudgetInsights.isJoy(c) ? " checked" : "") + "><span>на радость</span></label>") + "</td>" +
         "<td class='mc-chk'><label class='chk'><input type='checkbox' data-cat2='" + c.id + "' data-f='private'" + (c.private ? " checked" : "") + "><span>личная — не видна партнёру</span></label></td>" +
         "<td" + (c.block === "savings" ? " data-l='Счёт в капитале'" : " class='mc-empty'") + ">" + (c.block === "savings" ? "<select data-cat2='" + c.id + "' data-f='link'><option value=''>—</option>" + E.CAPITAL_ROWS.filter(function (x) { return x.key !== "card_rub"; }).map(function (x) { return "<option value='" + x.key + "'" + (c.link === x.key ? " selected" : "") + ">" + x.name + "</option>"; }).join("") + "</select>" : "") + "</td>" +
         "<td class='n mc-act'><button class='btn sm ghost' data-up='" + c.id + "' aria-label='Поднять выше' title='Поднять выше'>↑</button><button class='btn sm ghost' data-catarch='" + c.id + "'>" + (c.archived ? "вернуть" : "в архив") + "</button></td></tr>";

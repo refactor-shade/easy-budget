@@ -105,89 +105,23 @@ function familyOverview(y) {
 
 // ===== ВЫВОДЫ =====
 routes.insights = function () {
-  var out = [];
-  var ay = activeYears();
-  var curY = ui.year;
-  var mon = E.monthly(state, curY), t = mon.total;
-  // 1. зависимость от источника дохода
-  var inc = state.categories.filter(function (c) { return c.block === "income"; }).map(function (c) { return { c: c, v: E.categoryTotals(state, curY)[c.id] || 0 }; })
-    .filter(function (x) { return x.v > 0; }).sort(function (a, b) { return b.v - a.v; });
-  if (inc.length && t.income > 0) {
-    var top = inc[0], share = top.v / t.income;
-    var volatile = inc.filter(function (x) { return /бонус|крипт|фриланс/i.test(x.c.name); }).reduce(function (s, x) { return s + x.v; }, 0);
-    out.push({ k: share > 0.75 ? "warn" : "", ic: "◑", h: "Доходы " + curY + ": " + Math.round(share * 100) + "% — «" + top.c.name + "»",
-      p: "Всего " + eur(rnd(t.income), { dec: 0 }) + ". " + (volatile ? "Нестабильные источники (бонус, крипта, фриланс): " + eur(rnd(volatile), { dec: 0 }) + " — " + Math.round(volatile / t.income * 100) + "% доходов. Для плана стоит посчитать осторожный сценарий без них." : "") });
+  var curY = ui.year, res = window.BudgetInsights.personal(state, curY, insightCtx());
+  // вопросы к плану следующего года — только те, что относятся к найденному
+  var plan = activeYears().filter(function (y) { return Number(y) > Number(curY); })[0], q = [];
+  if (plan) {
+    var ids = {}; res.good.concat(res.improve, res.info).forEach(function (c) { ids[c.id] = 1; });
+    q.push("Регулярные суммы (аренда, коммуналка, подписки) — актуальны?");
+    if (ids.volatile) q.push("Бонус и крипта: заложить их скромнее?");
+    if (ids.mandatory) q.push("Налоги и соцстрах — заложен полный год?");
+    if (ids.family || ids.heavy) q.push("Праздники семьи и дорогие месяцы — откладывать заранее?");
+    if (ids.coverage) q.push("Еда и развлечения — оставить или поправить?");
+    if (ids.idle) q.push("Деньги в обращении — часть под процент?");
+    if (ids.reserve) q.push("Запас — держать 6 месяцев?");
   }
-  // 2. тяжёлые месяцы
-  var avg = t.total / 12;
-  var heavy = mon.months.filter(function (m) { return m.total > avg * 1.3; });
-  if (heavy.length) out.push({ k: "", ic: "▲", h: "Месяцы с расходами выше обычного: " + heavy.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "),
-    p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%: " + heavy.map(function (m) { return E.MONTHS_SHORT[m.month - 1] + " " + eur(rnd(m.total), { dec: 0 }); }).join(" · ") + ". Деньги на них лучше откладывать заранее." });
-  // 3. праздники семьи
-  var fam = state.categories.find(function (c) { return /праздники и подарки семьи/i.test(c.name); });
-  if (fam) {
-    var r = E.compute(state, curY), byM = new Array(12).fill(0);
-    r.cells[fam.id].forEach(function (x, w) { if (x) byM[Math.floor(w / 5)] -= x.cents; });
-    var famT = byM.reduce(function (a, b) { return a + b; }, 0);
-    if (famT > 0) {
-      var peaks = byM.map(function (v, i) { return { v: v, i: i }; }).filter(function (x) { return x.v > famT / 6; });
-      out.push({ k: "", ic: "❀", h: "Праздники семьи: " + eur(rnd(famT), { dec: 0 }) + " за год", p: "Пики — " + peaks.map(function (x) { return E.MONTHS[x.i] + " (" + eur(rnd(x.v), { dec: 0 }) + ")"; }).join(", ") +
-        ". Если откладывать по " + eur(rnd(famT / 12), { dec: 0 }) + " в месяц, пики не будут бить по бюджету." });
-    }
-  }
-  // 4. рост статей
-  var prevY = String(Number(curY) - 1);
-  if (state.years[prevY]) {
-    var a = E.categoryTotals(state, curY), b = E.categoryTotals(state, prevY);
-    var grow = state.categories.filter(function (c) { return c.block !== "income" && c.block !== "savings"; })
-      .map(function (c) { return { c: c, d: (a[c.id] || 0) - (b[c.id] || 0), a: a[c.id] || 0, b: b[c.id] || 0 }; })
-      .filter(function (x) { return x.d > 30000 && x.b > 0; }).sort(function (x, y) { return y.d - x.d; }).slice(0, 4);
-    if (grow.length) out.push({ k: "", ic: "↗", h: "Что выросло по сравнению с " + prevY, p: grow.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
-    var pm = E.monthly(state, prevY).total;
-    out.push({ k: "", ic: "≈", h: "На жизнь: " + eur(rnd(t.living / 12), { dec: 0 }) + " в месяц", p: prevY + ": " + eur(rnd(pm.living / 12), { dec: 0 }) + " в месяц. Налоги, соцстрах и бухгалтерия в расчёт не входят (" + eur(rnd(t.mandatory), { dec: 0 }) + " за " + curY + ")." });
-  }
-  // 5. деньги без процентов
-  var rr = E.compute(state, curY), wNow = (E.weekOfDate(E.todayISO()) || {}).idx || 0;
-  if (!rr.archived) {
-    var obrNow = rr.base[Math.min(wNow, 59)], monthly = t.total / 12;
-    if (obrNow > monthly * 3) out.push({ k: "warn", ic: "%", h: "В обращении " + eur(rnd(obrNow), { dec: 0 }) + " — это " + (obrNow / monthly).toFixed(1).replace(".", ",") + " месяца расходов",
-      p: "Подушки на 2–3 месяца хватает в обращении; остальное (~" + eur(rnd(obrNow - monthly * 2), { dec: 0 }) + ") можно положить на счёт с процентом — перевод в накопления капитал не уменьшит." });
-    var minV = Infinity, minW = 0;
-    for (var i = wNow; i < 60; i++) if (rr.base[i] < minV) { minV = rr.base[i]; minW = i; }
-    out.push({ k: minV < 0 ? "warn" : "good", ic: minV < 0 ? "!" : "✓", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(curY, minW),
-      p: minV < 0 ? "Деньги в обращении уходят в минус. Стоит сдвинуть крупные траты или переложить из накоплений." : "Это самая низкая точка денег в обращении до конца года, если всё пойдёт по плану." });
-  }
-  // 6. общие траты
-  var cov = RO() || !sh ? [] : S.coverage(state, sharedForCalc(), curY).filter(function (c) { return c.personal > 0 && c.shared > 0; });
-  if (cov.length) {
-    var sS = cov.reduce(function (a, c) { return a + c.shared; }, 0), sP = cov.reduce(function (a, c) { return a + c.personal; }, 0);
-    out.push({ k: sS > sP ? "warn" : "good", ic: "⇄", h: "Еда и развлечения: общий счёт покрывает " + Math.round(sS / sP * 100) + "% личного плана",
-      p: "За " + cov.length + " мес.: общие " + eur(rnd(sS), { dec: 0 }) + " при плане " + eur(rnd(sP), { dec: 0 }) + ". " + (sS > sP ? "Общих трат больше, чем заложено в личный план — план на продукты/развлечения стоит поднять." : "План с запасом — разница уходит на свои кафе, кофе и мелочи.") });
-  }
-  var bal = sh && !RO() ? S.balance(sh.expenses).EUR || 0 : 0;
-  if (Math.abs(bal) > 50000) out.push({ k: "", ic: "€", h: (bal > 0 ? partnerName() + " должна тебе " : "Ты должна " + partnerName() + " ") + eur(Math.abs(bal), { dec: 0 }), p: "Большой долг удобнее закрывать регулярно — кнопка «Рассчитаться» на экране «Общие»." });
-  // хорошее: доля сбережений, статьи, которые подешевели, лёгкие месяцы
-  if (t.income > 0 && t.rate !== null && t.rate >= 0.1) out.push({ k: "good", ic: "↑", h: "Доля сбережений — " + Math.round(t.rate * 100) + "%", p: "За " + curY + " доходы больше расходов на " + eur(rnd(t.net), { dec: 0 }) + ". Обычно советуют откладывать 10–20% доходов." });
-  if (state.years[prevY]) {
-    var a2 = E.categoryTotals(state, curY), b2 = E.categoryTotals(state, prevY);
-    var down = state.categories.filter(function (c) { return c.block !== "income" && c.block !== "savings"; })
-      .map(function (c) { return { c: c, d: (b2[c.id] || 0) - (a2[c.id] || 0), a: a2[c.id] || 0, b: b2[c.id] || 0 }; })
-      .filter(function (x) { return x.d > 20000 && x.b > 0; }).sort(function (x, y) { return y.d - x.d; }).slice(0, 3);
-    if (down.length) out.push({ k: "good", ic: "↘", h: "Что уменьшилось по сравнению с " + prevY, p: down.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
-  }
-  var light = mon.months.filter(function (m) { return m.total > 0 && m.total < avg * 0.8; });
-  if (light.length) out.push({ k: "good", ic: "◌", h: "Месяцы с расходами ниже обычного: " + light.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "), p: "Минимум на 20% меньше среднего — в такие месяцы удобно откладывать." });
-  // 7. капитал
-  if (t.dcap) out.push({ k: t.dcap > 0 ? "good" : "warn", ic: "◆", h: "Капитал за " + curY + ": " + eur(rnd(t.dcap), { dec: 0, plus: true }), p: "На конец года " + eur(rnd(t.cap), { dec: 0 }) + "." });
-
-  out.sort(function (a, b) { var o = { good: 0, "": 1, warn: 2 }; return o[a.k] - o[b.k]; });
-  var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>Короткие наблюдения по году. Считаются сами — из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div><div class='grid2'>";
-  html += out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("");
-  html += "</div>";
-  if (ay.length) {
-    var plan = activeYears().filter(function (y) { return Number(y) > Number(curY); })[0];
-    if (plan) html += "<div class='section card'><h2>Что решить для плана " + plan + "</h2><ol class='muted' style='margin:0;padding-left:20px'><li>Регулярные суммы (аренда, коммуналка, подписки) — актуальны?</li><li>Бонус и крипта: заложить осторожный сценарий?</li><li>Налоги и соцстрах — хватает ли заложенного?</li><li>Праздники семьи — откладывать заранее?</li><li>Еда и развлечения — оставить или снизить?</li><li>Деньги в обращении — часть на счёт с процентом?</li></ol></div>";
-  }
+  var after = q.length ? "<div class='card' style='margin-top:12px'><h3 style='margin:0 0 8px'>Решить для плана " + plan + "</h3><ol class='muted' style='margin:0;padding-left:20px'>" + q.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></div>" : "";
+  var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>" + (res.plan ? "По плану: год ещё не начался." : "Сначала — что получилось, потом — что можно улучшить и один шаг вперёд.") + " Считаются сами из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div>";
+  html += sandwichHtml(res, { after: after });
   $main.innerHTML = html;
+  bindInsights($main);
   bindYearChips(function (yy) { ui.year = yy; render(); });
 };

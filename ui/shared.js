@@ -226,7 +226,7 @@ routes.us = function () {
 
   // KPI
   html += "<div class='kpis'>" +
-    kpi(both ? "Капитал вместе" : "Твой капитал", capMe === null ? "—" : eur(rnd(capMe + (capThem || 0)), { dec: 0 }), "на конец " + E.MONTHS_GEN[nowM] + (both && capThem !== null ? " · " + esc(meName) + " " + eur(rnd(capMe), { dec: 0 }) + " · " + esc(pName) + " " + eur(rnd(capThem), { dec: 0 }) : "")) +
+    kpi(both ? "Капитал вместе" : "Капитал", capMe === null ? "—" : eur(rnd(capMe + (capThem || 0)), { dec: 0 }), "на конец " + E.MONTHS_GEN[nowM] + (both && capThem !== null ? " · " + esc(meName) + " " + eur(rnd(capMe), { dec: 0 }) + " · " + esc(pName) + " " + eur(rnd(capThem), { dec: 0 }) : "")) +
     kpi("Доходы за год", eur(rnd(tot("income")), { dec: 0 }), both ? "вместе" : "твои") +
     kpi("Расходы за год", eur(rnd(tot("total")), { dec: 0 }), "на жизнь " + eur(rnd(tot("living") / 12), { dec: 0 }) + " в месяц") +
     kpi("Сберегаем", tot("income") ? pct((tot("income") - tot("total")) / tot("income")) : "—", "доходы минус расходы, от доходов") + "</div>";
@@ -261,26 +261,21 @@ routes.us = function () {
       "<p class='small muted'>Это кто оплачивал, а не чья доля больше: доли делятся при вводе траты, а разницу показывает баланс в «Общих».</p></div></div>";
   }
 
-  // выводы про нас
-  var out = [];
-  if (both || true) {
-    var avg = tot("total") / 12, heavy = mine.months.map(function (_, i) { return { i: i, v: sum("total", i) }; }).filter(function (x) { return x.v > avg * 1.3; });
-    if (heavy.length) out.push({ k: "", ic: "▲", h: "Месяцы с расходами выше обычного" + (both ? " на двоих" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
+  // выводы про нас — бутерброд только по общим критериям (одинаково у обеих, со своей стороны)
+  if (sh) {
+    var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount() });
+    if (both) {
+      var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
+      var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + " (по плану и сверкам)." };
+      if (dcap >= 0) tres.good = [cc].concat(tres.good).slice(0, 3); else tres.improve = [cc].concat(tres.improve).slice(0, 3);
+    }
+    html += "<div class='section'><h2 style='margin-bottom:0'>Выводы про нас</h2></div>" + sandwichHtml(tres);
   }
-  if (ex.length && tot("total")) out.push({ k: "", ic: "⇄", h: "Общие траты — " + Math.round(sharedTot / months / (tot("total") / 12) * 100) + "% " + (both ? "ваших" : "") + " расходов", p: both ? "Остальное — личное у каждой. Чем выше доля, тем важнее, чтобы общие траты были в личных планах — для этого есть «Общие → личный план»." : "Доля от твоих расходов. С данными партнёра посчитаю на двоих." });
-  var grow = cats2.filter(function (c) { return prevCat[c] && byCat[c] / months * 12 > prevCat[c] * 1.25 && byCat[c] > 20000; }).slice(0, 3);
-  if (grow.length) out.push({ k: "warn", ic: "↗", h: "Растут к " + (Number(y) - 1) + ": " + grow.join(", "), p: grow.map(function (c) { return c + ": " + eur(rnd(prevCat[c]), { dec: 0 }) + " за год → темп " + eur(rnd(byCat[c] / months * 12), { dec: 0 }); }).join(" · ") });
-  if (both) {
-    var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
-    out.push({ k: dcap >= 0 ? "good" : "warn", ic: "◆", h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: esc(meName) + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + esc(pName) + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + " (по плану и сверкам)." });
-  }
-  var bal = sh ? S.balance(sh.expenses).EUR || 0 : 0;
-  if (Math.abs(bal) >= 5000) out.push({ k: "", ic: "€", h: bal > 0 ? pName + " должна тебе " + eur(bal, { dec: 0 }) : "Ты должна " + pName + " " + eur(-bal, { dec: 0 }), p: "Рассчитаться — на экране «Общие»." });
-  if (out.length) html += "<div class='section'><h2>Выводы про нас</h2><div class='grid2'>" + out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("") + "</div></div>";
   if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть её бюджет целиком</button></div>";
   $main.innerHTML = html;
   $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });
   var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
+  bindInsights($main);
 };
 
 
@@ -384,7 +379,9 @@ routes.shared = function () {
     ? "<div class='hint small row'><span style='flex:1 1 260px'>" + esc(partner) + " ещё не входила. Пусть откроет сайт и войдёт с <b>" + esc(sh.partner.email || "") + "</b> — пространство подключится само." +
       " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить её таблицу</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
 
-  var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + " — вносите обе, с любого устройства. <button class='linkish' id='shWhy'>Как считается</button></div></div>" +
+  // открыт профиль партнёра: лента всё равно с моей стороны — говорим об этом прямо
+  var sideNote = RO() ? "<div class='hint small' style='margin:0 0 14px'>Лента показана с твоей стороны: зелёным — что должны тебе, оранжевым — что должна ты. У " + esc(view.name) + " в её профиле цвета наоборот.</div>" : "";
+  var html = sideNote + "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + " — вносите обе, с любого устройства. <button class='linkish' id='shWhy'>Как считается</button></div></div>" +
     "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a>" +
     "<details class='menu-more'><summary class='btn' aria-label='Ещё: импорт и экспорт'>⋯</summary><div class='menu-pop'>" +
     "<label class='menu-item'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label><button class='menu-item' id='shExport'>Скачать CSV</button></div></details></div></div>" + invite;

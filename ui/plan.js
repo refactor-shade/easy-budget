@@ -22,7 +22,7 @@ routes.week = function () {
     kpi("В обращении", eur(rnd(r.base[w]), { dec: 0 }), (fact === null ? "расчёт по плану" : "по факту сверки") + " · <button class='linkish' data-ob='1'>из чего</button>") +
     kpi("Расхождение", diff === null ? "—" : eur(rnd(diff), { dec: 0, plus: true }), diff === null ? (weekDone(y, w) ? "<button class='btn sm primary' data-act='recon'>Сделать сверку</button>" : "сверка — когда неделя закончится") :
       (diff < alert ? "<span class='neg'>⚠ больше порога в " + eur(-alert, { dec: 0 }) + "</span>" : "<span class='pos'>✓ в пределах плана</span>"), diff !== null && diff < alert) +
-    kpi("Капитал", eur(rnd(r.cap[w]), { dec: 0 }), "за неделю " + "<span class='" + sign(r.dweek[w]) + "'>" + eur(rnd(r.dweek[w]), { dec: 0, plus: true }) + "</span>" +
+    kpi("Капитал", eur(rnd(r.cap[w]), { dec: 0 }), "все деньги вместе · за неделю " + "<span class='" + sign(r.dweek[w]) + "'>" + eur(rnd(r.dweek[w]), { dec: 0, plus: true }) + "</span>" +
       (wk.wim === 5 ? " · за месяц <span class='" + sign(r.dmonth[w]) + "'>" + eur(rnd(r.dmonth[w]), { dec: 0, plus: true }) + "</span>" : "")) +
     kpi("Самый низкий остаток", eur(rnd(minV), { dec: 0 }), esc(shortWeek(y, minW)) + " · до конца года", minV < 0) +
     "</div>";
@@ -144,7 +144,7 @@ routes.year = function () {
       body += "<tr class='minor'><td class='sticky'>&nbsp;&nbsp;" + cr.name + "</td><td class='sticky2'>" + E.fmt(rnd(r.start[cr.key])) + "</td>" + tds(r.rows[cr.key]) + "</tr>";
     });
     body += "<tr class='minor'><td class='sticky'>рубли в €</td><td class='sticky2'></td>" + tds(r.rubEur) + "</tr>";
-    body += "<tr class='tot'><td class='sticky'>ИТОГО КАПИТАЛ €</td><td class='sticky2'>" + E.fmt(rnd(r.startCap)) + "</td>" + tds(r.cap.map(function (v, i) { return weeks[i].wim === 5 ? v : null; })) + "</tr>";
+    body += "<tr class='tot'><td class='sticky'>Капитал €</td><td class='sticky2'>" + E.fmt(rnd(r.startCap)) + "</td>" + tds(r.cap.map(function (v, i) { return weeks[i].wim === 5 ? v : null; })) + "</tr>";
     body += "<tr class='minor'><td class='sticky'>изменение за неделю</td><td class='sticky2'></td>" + tds(r.dweek, function (v) { return v < 0 ? "neg" : ""; }, { fmt: function (v) { return E.fmt(rnd(v), { plus: true }); } }) + "</tr>";
     body += "<tr class='tot'><td class='sticky'>изменение за месяц</td><td class='sticky2'></td>" + tds(r.dmonth, function (v) { return v === null ? "" : v < 0 ? "bad" : "good"; }, { fmt: function (v) { return E.fmt(rnd(v), { plus: true }); } }) + "</tr>";
   } else {

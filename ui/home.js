@@ -68,36 +68,32 @@ routes.home = function () {
     "<div class='hero-min small'>" + esc(shortWeek(y, minW)) + ", если всё пойдёт по плану</div>" +
     "<div class='hero-note small muted'>" + (r.fact[w] === null ? (lastRec >= 0 ? "Посчитано от сверки " + esc(shortWeek(y, lastRec)) : "Посчитано по плану, сверок ещё не было") : "По сверке этой недели") +
     " · <button class='linkish' data-ob='1'>из чего складывается</button></div></div>" +
-    "<div class='hero-side'><div class='hero-label'>Капитал</div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
+    "<div class='hero-side'><div class='hero-label'>Капитал <span class='muted small'>· все твои деньги вместе</span></div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
     "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
     "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-  // «Заметное» — только когда есть повод: крупные траты недели, необычная категория месяца, накопления
-  var facts = [], EP = function (v) { return eur(rnd(v), { dec: 0, plus: true }); }, E0 = function (v) { return eur(rnd(Math.abs(v)), { dec: 0 }); };
-  // 1) крупные траты этой недели (от 200 €), не регулярные
-  var bigW = cats().filter(function (c) { var x = r.cells[c.id][w]; return x && x.cents <= -20000 && c.block !== "savings" && c.block !== "income" && x.src === "manual"; })
-    .map(function (c) { return { c: c, v: r.cells[c.id][w].cents }; }).sort(function (a2, b2) { return a2.v - b2.v; }).slice(0, 2);
-  bigW.forEach(function (x) { facts.push({ k: "down", h: E.fmt(x.v, { cur: cur(x.c), dec: 0 }), t: x.c.name + " на этой неделе" + (r.cells[x.c.id][w].note ? " · " + r.cells[x.c.id][w].note : "") }); });
-  // 2) категория месяца заметно выше своего среднего (в 1,5 раза и на 150 €+)
-  var mIdx = wk.month - 1, monthSum = function (cid, m) { var t = 0; for (var k = m * 5; k < m * 5 + 5; k++) { var x = r.cells[cid][k]; if (x) t -= x.cents; } return t; };
-  var unusual = cats().filter(function (c) { return c.block !== "income" && c.block !== "savings" && c.currency !== "RUB"; }).map(function (c) {
-    var cur0 = monthSum(c.id, mIdx), others = 0, n = 0;
-    for (var m = 0; m < 12; m++) if (m !== mIdx) { others += monthSum(c.id, m); n++; }
-    var avgM = n ? others / n : 0;
-    return { c: c, cur: cur0, avg: avgM };
-  }).filter(function (x) { return x.cur >= 15000 && x.cur > x.avg * 1.5 && x.cur - x.avg >= 15000; }).sort(function (a2, b2) { return (b2.cur - b2.avg) - (a2.cur - a2.avg); }).slice(0, 1);
-  unusual.forEach(function (x) { facts.push({ k: "flat", h: E0(x.cur), t: x.c.name + " в " + E.MONTHS[mIdx].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те") + " — обычно около " + E0(x.avg) + " в месяц" }); });
-  // 3) накопления: прирост за прошлый месяц (в первые две недели нового) и переводы этой недели
-  if (wk.wim <= 2 && mIdx > 0) {
-    var endPrev = mIdx * 5 - 1, endPrev2 = endPrev - 5, sv = r.savEur;
-    var dS = sv[endPrev] - (endPrev2 >= 0 ? sv[endPrev2] : (r.start ? r.start.sav + r.start.inv + r.start.cash : sv[endPrev]));
-    if (Math.abs(dS) >= 5000) facts.push({ k: dS > 0 ? "up" : "down", h: EP(dS), t: "накопления за " + E.MONTHS[mIdx - 1] + " — теперь " + E0(sv[endPrev]) });
+  // «Заметное»: одна хорошая новость + одна подсказка (подсказки меняются от недели к неделе)
+  var INS = window.BudgetInsights, ins = !ro ? INS.personal(state, y, insightCtx()) : null, notes = [];
+  if (ins) {
+    if (ins.good[0]) notes.push({ z: "good", c: ins.good[0] });
+    var tips = ins.improve.length ? ins.improve : ins.info.filter(function (c) { return c.id === "family" || c.id === "low" || c.id === "reserve"; });
+    if (tips.length) notes.push({ z: "improve", c: tips[w % tips.length] });
   }
-  var savW = 0; cats().forEach(function (c) { if (c.block === "savings" && c.currency !== "RUB") { var x = r.cells[c.id][w]; if (x) savW -= x.cents; } });
-  if (savW >= 5000) facts.push({ k: "up", h: eur(rnd(savW), { dec: 0 }), t: "переводишь в накопления на этой неделе" });
-  var noteCard = facts.length && !ro ? "<section class='card a-note'><h2>Заметное</h2><ul class='note-list'>" + facts.slice(0, 4).map(function (x) {
-    return "<li class='" + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + esc(x.h) + "</b> " + esc(x.t) + "</span></li>";
+  var noteCard = notes.length ? "<section class='card a-note'><div class='row'><h2 style='margin:0'>Заметное</h2><span class='spacer'></span><a class='small' href='#insights'>все выводы ›</a></div><ul class='note-list'>" + notes.map(function (x) {
+    return "<li class='" + (x.z === "good" ? "up" : "flat") + "'><span class='fact-ic' aria-hidden='true'>" + (x.z === "good" ? "✓" : "→") + "</span><span><b>" + esc(x.c.h) + "</b> " + esc(x.c.p) + "</span></li>";
   }).join("") + "</ul></section>" : "";
+
+  // «Итог месяца»: после сверки последней недели месяца или через 3 дня после его конца
+  var due = !ro ? INS.monthDue(state, E.todayISO()) : null, monthCard = "";
+  if (due && state.settings.monthSeen !== due.key) {
+    var ms = INS.month(state, due.year, due.month), nb = ms.numbers, mn = E.MONTHS[due.month];
+    var li = function (z, mk, h, p) { return "<li class='" + z + "'><span class='mk' aria-hidden='true'>" + mk + "</span><span><b>" + esc(h) + "</b>" + (p ? " " + esc(p) : "") + "</span></li>"; };
+    monthCard = "<section class='card month-sum'><div class='row'><h2 style='margin:0'>Итог месяца: " + mn + "</h2><span class='spacer'></span>" + (due.recon ? "" : "<span class='badge'>без сверки</span>") + "</div>" +
+      "<div class='ms-nums'><div><span class='muted small'>доходы</span><b class='pos'>" + eur(rnd(nb.income), { dec: 0 }) + "</b></div><div><span class='muted small'>расходы</span><b>" + eur(rnd(nb.total), { dec: 0 }) + "</b></div>" +
+      "<div><span class='muted small'>осталось</span><b class='" + sign(nb.net) + "'>" + eur(rnd(nb.net), { dec: 0, plus: true }) + "</b></div><div><span class='muted small'>капитал</span><b class='" + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "—" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</b></div></div><ul>" +
+      ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "!", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") +
+      "</ul><div class='row' style='margin-top:12px'><a class='btn sm' href='#insights'>Все выводы</a><span class='spacer'></span><button class='btn ghost sm' id='msSeen'>Прочитано</button></div></section>";
+  }
 
   // быстрые действия
   if (!ro) html += "<div class='quick-row'>" +
@@ -106,6 +102,7 @@ routes.home = function () {
     "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>внести трату наличными</small></span></button>" +
     "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
 
+  html += monthCard;
   html += "<div class='home-grid'>";
   // дела
   if (!ro) html += "<section class='card a-todo'><h2>Что сделать</h2>" + (todo.length ? "<ul class='todo-list'>" + todo.map(function (x, j) {
@@ -136,6 +133,8 @@ routes.home = function () {
   $main.innerHTML = html;
 
   $main.querySelectorAll("[data-go]").forEach(function (el) { el.onclick = function () { ui.year = y; ui.week = w; go("#" + el.dataset.go); }; });
+  var msSeen = $main.querySelector("#msSeen");
+  if (msSeen) msSeen.onclick = function () { state.settings.monthSeen = due.key; changed(); };
   $main.querySelectorAll("[data-todo]").forEach(function (el) {
     el.onclick = function () {
       var td = todo[Number(el.dataset.todo)], a = td.act;

@@ -160,7 +160,10 @@ function loadShared() {
   return Store.loadSpace().then(function (sp) {
     if (!sp) { sh = null; return; }
     var me = Store.user();
-    var mine = sp.people.find(function (p) { return p.userId === me.id; }) || sp.people[0];
+    // «я» в общем пространстве: по входу, иначе по email; цвета ленты (кто кому должен) считаются с этой стороны
+    var myEmail = String(me.email || "").toLowerCase();
+    var mine = sp.people.find(function (p) { return p.userId === me.id; }) ||
+      sp.people.find(function (p) { return myEmail && String(p.email || "").toLowerCase() === myEmail; }) || sp.people[0];
     var partner = sp.people.find(function (p) { return p !== mine; }) || null;
     sp.space.settings = sp.space.settings || {};
     sp.space.settings.learned = sp.space.settings.learned || {};
@@ -558,4 +561,36 @@ function installModal() {
     m.querySelector("[data-act=ok]").onclick = closeModal;
     m.querySelector("[data-act=done]").onclick = function () { done(); closeModal(); render(); };
   });
+}
+
+// ---------- выводы: карточки и «бутерброд» (метод — ANALYSIS_METHOD.md) ----------
+function insightCard(c, zone) {
+  return "<div class='card insight " + zone + "'><div class='ic' aria-hidden='true'>" + esc(c.ic || "·") + "</div><div><b>" + esc(c.h) + "</b>" +
+    (c.gloss && GLOSSARY[c.gloss] ? " <button class='gloss-q' data-gloss='" + c.gloss + "' aria-label='Что это: " + esc(GLOSSARY[c.gloss][0]) + "'>?</button>" : "") +
+    "<p>" + esc(c.p) + "</p>" + (c.act ? "<button class='btn sm' data-iact='" + c.act + "'>" + esc(c.actLabel || "Открыть") + "</button>" : "") + "</div></div>";
+}
+// res — результат BudgetInsights.personal / together; opts.after — html под «Шагом вперёд»
+function sandwichHtml(res, opts) {
+  opts = opts || {};
+  var html = "<div class='section'><h2>Что получилось</h2><div class='grid2'>" +
+    (res.good.length ? res.good.map(function (c) { return insightCard(c, "good"); }).join("") : res.neutral ? insightCard(res.neutral, "") : "<p class='muted'>Пока мало данных — появится после первых сверок.</p>") + "</div></div>";
+  if (res.improve.length) html += "<div class='section'><h2>Что можно улучшить</h2><div class='grid2'>" + res.improve.map(function (c) { return insightCard(c, "improve"); }).join("") + "</div></div>";
+  if (res.next) html += "<div class='section'><h2>Шаг вперёд</h2><div class='card insight next'><div class='ic' aria-hidden='true'>→</div><div><p style='margin:0'>" + esc(res.next) + "</p></div></div>" + (opts.after || "") + "</div>";
+  else if (opts.after) html += "<div class='section'>" + opts.after + "</div>";
+  if (res.info.length) html += "<details class='section sh-more'><summary><h2>Для справки</h2><span class='small muted'>" + res.info.length + " " + (res.info.length === 1 ? "наблюдение" : res.info.length < 5 ? "наблюдения" : "наблюдений") + "</span></summary><div class='grid2'>" +
+    res.info.map(function (c) { return insightCard(c, ""); }).join("") + "</div></details>";
+  return html;
+}
+function bindInsights(rootEl) {
+  rootEl.querySelectorAll("[data-gloss]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); explain(b.dataset.gloss); }; });
+  rootEl.querySelectorAll("[data-iact]").forEach(function (b) {
+    b.onclick = function () {
+      var a = b.dataset.iact;
+      if (a === "settle") return go("#shared", function () { var s = document.getElementById("settle"); if (s) s.click(); });
+      go("#" + a);
+    };
+  });
+}
+function insightCtx() {
+  return { today: E.todayISO(), shared: !RO() && sh ? sharedForCalc() : null, toLog: !RO() && sh ? toLogCount() : 0, partnerName: partnerName() };
 }
