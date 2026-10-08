@@ -60,7 +60,7 @@
     });
   }
   function changed(noRender) {
-    if (RO()) { toast("Это бюджет " + view.name + " — только просмотр"); return; }
+    if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
     state._ver = (state._ver || 0) + 1;
     save();
     if (!noRender) render();
@@ -126,7 +126,7 @@
     if (who === "me") { view = { who: "me", level: "full", name: "", summary: null }; state = myState; render(); return; }
     var p = people.find(function (x) { return x.userId === who; });
     if (!p) return;
-    $main.innerHTML = "<p class='loading'>Загружаю бюджет " + esc(p.name) + "…</p>";
+    $main.innerHTML = "<p class='loading'>Загружаю бюджет: " + esc(p.name) + "…</p>";
     var lvl = p.theirLevel;
     var job = lvl === "full" ? Store.loadBudgetOf(who) : lvl === "totals" ? Store.loadSummaryOf(who) : Promise.resolve(null);
     job.then(function (row) {
@@ -207,7 +207,7 @@
 
   // Редактирование ячейки категория × неделя
   function editCell(year, catId, w) {
-    if (RO()) { toast("Это бюджет " + view.name + " — только просмотр"); return; }
+    if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
     var r = E.compute(state, year), cell = r.cells[catId][w], c = state.categories.find(function (x) { return x.id === catId; });
     var wk = r.weeks[w], entry = (state.years[year].entries[catId] || {})[w];
     var recCell = E.yearCells(Object.assign({}, state, { years: (function () { var o = {}; o[year] = Object.assign({}, state.years[year], { entries: {} }); return o; })() }), year)[catId][w];
@@ -289,7 +289,7 @@
     return out.slice(0, 6);
   }
   function spendModal(o) {
-    if (RO()) { toast("Это бюджет " + view.name + " — только просмотр"); return; }
+    if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
     o = o || {};
     var date = o.date || E.todayISO();
     modal("<form class='m-body' id='spForm'><h2>Внести трату</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к плану недели, в которую попадает дата, — прошлой или будущей.</p>" +
@@ -914,7 +914,7 @@
     var bal = sh ? S.balance(sh.expenses).EUR || 0 : 0;
     if (Math.abs(bal) >= 5000) out.push({ k: "", ic: "€", h: bal > 0 ? pName + " должна тебе " + eur(bal, { dec: 0 }) : "Ты должна " + pName + " " + eur(-bal, { dec: 0 }), p: "Рассчитаться — на экране «Общие»." });
     if (out.length) html += "<div class='section'><h2>Выводы про нас</h2><div class='grid2'>" + out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("") + "</div></div>";
-    if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть бюджет " + esc(pName) + " целиком</button></div>";
+    if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть её бюджет целиком</button></div>";
     $main.innerHTML = html;
     $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });
     var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
@@ -1433,7 +1433,7 @@
     }).join("") || "<div class='kpi-value'>0 €</div><div class='kpi-foot'>вы в расчёте</div>";
     var invite = sh.partner && !sh.partner.userId && Store.mode === "cloud"
       ? "<div class='hint small row'><span style='flex:1 1 260px'>" + esc(partner) + " ещё не входила. Пусть откроет сайт и войдёт с <b>" + esc(sh.partner.email || "") + "</b> — пространство подключится само." +
-        " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить таблицу " + esc(partner) + "</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
+        " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить её таблицу</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
 
     var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + ". Вносите оба, с любого устройства. Возвраты долга и расчёты — не траты.</div></div>" +
       "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div></div>" + invite;
@@ -1521,7 +1521,7 @@
     var pp = $main.querySelector("#prepPartner");
     if (pp) {
       $main.querySelector("#prepFile").onchange = function (e) { preparePartnerBudget(sh.partner.email, partner, e.target.files[0]); e.target.value = ""; };
-      Store.pendingFor(sh.partner.email).then(function (r) { if (r && pp.isConnected) pp.querySelector("span").textContent = "Обновить таблицу " + partner + " · загружена " + new Date(r.created_at).toLocaleDateString("ru-RU"); });
+      Store.pendingFor(sh.partner.email).then(function (r) { if (r && pp.isConnected) pp.querySelector("span").textContent = "Обновить её таблицу · загружена " + new Date(r.created_at).toLocaleDateString("ru-RU"); });
     }
     $main.querySelector("#settle").onclick = function () {
       var v = bal.EUR || 0;
@@ -2158,7 +2158,7 @@
         if (view.level === "totals" && view.summary) return partnerTotals();
         if (!state) { $main.innerHTML = "<div class='card'><h2>" + esc(view.name) + " закрыла доступ к своему бюджету</h2><p class='muted'>Она может открыть его в своих настройках.</p></div>"; return; }
         if (/^(recon|recurring|settings)$/.test(route)) {
-          $main.innerHTML = "<div class='card'><h2>Это раздел для своего бюджета</h2><p class='muted'>Сейчас открыт бюджет " + esc(view.name) + " — только просмотр.</p><button class='btn primary' id='backMe'>Вернуться к своему</button></div>";
+          $main.innerHTML = "<div class='card'><h2>Это раздел для своего бюджета</h2><p class='muted'>Сейчас открыт чужой бюджет (" + esc(view.name) + ") — только просмотр.</p><button class='btn primary' id='backMe'>Вернуться к своему</button></div>";
           $main.querySelector("#backMe").onclick = function () { switchTo("me"); };
           return;
         }
@@ -2246,14 +2246,14 @@
         var res;
         try { res = window.BudgetImporter.importArrayBuffer(buf); } catch (err) { toast("Не получилось прочитать: " + err.message); return; }
         var st = res.state, ys = Object.keys(st.years).sort();
-        modal("<div class='m-body'><h2>Бюджет для " + esc(name) + "</h2><p class='muted'>Нашла: годы " + ys.join(", ") + "; категорий " + st.categories.filter(function (c) { return !c.archived; }).length + "; счетов " + st.accounts.length + "; курс " + String(st.settings.rate).replace(".", ",") + " ₽/€.</p>" +
+        modal("<div class='m-body'><h2>Бюджет партнёра: " + esc(name) + "</h2><p class='muted'>Нашла: годы " + ys.join(", ") + "; категорий " + st.categories.filter(function (c) { return !c.archived; }).length + "; счетов " + st.accounts.length + "; курс " + String(st.settings.rate).replace(".", ",") + " ₽/€.</p>" +
           (res.warnings.length ? "<div class='hint small'>" + res.warnings.map(esc).join("<br>") + "</div>" : "") +
           "<p class='small muted'>Когда " + esc(name) + " войдёт с <b>" + esc(email) + "</b>, приложение предложит начать с этим бюджетом. До этого его видишь только ты.</p></div>" +
-          "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить для " + esc(name) + "</button></div>", function (m) {
+          "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить бюджет</button></div>", function (m) {
           m.querySelector("[data-act=cancel]").onclick = closeModal;
           m.querySelector("[data-act=ok]").onclick = function () {
             st.settings.myName = name; st.settings.tourDone = false;
-            Store.savePendingFor(email, st).then(function () { closeModal(); toast("Готово: бюджет ждёт " + name); render(); })
+            Store.savePendingFor(email, st).then(function () { closeModal(); toast("Готово: " + name + " увидит бюджет при первом входе"); render(); })
               .catch(function (err) { toast(/pending_budgets|relation|schema/i.test(err.message) ? "Сначала добавь таблицу в базу: SQL из файла supabase/pending_budget.sql" : "Не сохранилось: " + err.message); });
           };
         });
