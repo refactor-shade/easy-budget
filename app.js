@@ -686,7 +686,7 @@
 
   routes.cash = function () {
     var c = cashState(), ro = RO();
-    var html = "<div class='page-head'><div><h1>Наличка</h1><div class='sub'>Сколько где лежит наличными. Пиши или диктуй своими словами — приложение поймёт.</div></div></div>";
+    var html = "<div class='page-head'><div><h1>Наличка</h1><div class='sub'>Сколько где лежит наличными. Пиши своими словами — приложение поймёт. Можно надиктовать микрофоном на клавиатуре телефона.</div></div></div>";
     if (!c.pockets.length) {
       if (ro) { $main.innerHTML = html + "<p class='empty'>Учёт налички ещё не начат.</p>"; return; }
       html += "<div class='card' style='max-width:560px'><h2>С чего начнём</h2><p class='muted' style='margin-top:-4px'>Назови свои кошельки и конверты и впиши, сколько в них сейчас. Потом можно добавить ещё.</p><form id='cashSetup'>" +
@@ -712,7 +712,7 @@
     var lines = cashLines(), bal = K.balances(c, lines), pockets = c.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
     var total = cashEurTotal();
     if (!ro) html += "<div class='card cash-input'><form id='cashQ' autocomplete='off'><div class='cash-q'><input name='q' placeholder='кофе 4,5 из кошелька' aria-label='Что произошло с наличкой'>" +
-      (window.SpeechRecognition || window.webkitSpeechRecognition ? "<button type='button' class='mic' id='mic' aria-label='Надиктовать'><svg width='20' height='20' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.7' stroke-linecap='round'><rect x='7' y='2.5' width='6' height='10' rx='3'/><path d='M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5'/></svg></button>" : "") +
+      
       "</div><div class='chips cash-ex'>" + ["такси 12 из кошелька", "переложила 100 из конверта 1 в кошелёк", "сняла 200", "положила 300 на карту"].map(function (x) { return "<button type='button' class='chip' data-ex='" + esc(x) + "'>" + esc(x) + "</button>"; }).join("") + "</div>" +
       "<div id='cashPv'></div></form></div>";
     html += "<div class='pockets'>" + pockets.map(function (p) {
@@ -791,16 +791,6 @@
       var msg = previewText();
       c.tx.push(tx); cur = null; f.q.value = "";
       toast("Записано: " + msg.charAt(0).toLowerCase() + msg.slice(1)); changed();
-    };
-    var mic = $main.querySelector("#mic");
-    if (mic) mic.onclick = function () {
-      var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = new SR();
-      rec.lang = "ru-RU"; rec.interimResults = false; rec.maxAlternatives = 1;
-      mic.classList.add("on");
-      rec.onresult = function (ev) { f.q.value = ev.results[0][0].transcript; f.q.dispatchEvent(new Event("input")); };
-      rec.onerror = function (ev) { toast(ev.error === "not-allowed" ? "Нет доступа к микрофону — можно диктовать с клавиатуры" : "Не расслышала, попробуй ещё"); };
-      rec.onend = function () { mic.classList.remove("on"); };
-      try { rec.start(); } catch (err) { mic.classList.remove("on"); }
     };
     $main.querySelectorAll("[data-shp]").forEach(function (sel) { sel.onchange = function () { c.sharedMap = c.sharedMap || {}; c.sharedMap[sel.dataset.shp] = sel.value; changed(); }; });
     $main.querySelectorAll("[data-deltx]").forEach(function (b) {
