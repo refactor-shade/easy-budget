@@ -1059,7 +1059,7 @@
     var out = [];
     if (both || true) {
       var avg = tot("total") / 12, heavy = mine.months.map(function (_, i) { return { i: i, v: sum("total", i) }; }).filter(function (x) { return x.v > avg * 1.3; });
-      if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Тяжёлые месяцы" + (both ? " на двоих" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
+      if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Месяцы, к которым стоит подготовиться" + (both ? " вдвоём" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
     }
     if (ex.length && tot("total")) out.push({ k: "", ic: "⇄", h: "Общие траты — " + Math.round(sharedTot / months / (tot("total") / 12) * 100) + "% " + (both ? "ваших" : "") + " расходов", p: both ? "Остальное — личное у каждой. Чем выше доля, тем важнее, чтобы общие траты были в личных планах — для этого есть «Общие → личный план»." : "Доля от твоих расходов. С данными партнёра посчитаю на двоих." });
     var grow = cats2.filter(function (c) { return prevCat[c] && byCat[c] / months * 12 > prevCat[c] * 1.25 && byCat[c] > 20000; }).slice(0, 3);
@@ -1175,8 +1175,8 @@
       ["tolog", "⇄", "Общие → личный план", "Заметные общие траты, которых нет в личной таблице: внести одной кнопкой или отметить, что уже есть."],
       ["year", "▦", "Год", "Вся таблица: категории × недели. Здесь же создаётся план на следующий год."],
       ["recurring", "↻", "Регулярные траты", "Аренда, подписки, зарплата — один раз задаёшь, дальше они сами в плане."],
-      ["analysis", "◔", "Анализ", "Графики: куда уходят деньги, как меняется капитал, сравнение лет."],
-      ["insights", "✦", "Выводы", "Автоматические наблюдения: тяжёлые месяцы, рост статей, лишние деньги без процентов."],
+      ["analysis", "◔", "Анализ", "Как растёт капитал, на что идут деньги и как этот год выглядит рядом с прошлым."],
+      ["insights", "✦", "Выводы", "Что получается хорошо и где есть резерв: сбережения, рост капитала, статьи, которые стоит пересмотреть."],
       ["settings", "⚙", "Настройки", "Категории, счета, курс, доступ партнёра, импорт таблицы и бэкап."],
     ];
     var html = "<div class='page-head'><div><h1>Как это работает</h1><div class='sub'>Короткая инструкция и словарь. Знакомство можно пройти ещё раз.</div></div>" +
@@ -1204,7 +1204,7 @@
       ["Каждую неделю", [["recon", "✓", "Сверка", "остатки на счетах и расхождение с планом"]]],
       ["План", [["year", "▦", "Год", "весь план по неделям в одной таблице"], ["recurring", "↻", "Регулярные траты", "аренда, подписки, зарплата"]]],
       ["Вместе", [["us", "♡", "Мы", "общий капитал, доходы и расходы вдвоём"], ["tolog", "⇄", "Общие → личный план", "общие траты, которых нет в твоём плане"]]],
-      ["Обзор", [["analysis", "◔", "Анализ", "графики и сравнение лет"], ["insights", "✦", "Выводы", "тяжёлые месяцы, рост трат и другие наблюдения"]]],
+      ["Обзор", [["analysis", "◔", "Анализ", "как растёт капитал и на что идут деньги"], ["insights", "✦", "Выводы", "что получается хорошо и где есть резерв"]]],
       ["", [["settings", "⚙", "Настройки", "категории, счета, курс, доступ, данные"], ["help", "?", "Как это работает", "инструкция и словарь"]]],
     ];
     modal("<div class='m-body'><h2>Меню</h2>" + groups.map(function (g) {
@@ -1662,7 +1662,7 @@
       ? "<div class='hint small row'><span style='flex:1 1 260px'>" + esc(partner) + " ещё не входила. Пусть откроет сайт и войдёт с <b>" + esc(sh.partner.email || "") + "</b> — пространство подключится само." +
         " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить её таблицу</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
 
-    var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + ". Вносите оба, с любого устройства. Возвраты долга и расчёты — не траты.</div></div>" +
+    var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + ". Вносите обе, с любого устройства. Возврат долга и «Рассчитаться» меняют только баланс между вами — в расходы не попадают, иначе покупка посчиталась бы дважды.</div></div>" +
       "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div></div>" + invite;
     html += "<div class='grid2'><div class='kpi'><div class='kpi-label'>Баланс</div>" + balHtml + "<div class='row' style='margin-top:10px'><button class='btn primary sm' id='settle'>Рассчитаться</button></div></div>";
     html += "<div class='card add-card'><h2>Новая трата</h2><p class='muted small' style='margin-top:-6px'>Как в Splitwise: описание, сумма, кто платил и как делим — поровну, точными суммами, процентами, долями или с поправкой.</p>" +
@@ -1690,7 +1690,7 @@
       else {
         var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
         catSel = "<select data-cat='" + esc(e.id) + "'>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === cc ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
-          " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Пометить как возврат долга — не трата'>↩</button>";
+          " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это возврат долга — в расходы не пойдёт'>↩</button>";
       }
       var c$ = e.currency === "EUR" ? "€" : e.currency;
       html += "<tr><td class='small'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + "</td><td class='open' data-open='" + esc(e.id) + "' title='Открыть'>" + esc(e.desc) + (e.method === "cash" ? " <span class='badge'>нал</span>" : "") + (e.note ? " <span class='muted small'>· " + esc(e.note) + "</span>" : "") + "</td><td>" + catSel + "</td>" +
@@ -1752,7 +1752,7 @@
     }
     $main.querySelector("#settle").onclick = function () {
       var v = bal.EUR || 0;
-      modal("<div class='m-body'><h2>Рассчитаться</h2><p class='muted'>Перевод между вами — не трата, только меняет баланс.</p><div class='form-grid'>" +
+      modal("<div class='m-body'><h2>Рассчитаться</h2><p class='muted'>Перевод между вами меняет только баланс — в расходы он не попадает.</p><div class='form-grid'>" +
         "<label class='f'>Кто переводит<select id='stW'><option value='partner'" + (v > 0 ? " selected" : "") + ">" + esc(partner) + " → мне</option><option value='me'" + (v < 0 ? " selected" : "") + ">я → " + esc(partner) + "</option></select></label>" +
         "<label class='f'>Сумма, €<input type='text' id='stA' value='" + esc((Math.abs(v) / 100).toFixed(2).replace(".", ",")) + "' autofocus></label>" +
         "<label class='f'>Дата<input type='date' id='stD' value='" + E.todayISO() + "'></label></div></div>" +
@@ -1832,7 +1832,7 @@
           "<label class='f'>Категория<select id='exCat'>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === d.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select></label>" +
           "<label class='f'>Способ<select id='exMethod'><option value='card'" + (d.method !== "cash" ? " selected" : "") + ">карта</option><option value='cash'" + (d.method === "cash" ? " selected" : "") + ">наличные</option></select></label>" +
           "<label class='f' style='grid-column:1/-1'>Заметка<input id='exNote' value='" + esc(d.note) + "' placeholder='необязательно'></label></div>" +
-          (existing ? "<div class='row' style='margin-top:14px'><label class='row small'><input type='checkbox' id='exRefund'" + (d.kind === "refund" ? " checked" : "") + "> возврат долга — не трата</label><span class='spacer'></span><button class='btn ghost danger' data-act='delete'>Удалить</button></div>" : "") +
+          (existing ? "<div class='row' style='margin-top:14px'><label class='row small'><input type='checkbox' id='exRefund'" + (d.kind === "refund" ? " checked" : "") + "> это возврат долга — в расходы не пойдёт</label><span class='spacer'></span><button class='btn ghost danger' data-act='delete'>Удалить</button></div>" : "") +
           "</div>";
       } else if (pane === "quick") {
         var opts = [["me", "equal", "Платила я, поровну"], ["me", "full", "Платила я, всё на " + partner], ["partner", "equal", "Платила " + partner + ", поровну"], ["partner", "full", "Платила " + partner + ", всё на мне"]];
@@ -2065,7 +2065,7 @@
     // 2. тяжёлые месяцы
     var avg = t.total / 12;
     var heavy = mon.months.filter(function (m) { return m.total > avg * 1.3; });
-    if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Тяжёлые месяцы: " + heavy.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "),
+    if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Месяцы, к которым стоит подготовиться: " + heavy.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "),
       p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%: " + heavy.map(function (m) { return E.MONTHS_SHORT[m.month - 1] + " " + eur(rnd(m.total), { dec: 0 }); }).join(" · ") + ". Деньги на них лучше откладывать заранее." });
     // 3. праздники семьи
     var fam = state.categories.find(function (c) { return /праздники и подарки семьи/i.test(c.name); });
@@ -2086,7 +2086,7 @@
       var grow = state.categories.filter(function (c) { return c.block !== "income" && c.block !== "savings"; })
         .map(function (c) { return { c: c, d: (a[c.id] || 0) - (b[c.id] || 0), a: a[c.id] || 0, b: b[c.id] || 0 }; })
         .filter(function (x) { return x.d > 30000 && x.b > 0; }).sort(function (x, y) { return y.d - x.d; }).slice(0, 4);
-      if (grow.length) out.push({ k: "", ic: "↗", h: "Статьи с ростом к " + prevY, p: grow.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
+      if (grow.length) out.push({ k: "", ic: "↗", h: "Что выросло по сравнению с " + prevY, p: grow.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
       var pm = E.monthly(state, prevY).total;
       out.push({ k: "", ic: "≈", h: "На жизнь: " + eur(rnd(t.living / 12), { dec: 0 }) + " в месяц", p: prevY + ": " + eur(rnd(pm.living / 12), { dec: 0 }) + " в месяц. Налоги, соцстрах и бухгалтерия в расчёт не входят (" + eur(rnd(t.mandatory), { dec: 0 }) + " за " + curY + ")." });
     }
@@ -2109,11 +2109,23 @@
         p: "За " + cov.length + " мес.: общие " + eur(rnd(sS), { dec: 0 }) + " при плане " + eur(rnd(sP), { dec: 0 }) + ". " + (sS > sP ? "Общих трат больше, чем заложено в личный план — план на продукты/развлечения стоит поднять." : "План с запасом — разница уходит на свои кафе, кофе и мелочи.") });
     }
     var bal = sh && !RO() ? S.balance(sh.expenses).EUR || 0 : 0;
-    if (Math.abs(bal) > 50000) out.push({ k: "", ic: "€", h: (bal > 0 ? "Партнёр должен тебе " : "Ты должна партнёру ") + eur(Math.abs(bal), { dec: 0 }), p: "Большой долг удобнее закрывать регулярно — кнопка «Рассчитаться» на экране «Общие»." });
+    if (Math.abs(bal) > 50000) out.push({ k: "", ic: "€", h: (bal > 0 ? partnerName() + " должна тебе " : "Ты должна " + partnerName() + " ") + eur(Math.abs(bal), { dec: 0 }), p: "Большой долг удобнее закрывать регулярно — кнопка «Рассчитаться» на экране «Общие»." });
+    // хорошее: доля сбережений, статьи, которые подешевели, лёгкие месяцы
+    if (t.income > 0 && t.rate !== null && t.rate >= 0.1) out.push({ k: "good", ic: "↑", h: "Откладываешь " + Math.round(t.rate * 100) + "% доходов", p: "За " + curY + " доходы больше расходов на " + eur(rnd(t.net), { dec: 0 }) + ". Хороший ориентир — от 10–20%." });
+    if (state.years[prevY]) {
+      var a2 = E.categoryTotals(state, curY), b2 = E.categoryTotals(state, prevY);
+      var down = state.categories.filter(function (c) { return c.block !== "income" && c.block !== "savings"; })
+        .map(function (c) { return { c: c, d: (b2[c.id] || 0) - (a2[c.id] || 0), a: a2[c.id] || 0, b: b2[c.id] || 0 }; })
+        .filter(function (x) { return x.d > 20000 && x.b > 0; }).sort(function (x, y) { return y.d - x.d; }).slice(0, 3);
+      if (down.length) out.push({ k: "good", ic: "↘", h: "Тратишь меньше, чем в " + prevY, p: down.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
+    }
+    var light = mon.months.filter(function (m) { return m.total > 0 && m.total < avg * 0.8; });
+    if (light.length) out.push({ k: "good", ic: "◌", h: "Лёгкие месяцы: " + light.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "), p: "Расходы на 20% ниже среднего — в эти месяцы проще откладывать." });
     // 7. капитал
     if (t.dcap) out.push({ k: t.dcap > 0 ? "good" : "warn", ic: "◆", h: "Капитал за " + curY + ": " + eur(rnd(t.dcap), { dec: 0, plus: true }), p: "На конец года " + eur(rnd(t.cap), { dec: 0 }) + "." });
 
-    var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>Считаются автоматически из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div><div class='grid2'>";
+    out.sort(function (a, b) { var o = { good: 0, "": 1, warn: 2 }; return o[a.k] - o[b.k]; });
+    var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>Сначала то, что получается хорошо, потом — где есть резерв. Считаются сами из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div><div class='grid2'>";
     html += out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("");
     html += "</div>";
     if (ay.length) {
