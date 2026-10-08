@@ -1042,14 +1042,23 @@
     $main.querySelector("#tourAgain").onclick = function () { showTour(0); };
   };
 
-  // «Ещё» в нижнем меню на телефоне
+  // «Меню» в нижней панели на телефоне: разделы по смыслу
   document.getElementById("navMore").onclick = function () {
-    var links = Array.prototype.slice.call(document.querySelectorAll("#nav a.x")).map(function (a) {
-      return "<a class='sec' href='" + a.getAttribute("href") + "'><span class='ico'>" + a.querySelector(".ico").textContent + "</span><span><b>" + esc(a.textContent.replace(a.querySelector(".ico").textContent, "")) + "</b></span></a>";
-    }).join("");
-    modal("<div class='m-body'><h2>Ещё</h2><div class='more-list'>" + links + "</div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>",
-      function (m) { m.querySelector("[data-act=x]").onclick = closeModal; m.querySelectorAll("a").forEach(function (a) { a.addEventListener("click", closeModal); }); });
+    var groups = [
+      ["Каждую неделю", [["recon", "✓", "Сверка", "остатки на счетах и расхождение с планом"]]],
+      ["План", [["year", "▦", "Год", "весь план по неделям в одной таблице"], ["recurring", "↻", "Регулярные траты", "аренда, подписки, зарплата"]]],
+      ["Вместе", [["us", "♡", "Мы", "общий капитал, доходы и расходы вдвоём"], ["tolog", "⇄", "Общие → личный план", "общие траты, которых нет в твоём плане"]]],
+      ["Обзор", [["analysis", "◔", "Анализ", "графики и сравнение лет"], ["insights", "✦", "Выводы", "тяжёлые месяцы, рост трат и другие наблюдения"]]],
+      ["", [["settings", "⚙", "Настройки", "категории, счета, курс, доступ, данные"], ["help", "?", "Как это работает", "инструкция и словарь"]]],
+    ];
+    modal("<div class='m-body'><h2>Меню</h2>" + groups.map(function (g) {
+      return "<div class='menu-g'>" + g[0] + "</div><div class='more-list'>" + g[1].map(function (x) {
+        return "<a class='sec' href='#" + x[0] + "'><span class='ico'>" + x[1] + "</span><span><b>" + esc(x[2]) + "</b><small>" + esc(x[3]) + "</small></span></a>";
+      }).join("") + "</div>";
+    }).join("") + "</div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>",
+      function (m) { m.classList.add("sheet-menu"); var mb = m.querySelector(".m-body"); mb.tabIndex = -1; mb.style.outline = "none"; setTimeout(function () { mb.focus(); }, 40); m.querySelector("[data-act=x]").onclick = closeModal; m.querySelectorAll("a").forEach(function (a) { a.addEventListener("click", closeModal); }); });
   };
+
 
   // ===== НЕДЕЛЯ =====
   routes.week = function () {
@@ -1386,14 +1395,14 @@
         var cat = state.categories.find(function (x) { return x.id === c.catId; }) || { name: c.catId, currency: "EUR" };
         return "<li><label><input type='checkbox' checked data-rp='" + i + "'><span class='name'>" + esc(cat.name) + "</span><span class='muted small'>" + esc(wText(c.weeks)) + " · " + esc(mText(c)) + "</span><span class='val " + sign(c.cents) + "'>" + E.fmt(c.cents, { cur: cur(cat) }) + "</span></label></li>";
       }).join("") + "</ul><div class='row' style='margin-top:12px'><button class='btn primary' id='rpGo'>Сделать регулярными</button><button class='btn ghost' id='rpBackup'>Сначала скачать бэкап</button></div></div>";
-    html += "<div class='tbl-wrap'><table class='t'><thead><tr><th>Категория</th><th class='n'>Сумма</th><th>Недели</th><th>Действует</th><th class='n'>В год</th><th></th></tr></thead><tbody>";
+    html += "<div class='tbl-wrap'><table class='t mcard rec-tbl'><thead><tr><th>Категория</th><th class='n'>Сумма</th><th>Недели</th><th>Действует</th><th class='n'>В год</th><th></th></tr></thead><tbody>";
     var weeks = E.genWeeks(Number(y));
     list.forEach(function (ru) {
       var c = state.categories.find(function (x) { return x.id === ru.catId; }) || { name: ru.catId, currency: "EUR" };
       var n = weeks.filter(function (wk) { return E.ruleMatches(ru, wk); }).length;
-      html += "<tr><td>" + esc(c.name) + "</td><td class='n " + sign(ru.cents) + "'>" + E.fmt(ru.cents, { cur: cur(c) }) + (ru.expr && ru.expr !== String(ru.cents / 100) ? " <span class='muted small'>=" + esc(ru.expr) + "</span>" : "") + "</td>" +
-        "<td>" + esc(ru.weeks) + "</td><td class='small'>" + (ru.from ? "с " + esc(ru.from.slice(8, 10) + "." + ru.from.slice(5, 7)) : "") + (ru.to ? " по " + esc(ru.to.slice(8, 10) + "." + ru.to.slice(5, 7)) : " — до конца года") + "</td>" +
-        "<td class='n'>" + E.fmt(ru.cents * n, { cur: cur(c), dec: 0 }) + "</td><td class='n'><button class='btn sm' data-edit='" + ru.id + "'>Изменить</button> <button class='btn sm ghost danger' data-del='" + ru.id + "' aria-label='Удалить'>✕</button></td></tr>";
+      html += "<tr><td class='mc-title'>" + esc(c.name) + "</td><td data-l='Сумма' class='n " + sign(ru.cents) + "'>" + E.fmt(ru.cents, { cur: cur(c) }) + (ru.expr && ru.expr !== String(ru.cents / 100) ? " <span class='muted small'>=" + esc(ru.expr) + "</span>" : "") + "</td>" +
+        "<td data-l='Недели месяца'>" + esc(ru.weeks) + "</td><td data-l='Действует' class='small'>" + (ru.from ? "с " + esc(ru.from.slice(8, 10) + "." + ru.from.slice(5, 7)) : "") + (ru.to ? " по " + esc(ru.to.slice(8, 10) + "." + ru.to.slice(5, 7)) : " — до конца года") + "</td>" +
+        "<td data-l='В год' class='n'>" + E.fmt(ru.cents * n, { cur: cur(c), dec: 0 }) + "</td><td class='n mc-act'><button class='btn sm' data-edit='" + ru.id + "'>Изменить</button> <button class='btn sm ghost danger' data-del='" + ru.id + "' aria-label='Удалить'>✕</button></td></tr>";
     });
     if (!list.length) html += "<tr><td colspan='6' class='muted'>Регулярных трат пока нет — добавь первую ниже: например, аренду.</td></tr>";
     html += "</tbody></table></div>";
@@ -1987,25 +1996,27 @@
     html += "</div>";
 
     // счета
-    html += "<div class='section'><h2>Счета в обращении</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Название</th><th>Тип</th><th>В факте с</th><th></th></tr></thead><tbody>" +
+    html += "<div class='section'><h2>Счета в обращении</h2><div class='tbl-wrap'><table class='t mcard'><thead><tr><th>Название</th><th>Тип</th><th>Считать в факте с</th><th></th></tr></thead><tbody>" +
       state.accounts.slice().sort(function (a, b) { return a.sort - b.sort; }).map(function (a) {
-        return "<tr" + (a.archived ? " class='muted'" : "") + "><td><input type='text' data-acc='" + a.id + "' data-f='name' value='" + esc(a.name) + "'></td>" +
-          "<td><select data-acc='" + a.id + "' data-f='kind'><option value='cash_flow'" + (a.kind === "cash_flow" ? " selected" : "") + ">в обращении</option><option value='info'" + (a.kind === "info" ? " selected" : "") + ">информативно</option></select></td>" +
-          "<td><input type='date' data-acc='" + a.id + "' data-f='countsFrom' value='" + esc(a.countsFrom || "") + "'></td>" +
-          "<td class='n'><button class='btn sm ghost' data-accarch='" + a.id + "'>" + (a.archived ? "вернуть" : "в архив") + "</button></td></tr>";
+        return "<tr" + (a.archived ? " class='muted'" : "") + "><td class='mc-title'><input type='text' data-acc='" + a.id + "' data-f='name' value='" + esc(a.name) + "' aria-label='Название счёта'></td>" +
+          "<td data-l='Тип'><select data-acc='" + a.id + "' data-f='kind'><option value='cash_flow'" + (a.kind === "cash_flow" ? " selected" : "") + ">в обращении</option><option value='info'" + (a.kind === "info" ? " selected" : "") + ">для справки</option></select></td>" +
+          "<td data-l='Считать в факте с'><input type='date' data-acc='" + a.id + "' data-f='countsFrom' value='" + esc(a.countsFrom || "") + "'></td>" +
+          "<td class='n mc-act'><button class='btn sm ghost' data-accarch='" + a.id + "'>" + (a.archived ? "вернуть" : "в архив") + "</button></td></tr>";
       }).join("") + "</tbody></table></div><div class='row' style='margin-top:8px'><button class='btn' id='addAcc'>+ счёт</button></div></div>";
 
     // категории
-    html += "<div class='section'><h2>Категории</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Название</th><th>Блок</th><th>Валюта</th><th>Налоги и обязательные</th><th title='не видна партнёру ни в деталях, ни в итогах'>Личная</th><th>Капитал</th><th></th></tr></thead><tbody>";
+    html += "<div class='section'><h2>Категории</h2><div class='tbl-wrap'><table class='t mcard'><thead><tr><th>Название</th><th>Блок</th><th>Валюта</th><th>Налоги и обязательные</th><th title='не видна партнёру ни в деталях, ни в итогах'>Личная</th><th>Счёт в капитале</th><th></th></tr></thead><tbody>";
     E.BLOCKS.forEach(function (b) {
-      cats().filter(function (c) { return c.block === b.id; }).forEach(function (c) {
-        html += "<tr" + (c.archived ? " class='muted'" : "") + "><td><input type='text' data-cat2='" + c.id + "' data-f='name' value='" + esc(c.name) + "'></td>" +
-          "<td><select data-cat2='" + c.id + "' data-f='block'>" + E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'" + (x.id === c.block ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</select></td>" +
-          "<td><select data-cat2='" + c.id + "' data-f='currency'><option" + (c.currency === "EUR" ? " selected" : "") + ">EUR</option><option" + (c.currency === "RUB" ? " selected" : "") + ">RUB</option></select></td>" +
-          "<td><input type='checkbox' data-cat2='" + c.id + "' data-f='mandatory'" + (c.mandatory ? " checked" : "") + " aria-label='обязательная'></td>" +
-          "<td><input type='checkbox' data-cat2='" + c.id + "' data-f='private'" + (c.private ? " checked" : "") + " aria-label='личная'></td>" +
-          "<td>" + (c.block === "savings" ? "<select data-cat2='" + c.id + "' data-f='link'><option value=''>—</option>" + E.CAPITAL_ROWS.filter(function (x) { return x.key !== "card_rub"; }).map(function (x) { return "<option value='" + x.key + "'" + (c.link === x.key ? " selected" : "") + ">" + x.name + "</option>"; }).join("") + "</select>" : "") + "</td>" +
-          "<td class='n'><button class='btn sm ghost' data-up='" + c.id + "' aria-label='Выше'>↑</button><button class='btn sm ghost' data-catarch='" + c.id + "'>" + (c.archived ? "вернуть" : "в архив") + "</button></td></tr>";
+      var inBlock = cats().filter(function (c) { return c.block === b.id; });
+      if (inBlock.length) html += "<tr class='mc-group'><td colspan='7'>" + esc(b.name) + "</td></tr>";
+      inBlock.forEach(function (c) {
+        html += "<tr" + (c.archived ? " class='muted'" : "") + "><td class='mc-title'><input type='text' data-cat2='" + c.id + "' data-f='name' value='" + esc(c.name) + "' aria-label='Название категории'></td>" +
+          "<td data-l='Блок'><select data-cat2='" + c.id + "' data-f='block'>" + E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'" + (x.id === c.block ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</select></td>" +
+          "<td data-l='Валюта'><select data-cat2='" + c.id + "' data-f='currency'><option" + (c.currency === "EUR" ? " selected" : "") + ">EUR</option><option" + (c.currency === "RUB" ? " selected" : "") + ">RUB</option></select></td>" +
+          "<td class='mc-chk'><label class='chk'><input type='checkbox' data-cat2='" + c.id + "' data-f='mandatory'" + (c.mandatory ? " checked" : "") + "><span>налоги и обязательные траты</span></label></td>" +
+          "<td class='mc-chk'><label class='chk'><input type='checkbox' data-cat2='" + c.id + "' data-f='private'" + (c.private ? " checked" : "") + "><span>личная — не видна партнёру</span></label></td>" +
+          "<td" + (c.block === "savings" ? " data-l='Счёт в капитале'" : " class='mc-empty'") + ">" + (c.block === "savings" ? "<select data-cat2='" + c.id + "' data-f='link'><option value=''>—</option>" + E.CAPITAL_ROWS.filter(function (x) { return x.key !== "card_rub"; }).map(function (x) { return "<option value='" + x.key + "'" + (c.link === x.key ? " selected" : "") + ">" + x.name + "</option>"; }).join("") + "</select>" : "") + "</td>" +
+          "<td class='n mc-act'><button class='btn sm ghost' data-up='" + c.id + "' aria-label='Поднять выше' title='Поднять выше'>↑</button><button class='btn sm ghost' data-catarch='" + c.id + "'>" + (c.archived ? "вернуть" : "в архив") + "</button></td></tr>";
       });
     });
     html += "</tbody></table></div><form id='addCat' class='row' style='margin-top:8px'><input type='text' name='name' placeholder='Новая категория' required><select name='block'>" +

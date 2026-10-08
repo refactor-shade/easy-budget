@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6f4f'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='Georgia'>€</text></svg>">
-<link rel="stylesheet" href="styles.css?v=202610081322">
+<link rel="stylesheet" href="styles.css?v=202610081331">
 </head>
 <body>
 <div class="shell">
@@ -28,7 +28,7 @@
     <a href="#insights" data-route="insights" class="x"><span class="ico">✦</span><span>Выводы</span></a>
     <a href="#settings" data-route="settings" class="x"><span class="ico">⚙</span><span>Настройки</span></a>
     <a href="#help" data-route="help" class="x nav-help"><span class="ico">?</span><span>Как это работает</span></a>
-    <button type="button" class="nav-more" id="navMore"><span class="ico">⋯</span><span>Ещё</span></button>
+    <button type="button" class="nav-more" id="navMore" aria-label="Меню: остальные разделы"><span class="ico">☰</span><span>Меню</span></button>
   </nav>
   <div class="content">
     <div class="topbar" id="profiles"></div>
@@ -38,16 +38,16 @@
 <div class="tip" id="tip" role="tooltip"></div>
 <dialog class="modal" id="modal"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="config.js?v=202610081322" onerror="window.EASY_BUDGET_CONFIG={}"></script>
+<script src="config.js?v=202610081331" onerror="window.EASY_BUDGET_CONFIG={}"></script>
 <script src="vendor/supabase.min.js"></script>
 <script src="vendor/xlsx.full.min.js" defer></script>
 <script>if (!(window.EASY_BUDGET_CONFIG || {}).SUPABASE_URL) document.write('<script src="data/seed.js" onerror="window.SEED=null"><\/script>');</script>
-<script src="engine.js?v=202610081322"></script>
-<script src="shared.js?v=202610081322"></script>
-<script src="cash.js?v=202610081322"></script>
-<script src="importer.js?v=202610081322"></script>
-<script src="charts.js?v=202610081322"></script>
-<script src="store.js?v=202610081322"></script>
-<script src="app.js?v=202610081322"></script>
+<script src="engine.js?v=202610081331"></script>
+<script src="shared.js?v=202610081331"></script>
+<script src="cash.js?v=202610081331"></script>
+<script src="importer.js?v=202610081331"></script>
+<script src="charts.js?v=202610081331"></script>
+<script src="store.js?v=202610081331"></script>
+<script src="app.js?v=202610081331"></script>
 </body>
 </html>
