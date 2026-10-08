@@ -218,6 +218,7 @@
       esc(entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")) + "' placeholder='-35-20' inputmode='decimal'></label>" +
       "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='" + esc(entry ? entry.note : "") + "' placeholder='что это было'></label></div>" +
       "<div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>" +
+      (cell && cell.cents < 0 && c.block !== "savings" ? "<div class='row' style='margin:0 22px 12px'><button class='btn sm' data-act='move'>Не потратила — перенести или убрать</button></div>" : "") +
       "<div class='m-foot'>" + (entry ? "<button class='btn ghost danger' data-act='clear'>" + (recCell ? "Вернуть регулярную" : "Удалить") + "</button>" : "") +
       "<span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='save'>Сохранить</button></div>",
     function (m) {
@@ -237,6 +238,43 @@
       m.querySelector("[data-act=cancel]").onclick = closeModal;
       var cl = m.querySelector("[data-act=clear]");
       if (cl) cl.onclick = function () { E.setEntry(state, year, catId, String(w), ""); closeModal(); changed(); };
+      var mv = m.querySelector("[data-act=move]");
+      if (mv) mv.onclick = function () { moveSkipModal(year, catId, w); };
+    });
+  }
+
+
+  // Плановую трату не совершила: перенести на другую неделю или убрать
+  function skipCell(y, catId, w, note) { E.setEntry(state, y, catId, String(w), "0", note || "не было"); }
+  function moveCell(y, catId, w, toISO) {
+    var r = E.compute(state, y), cell = r.cells[catId][w];
+    if (!cell || !cell.cents) return null;
+    var wk = E.weekOfDate(toISO); if (!wk) return null;
+    var ty = String(wk.year);
+    if (!state.years[ty] || state.years[ty].archived) return { err: "Плана на " + ty + " год нет — сначала создай его на экране «Год»." };
+    if (ty === String(y) && wk.idx === w) return { err: "Это та же неделя" };
+    skipCell(y, catId, w, "перенесено на " + shortWeek(ty, wk.idx));
+    addToCell(ty, catId, wk.idx, String(Math.abs(cell.cents) / 100), "перенесено с " + shortWeek(y, w));
+    return { year: ty, week: wk.idx };
+  }
+  function moveSkipModal(y, catId, w, after) {
+    var r = E.compute(state, y), cell = r.cells[catId][w], wk = r.weeks[w];
+    if (!cell) return;
+    var next = E.addDays(wk.to, 1), monthNext = E.addDays(wk.from, 28);
+    modal("<div class='m-body'><h2>" + esc(catName(catId)) + " · " + E.fmt(cell.cents, { cur: cur(state.categories.find(function (c) { return c.id === catId; })) }) + "</h2>" +
+      "<p class='small muted' style='margin:2px 0 12px'>В плане на " + esc(shortWeek(y, w)) + ". Не потратила — перенеси на потом или убери.</p>" +
+      "<div class='chips'><button class='chip' data-to='" + next + "'>На следующую неделю</button><button class='chip' data-to='" + monthNext + "'>Через месяц</button></div>" +
+      "<div class='form-grid' style='margin-top:10px'><label class='f'>Или на дату<input type='date' id='mvD' value='" + next + "'></label><button class='btn' id='mvGo'>Перенести</button></div></div>" +
+      "<div class='m-foot'><button class='btn ghost danger' data-act='skip'>Не было — убрать</button><span class='spacer'></span><button class='btn ghost' data-act='x'>Отмена</button></div>", function (m) {
+      function go(iso) {
+        var res = moveCell(y, catId, w, iso);
+        if (!res) return; if (res.err) { toast(res.err); return; }
+        closeModal(); if (after) after(); changed(); toast("Перенесено на " + shortWeek(res.year, res.week));
+      }
+      m.querySelectorAll("[data-to]").forEach(function (b) { b.onclick = function () { go(b.dataset.to); }; });
+      m.querySelector("#mvGo").onclick = function () { go(m.querySelector("#mvD").value); };
+      m.querySelector("[data-act=skip]").onclick = function () { skipCell(y, catId, w); closeModal(); if (after) after(); changed(); toast("Убрано из " + shortWeek(y, w)); };
+      m.querySelector("[data-act=x]").onclick = closeModal;
     });
   }
 
@@ -1426,6 +1464,7 @@
       (rec && Object.keys(rec).length ? "<button class='btn ghost danger' id='recClear'>Очистить неделю</button>" : "") + "</div></div>";
 
     html += "<div><div class='card' id='recResult'></div>" +
+      unspentCard(y, w) +
       "<div class='card'><h2>Нашла трату в выписке?</h2><p class='small muted' style='margin-top:-6px'>Внеси её — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести трату</button></div></div></div>";
 
     // история сверок
@@ -1490,8 +1529,22 @@
     if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
     $main.querySelector("#recAdd").onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; } }); };
     var td = $main.querySelector("#toDone"); if (td) td.onclick = function () { ui.recWeek = fwk; render(); };
+    $main.querySelectorAll("[data-unsp]").forEach(function (b) { b.onclick = function () { moveSkipModal(y, b.dataset.unsp, w, function () { ui.recWeek = { year: y, week: w }; }); }; });
     $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; render(); }; });
   };
+
+
+  // На сверке: плановые траты недели, которые могли не случиться
+  function unspentCard(y, w) {
+    var r = E.compute(state, y), items = cats().filter(function (c) {
+      var x = r.cells[c.id][w]; return x && x.cents < 0 && c.block !== "income" && c.block !== "savings" && c.currency !== "RUB" && !/из общих|перенесено на|не было/.test(x.note || "");
+    }).map(function (c) { return { c: c, v: r.cells[c.id][w].cents }; }).sort(function (a, b) {
+      var pr = { periodic: 0, base: 1, subs_es: 2, subs_ru: 3 }; return (pr[a.c.block] - pr[b.c.block]) || (a.v - b.v);
+    }).slice(0, 8);
+    if (!items.length) return "";
+    return "<div class='card'><h2>Что из плана не потратила?</h2><p class='small muted' style='margin-top:-6px'>Если покупка не случилась, перенеси её на потом или убери — расхождение пересчитается.</p><ul class='plan-list'>" +
+      items.map(function (x) { return "<li data-unsp='" + x.c.id + "'><span class='name'>" + esc(x.c.name) + "</span><span class='val neg'>" + E.fmt(x.v, { cur: cur(x.c) }) + "</span><span class='small muted'>перенести ›</span></li>"; }).join("") + "</ul></div>";
+  }
 
   // ===== РЕГУЛЯРНЫЕ ТРАТЫ =====
   routes.recurring = function () {
