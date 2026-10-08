@@ -108,7 +108,11 @@
 
     var yearSheets = wb.SheetNames.map(function (n) { return { n: n, ws: wb.Sheets[n], y: isYearSheet(wb.Sheets[n]) }; })
       .filter(function (x) { return x.y; }).sort(function (a, b) { return a.y - b.y; });
-    if (!yearSheets.length) throw new Error("Не нашла листов года: нужен лист, где в A1 год, а в B1 «регулярно».");
+    if (!yearSheets.length) {
+      var real = wb.SheetNames.filter(function (n) { return realYear(n); });
+      if (real.length) return importReal(wb, real, state, warnings);
+      throw new Error("Не нашла листов года: нужен лист «Мой_ГГГГ» (A1 = год, B1 = «регулярно») или «ГГГГ_€ REAL».");
+    }
 
     // категории: из первого листа; дальше — по имени в блоке, иначе по позиции в блоке
     var catByKey = {}, firstLayout = null, sort = 0;
@@ -230,6 +234,168 @@
         capitalByMonth: capByMonth || [], notes: "Архив: импорт листа " + n + " (без сверок)." };
     });
     return { state: state, warnings: warnings, yearSheets: yearSheets.map(function (x) { return x.n; }) };
+  }
+
+
+  // ---------- формат «ГГГГ_€ REAL» (таблица Риты): недели с колонки B, подписи месяцев в строке 1 ----------
+  function realYear(n) { var m = String(n).match(/^(20\d\d)\s*_?\s*€\s*real\s*$/i); return m ? Number(m[1]) : null; }
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function curOf(cell) { var w = String(cell && (cell.w || "") || "") + " " + String(cell && cell.z || ""); return /р\.|₽|руб|RUB/i.test(w) ? "RUB" : /\$/.test(w) ? "USD" : /€|EUR/i.test(w) ? "EUR" : "?"; }
+  function monthOf(h) { var l = norm(h); if (!l) return null; for (var i = 0; i < 12; i++) if (l.indexOf(MONTHS_GEN[i]) === 0) return i + 1; return null; }
+  // колонка → индекс недели приложения (по дате конца недели)
+  // в каком столбце подписи строк: обычно A, в старых листах — B
+  function labelCol(ws) {
+    var a = 0, b = 0;
+    for (var r = 3; r <= 30; r++) { if (norm(val(ws, r, 1))) a++; if (norm(val(ws, r, 2)) && typeof val(ws, r, 2) === "string") b++; }
+    return b > a ? 2 : 1;
+  }
+  function realColumns(ws, year, from) {
+    var maxC = ws["!ref"] ? root.XLSX.utils.decode_range(ws["!ref"]).e.c + 1 : 0, month = null, out = [];
+    for (var c = from || 2; c <= maxC; c++) {
+      // месяц из заголовка; подпись с опечаткой («нобярь») — следующий по порядку
+      var hv = val(ws, 1, c), m = monthOf(hv);
+      if (!m && norm(hv) && month && month < 12 && /^[а-я]+$/.test(norm(hv))) m = month + 1;
+      if (m) month = m;
+      // подпись могла сохраниться как дата («1-4» → 4 января): тогда берём день из даты
+      var lc = cellAt(ws, 2, c), lab = lc ? String(lc.t === "n" && lc.v > 30000 ? "" : (lc.w || lc.v)).trim() : "", mm = lab.match(/^(\d{1,2})(?:\s*[-–\/.]\s*(\d{1,2}))?$/);
+      if (lc && lc.t === "n" && lc.v > 30000 && month) { var dd = root.XLSX.SSF.parse_date_code(lc.v); if (dd) mm = [null, String(dd.d)]; }
+      if (!month || !mm) continue;
+      var day = Number(mm[2] || mm[1]);
+      if (day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) continue;
+      var wk = E.weekOfDate(year + "-" + pad2(month) + "-" + pad2(day));
+      if (wk) out.push({ c: c, w: wk.idx });
+    }
+    return out;
+  }
+  function importReal(wb, names, state, warnings) {
+    var sheets = names.map(function (n) { return { n: n, y: realYear(n), ws: wb.Sheets[n] }; }).sort(function (a, b) { return a.y - b.y; });
+    var catByKey = {}, sort = 0, accByName = {}, rate = null;
+    // курс: «ИТОГО КАПИТАЛ» в рублях и под ним то же в евро
+    sheets.slice().reverse().forEach(function (sh) {
+      if (rate) return;
+      var ws = sh.ws, rows = maxRow(ws);
+      for (var r = 3; r <= rows && !rate; r++) {
+        if (!/^итого капитал/.test(norm(val(ws, r, labelCol(ws))))) continue;
+        realColumns(ws, sh.y, labelCol(ws) + 1).forEach(function (x) {
+          var a = cellAt(ws, r, x.c), b = cellAt(ws, r + 1, x.c);
+          if (!rate && a && b && curOf(a) === "RUB" && curOf(b) === "EUR" && num(a.v) > 0 && num(b.v) > 0) rate = Math.round(num(a.v) / num(b.v) * 100) / 100;
+        });
+      }
+    });
+    if (rate) { state.settings.rate = rate; state.settings.fx.RUB = rate; }
+    rate = state.settings.rate;
+    var usdNote = 0;
+    sheets.forEach(function (sh) {
+      var ws = sh.ws, year = sh.y, rows = maxRow(ws), LC = labelCol(ws), cols = realColumns(ws, year, LC + 1), rowCat = {}, conv = [];
+      if (!cols.length) { warnings.push(sh.n + ": не нашла недель — пропускаю."); return; }
+      var y = { year: year, labels: E.genWeeks(year).map(function (w) { return w.label; }), start: null, fromPrev: false, entries: {}, recurring: [], recon: {}, savRecon: {}, notes: "Импорт листа " + sh.n };
+      var block = null, sawEs = false, section = "cats", rowsOf = {}, accRows = [];
+      for (var r = 3; r <= rows; r++) {
+        var label = val(ws, r, LC), l = norm(label);
+        if (!l) continue;
+        if (/^итого в обращении/.test(l)) { section = "totals"; rowsOf.obr = r; continue; }
+        if (section === "cats") {
+          var b = blockOf(label);
+          if (!b && /^подписки/.test(l)) b = sawEs ? "subs_ru" : "subs_es";
+          if (b) { block = b; if (b === "subs_es") sawEs = true; continue; }
+          if (!block) continue;
+          // ячейки категории
+          var cells = [];
+          cols.forEach(function (x) { var cell = cellAt(ws, r, x.c); if (cell && cents(cell.v)) cells.push({ w: x.w, c: x.c, cell: cell, cur: curOf(cell) }); });
+          var nRub = cells.filter(function (q) { return q.cur === "RUB"; }).length, nEur = cells.filter(function (q) { return q.cur === "EUR"; }).length;
+          var cur = /руб|₽/i.test(l) || block === "subs_ru" || nRub > nEur ? "RUB" : "EUR";
+          // число без значка валюты: крупное — рубли, иначе как у категории
+          cells.forEach(function (q) { if (q.cur === "?") q.cur = Math.abs(num(q.cell.v)) >= 50000 ? "RUB" : cur; });
+          var name = String(label).trim(), key = block + "|" + norm(name), cat = catByKey[key];
+          if (!cat) {
+            var link = null;
+            if (block === "savings") link = /доллар|\$/.test(l) ? "usd" : /вклад/.test(l) ? "dep_rub" : /инвест/.test(l) ? (cur === "RUB" ? "inv_rub" : "inv") : /нал/.test(l) ? "cash" : /накопит/.test(l) ? "sav" : null;
+            cat = { id: "c" + (++sort), name: name, block: block, currency: cur, mandatory: /налог|нолог|social|seguridad|соцстрах|xolo|бухгалтер/i.test(name), link: link, sort: sort, archived: false };
+            state.categories.push(cat); catByKey[key] = cat;
+          }
+          rowCat[r] = cat;
+          cells.forEach(function (q) {
+            // «=D4/95»: эта сумма — пересчёт другой строки (рубли → евро), исходную не считаем отдельно
+            // и «=(E4-(E4*6%))/105»: любая формула со ссылкой на ячейку той же колонки
+            if (q.cell.f && q.cur !== "RUB") {
+              var colL = root.XLSX.utils.encode_col(q.c - 1), re = /\$?([A-Z]+)\$?(\d+)/g, mm2;
+              while ((mm2 = re.exec(String(q.cell.f)))) if (mm2[1] === colL && Number(mm2[2]) !== r) conv.push({ row: Number(mm2[2]), w: q.w });
+            }
+            var c = cents(q.cell.v), tc = cat;
+            if (q.cur === "USD") { usdNote++; return; }
+            // ячейка явно в другой валюте, чем строка: кладём в соседнюю категорию «… (€)» / «… (₽)», без пересчёта по курсу
+            if (q.cur !== cat.currency && curOf(q.cell) !== "?") {
+              var tk = block + "|" + norm(name) + "|" + q.cur;
+              tc = catByKey[tk];
+              if (!tc) { tc = Object.assign({}, cat, { id: "c" + (++sort), name: name + (q.cur === "RUB" ? " (₽)" : " (€)"), currency: q.cur, sort: sort, link: block === "savings" ? cat.link : null }); state.categories.push(tc); catByKey[tk] = tc; }
+            } else if (q.cur !== cat.currency) c = Math.round(cat.currency === "RUB" ? c * rate : c / rate);
+            y.entries[tc.id] = y.entries[tc.id] || {};
+            var prev = y.entries[tc.id][String(q.w)];
+            if (prev) { prev.cents += c; prev.expr = prev.expr + (c < 0 ? "" : "+") + String(c / 100); }
+            else y.entries[tc.id][String(q.w)] = { expr: String(c / 100), cents: c };
+          });
+        } else {
+          if (/^факт в обращении/.test(l)) rowsOf.fact = r;
+          else if (/^рубли/.test(l)) rowsOf.rub = r;
+          else if (/^инвестиц/.test(l)) rowsOf.inv = r;
+          else if (/^доллары/.test(l)) rowsOf.usd = r;
+          else if (/\/\s*€|\/\/\s*€/.test(l) && !/^итого/.test(l)) accRows.push({ r: r, name: String(label).replace(/\s*\/+\s*€\s*$/, "").trim() });
+        }
+      }
+      conv.forEach(function (x) { var c = rowCat[x.row]; if (c && c.currency === "RUB" && y.entries[c.id] && y.entries[c.id][String(x.w)]) { delete y.entries[c.id][String(x.w)]; y.convDropped = (y.convDropped || 0) + 1; } });
+      // доход в рублях и в евро в одной неделе примерно по курсу — это одна и та же зарплата: считаем евро
+      for (var wi = 0; wi < 60; wi++) {
+        var rubC = [], eur = 0, rub = 0;
+        state.categories.forEach(function (c) {
+          if (c.block !== "income") return;
+          var e = (y.entries[c.id] || {})[String(wi)]; if (!e || e.cents <= 0) return;
+          if (c.currency === "RUB") { rub += e.cents; rubC.push(c); } else eur += e.cents;
+        });
+        if (rub && eur && rub / eur >= 60 && rub / eur <= 140) { rubC.forEach(function (c) { delete y.entries[c.id][String(wi)]; }); y.convDropped = (y.convDropped || 0) + rubC.length; }
+      }
+      if (y.convDropped) warnings.push(year + ": " + y.convDropped + " рублёвых доходов — та же зарплата, что и в евро (формула или сумма по курсу): считаю один раз, в евро.");
+      delete y.convDropped;
+      // счета в обращении (в евро) → сверки
+      accRows.forEach(function (a) {
+        var k = norm(a.name);
+        if (!accByName[k]) { var acc = { id: "a" + (state.accounts.length + 1), name: a.name, kind: "cash_flow", sort: state.accounts.length + 1 }; state.accounts.push(acc); accByName[k] = acc; }
+        cols.forEach(function (x) {
+          if (rowsOf.fact && cents(val(ws, rowsOf.fact, x.c)) === null) return; // сверка — только там, где заполнен факт
+          var en = entryOf(cellAt(ws, a.r, x.c)); if (!en) return;
+          y.recon[String(x.w)] = y.recon[String(x.w)] || {};
+          y.recon[String(x.w)][accByName[k].id] = en;
+        });
+      });
+      // строка «ФАКТ В ОБРАЩЕНИИ» главнее суммы счетов: разницу — отдельным счётом, чтобы было видно
+      if (rowsOf.fact) cols.forEach(function (x) {
+        var f = cents(val(ws, rowsOf.fact, x.c)), rw = y.recon[String(x.w)];
+        if (f === null || !rw) return;
+        var sum = Object.keys(rw).reduce(function (t, k) { return t + (rw[k].cents || 0); }, 0);
+        if (Math.abs(f - sum) < 100) return;
+        if (!accByName["прочее (по таблице)"]) { var o = { id: "a" + (state.accounts.length + 1), name: "Прочее (по таблице)", kind: "cash_flow", sort: state.accounts.length + 1 }; state.accounts.push(o); accByName["прочее (по таблице)"] = o; }
+        rw[accByName["прочее (по таблице)"].id] = { expr: String((f - sum) / 100), cents: f - sum, note: "факт в таблице минус сумма счетов" };
+      });
+      // рубли и инвестиции — в недели со сверкой
+      if (rowsOf.fact) cols.forEach(function (x) {
+        if (!cellAt(ws, rowsOf.fact, x.c) || cents(val(ws, rowsOf.fact, x.c)) === null) return;
+        var sr = {};
+        if (rowsOf.rub && cents(val(ws, rowsOf.rub, x.c)) !== null) sr.card_rub = cents(val(ws, rowsOf.rub, x.c));
+        if (rowsOf.inv && cents(val(ws, rowsOf.inv, x.c)) !== null) sr.inv_rub = cents(val(ws, rowsOf.inv, x.c));
+        if (rowsOf.usd && cents(val(ws, rowsOf.usd, x.c)) !== null) sr.usd = cents(val(ws, rowsOf.usd, x.c));
+        if (Object.keys(sr).length) y.savRecon[String(x.w)] = sr;
+      });
+      // старт года: «в обращении» первой недели минус её движение
+      var c0 = cols[0], flowE = 0, flowR = 0;
+      state.categories.forEach(function (c) { var e = (y.entries[c.id] || {})[String(c0.w)]; if (!e) return; if (c.currency === "RUB") flowR += e.cents; else flowE += e.cents; });
+      y.start = { obr: (cents(rowsOf.obr && val(ws, rowsOf.obr, c0.c)) || 0) - flowE, sav: 0, inv: 0, cash: 0,
+        card_rub: rowsOf.rub ? (cents(val(ws, rowsOf.rub, c0.c)) || 0) - flowR : 0, dep_rub: 0, inv_rub: rowsOf.inv ? cents(val(ws, rowsOf.inv, c0.c)) || 0 : 0,
+        usd: rowsOf.usd ? cents(val(ws, rowsOf.usd, c0.c)) || 0 : 0 };
+      state.years[String(year)] = y;
+    });
+    if (usdNote) warnings.push("Ячеек в долларах пропущено: " + usdNote + ".");
+    warnings.push("Формат «ГГГГ_€ REAL»: недели сопоставлены по датам, регулярные траты можно собрать на экране «Регулярные траты».");
+    if (!Object.keys(state.years).length) throw new Error("Листы «ГГГГ_€ REAL» не получилось прочитать.");
+    return { state: state, warnings: warnings, yearSheets: sheets.map(function (x) { return x.n; }) };
   }
 
   // Старые названия категорий → новые (как в листе «Анализ»)

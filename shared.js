@@ -132,7 +132,7 @@
     opts = opts || {};
     var rows = parseCSV(text);
     var head = rows[0] || [];
-    var meIdx = head.indexOf(opts.myName || "Katya");
+    var meIdx = opts.myName ? head.indexOf(opts.myName) : -1;
     if (meIdx < 0) meIdx = 5;
     var partner = head.filter(function (_, i) { return i >= 5 && i !== meIdx; })[0] || "Партнёр";
     var out = [], seen = {}, control = {};
@@ -225,9 +225,66 @@
     return out;
   }
 
+
+  // ---------- общие → личный план ----------
+  var MAP_GUESS = [
+    ["Путешествия", /путеш|поездк|отпуск|travel/i], ["Подарки и праздники", /подар|праздн/i], ["Одежда", /одежд|обув/i],
+    ["Жильё и счета", /квартир|аренд|жиль|коммун|utilit/i], ["Уборка", /уборк/i], ["Такси и транспорт", /такси|транспорт|машин/i],
+    ["Аптека, здоровье, уход", /здоров|аптек|врач|уход|красот|спорт/i], ["Дом и быт", /дом|быт|мебел/i], ["Ребёнок: школа, лагеря", /реб[её]н|школ|лагер|дет/i],
+    ["Документы и налоги", /документ|налог|бухгалт|gestor/i], ["Няня / помощь", /нян|помощ/i], ["Твои подписки (личное)", /подписк/i],
+  ];
+  function guessPersonalCat(state, sharedCat) {
+    var g = MAP_GUESS.find(function (x) { return x[0] === sharedCat; });
+    if (!g) return null;
+    var c = state.categories.find(function (x) { return !x.archived && x.block !== "income" && x.block !== "savings" && g[1].test(x.name); });
+    return c ? c.id : null;
+  }
+  // Заметные общие траты (моя доля), которых, похоже, нет в личном плане. Еда и развлечения — отдельно, через покрытие.
+  function toLog(state, shared, opts) {
+    opts = opts || {};
+    var since = opts.since || "0000", today = opts.today || E.todayISO(), min = opts.min || 4000, handled = opts.handled || {}, map = opts.map || {};
+    var out = [];
+    (shared.expenses || []).forEach(function (e) {
+      if (e.kind !== "expense" || e.date < since || e.date > today || handled[e.id]) return;
+      var share = toEur(e.share, e.currency, e.date, state.settings);
+      if (share < min) return;
+      var cat = catOf(e, shared.learned);
+      if (FOOD.indexOf(cat) >= 0 || FUN.indexOf(cat) >= 0 || cat === "Сводные суммы") return;
+      var ys = e.date.slice(0, 4), y = state.years[ys];
+      if (!y || y.archived) return;
+      var wk = E.weekOfDate(e.date), catId = map[cat] || guessPersonalCat(state, cat), maybe = null;
+      if (catId) {
+        var r = E.compute(state, ys), m0 = Math.floor(wk.idx / 5) * 5;
+        for (var w = m0; w < m0 + 5; w++) {
+          var x = r.cells[catId] && r.cells[catId][w];
+          if (x && -x.cents >= share * 0.8) { maybe = { week: w, cents: x.cents }; break; }
+        }
+      }
+      out.push({ e: e, share: share, sharedCat: cat, catId: catId, year: ys, week: wk.idx, maybe: maybe });
+    });
+    return out.sort(function (a, b) { return (a.maybe ? 1 : 0) - (b.maybe ? 1 : 0) || b.share - a.share; });
+  }
+  // Месяцы, где общая еда и развлечения (моя доля) вышли больше личного плана на эти статьи
+  function coverageGaps(state, shared, opts) {
+    opts = opts || {};
+    var since = opts.since || "0000", today = opts.today || E.todayISO(), min = opts.min || 4000, handled = opts.handled || {}, out = [];
+    var years = {};
+    for (var yy = Number(since.slice(0, 4)); yy <= Number(today.slice(0, 4)); yy++) if (state.years[String(yy)] && !state.years[String(yy)].archived) years[yy] = 1;
+    Object.keys(years).forEach(function (ys) {
+      coverage(state, shared, ys).forEach(function (c) {
+        var key = "cov:" + ys + "-" + (c.month < 10 ? "0" : "") + c.month, end = ys + "-" + (c.month < 10 ? "0" : "") + c.month + "-31";
+        if (handled[key] || end < since || key.slice(4) + "-01" > today.slice(0, 7) + "-01") return;
+        if (ys + "-" + (c.month < 10 ? "0" : "") + c.month >= today.slice(0, 7)) return; // месяц ещё идёт
+        var gap = c.shared - c.personal;
+        if (gap >= min) out.push({ key: key, year: ys, month: c.month, shared: c.shared, personal: c.personal, gap: gap });
+      });
+    });
+    return out;
+  }
+
   root.BudgetShared = {
     SHARED_CATS: SHARED_CATS, FOOD: FOOD, FUN: FUN, guessCategory: guessCategory, parseCSV: parseCSV,
     importSplitwise: importSplitwise, computeSplit: computeSplit, makeExpense: makeExpense, makeSettlement: makeSettlement, mergeExpenses: mergeExpenses, balance: balance, toEur: toEur, catOf: catOf,
-    monthlyShares: monthlyShares, coverage: coverage, norm: norm,
+    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat,
   };
 })(typeof window !== "undefined" ? window : this);

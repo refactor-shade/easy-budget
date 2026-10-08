@@ -45,6 +45,7 @@
       if (o.stacked) max = Math.max(max, series.reduce(function (a, s) { return a + Math.max(0, s.values[i] || 0); }, 0));
       else series.forEach(function (s) { max = Math.max(max, s.values[i] || 0); });
     }
+    if (max <= 0) return "<p class='empty'>Пока нет данных — график появится, когда в плане будут суммы.</p>";
     max = niceMax(max);
     var plotH = h - PAD.t - PAD.b, step = (W - PAD.l - PAD.r) / n;
     var svg = "<svg class='chart' viewBox='0 0 " + W + " " + h + "' role='img' aria-label='" + esc(o.title || "") + "'>" + grid(0, max, h);
@@ -79,7 +80,7 @@
   function line(o) {
     var h = o.height || 220, vals = o.values, n = vals.length, fmt = o.fmt || short;
     var real = vals.filter(function (v) { return v !== null && v !== undefined; });
-    if (!real.length) return "<p class='empty'>Нет данных</p>";
+    if (!real.length || real.every(function (v) { return !v; })) return "<p class='empty'>Пока нет данных — график появится, когда в плане будут суммы.</p>";
     var lo = Math.min.apply(null, real), hi = Math.max.apply(null, real);
     var min = lo >= 0 && lo / (hi || 1) < 0.4 ? 0 : Math.floor(lo * 0.9 / 1000) * 1000;
     var max = niceMax(hi - min) + min;

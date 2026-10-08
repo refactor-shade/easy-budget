@@ -1,7 +1,7 @@
 /* Easy Budget — интерфейс. Хранение — через BudgetStore (облако Supabase или этот браузер). */
 (function () {
   "use strict";
-  var E = window.BudgetEngine, S = window.BudgetShared, C = window.BudgetCharts, Store = window.BudgetStore, SU = window.BudgetStoreUtil;
+  var K = window.BudgetCash, E = window.BudgetEngine, S = window.BudgetShared, C = window.BudgetCharts, Store = window.BudgetStore, SU = window.BudgetStoreUtil;
   var $main = document.getElementById("main");
   var state = null;      // бюджет на экране (мой или партнёра)
   var myState = null;    // мой бюджет
@@ -213,12 +213,12 @@
     var recCell = E.yearCells(Object.assign({}, state, { years: (function () { var o = {}; o[year] = Object.assign({}, state.years[year], { entries: {} }); return o; })() }), year)[catId][w];
     modal("<form method='dialog' class='m-body' id='cellForm'><h2>" + esc(c.name) + "</h2><div class='sub'>" + E.weekTitle(Number(year), w) +
       " · " + wk.wim + "-я неделя месяца</div>" +
-      (recCell ? "<div class='hint small'>Регулярный платёж: <b>" + E.fmt(recCell.cents, { cur: cur(c) }) + "</b>. Ручная запись перекрывает его в этой неделе.</div>" : "") +
+      (recCell ? "<div class='hint small'>Регулярная трата: <b>" + E.fmt(recCell.cents, { cur: cur(c) }) + "</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>" : "") +
       "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула (минус — расход): <input type='text' name='expr' autofocus value='" +
       esc(entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")) + "' placeholder='-35-20' inputmode='decimal'></label>" +
       "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='" + esc(entry ? entry.note : "") + "' placeholder='что это было'></label></div>" +
       "<div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>" +
-      "<div class='m-foot'>" + (entry ? "<button class='btn ghost danger' data-act='clear'>" + (recCell ? "Вернуть регулярный" : "Удалить") + "</button>" : "") +
+      "<div class='m-foot'>" + (entry ? "<button class='btn ghost danger' data-act='clear'>" + (recCell ? "Вернуть регулярную" : "Удалить") + "</button>" : "") +
       "<span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='save'>Сохранить</button></div>",
     function (m) {
       var inp = m.querySelector("[name=expr]"), pv = m.querySelector("#cellPreview");
@@ -258,6 +258,754 @@
   // ---------- экраны ----------
   var routes = {};
 
+
+  // Сверку делают, когда неделя закончилась: вечером её последнего дня или позже
+  function weekDone(y, w) { var wk = E.genWeeks(Number(y))[w], t = E.todayISO(); return wk.to < t || (wk.to === t && new Date().getHours() >= 18); }
+  function finishedWeek() {
+    var t = E.todayISO(), yN = Number(t.slice(0, 4));
+    for (var yy = yN; yy >= yN - 1; yy--) {
+      var ys = String(yy); if (!state.years[ys] || state.years[ys].archived) continue;
+      for (var i = 59; i >= 0; i--) if (weekDone(ys, i)) return { year: ys, week: i };
+    }
+    return null;
+  }
+  function shortWeek(y, w) { return E.weekTitle(Number(y), w).replace(/ \d{4}$/, ""); }
+
+  // Внести трату в любую дату: прошлую или будущую
+  function defaultCat() {
+    var c = state.categories.find(function (x) { return x.id === state.settings.lastCat && !x.archived; }) ||
+      state.categories.find(function (x) { return x.block === "base" && !x.archived && /продукт/i.test(x.name); }) ||
+      cats().find(function (x) { return x.block !== "income" && x.block !== "savings" && !x.archived; });
+    return c ? c.id : null;
+  }
+  // недавние категории первыми, дальше — частые по умолчанию
+  function recentCats() {
+    var ok = function (c) { return c && !c.archived && c.block !== "income" && c.block !== "savings"; }, out = [];
+    (state.settings.recentCats || []).forEach(function (id) { var c = state.categories.find(function (x) { return x.id === id; }); if (ok(c)) out.push(c); });
+    [/продукт/i, /развлеч/i, /одежд/i, /подар/i, /кафе|ресторан/i, /такси|транспорт|проезд/i].forEach(function (re) {
+      var c = state.categories.find(function (x) { return ok(x) && re.test(x.name); });
+      if (c && out.indexOf(c) < 0 && out.length < 6) out.push(c);
+    });
+    return out.slice(0, 6);
+  }
+  function spendModal(o) {
+    if (RO()) { toast("Это бюджет " + view.name + " — только просмотр"); return; }
+    o = o || {};
+    var date = o.date || E.todayISO();
+    modal("<form class='m-body' id='spForm'><h2>Внести трату</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к плану недели, в которую попадает дата, — прошлой или будущей.</p>" +
+      "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
+      "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
+      "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
+      "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + recentCats().map(function (c) { return "<button type='button' class='chip" + (c.id === defaultCat() ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
+      "<select name='cat' aria-label='Все категории'>" + catOptions(defaultCat()) + "</select></div>" +
+      "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' placeholder='например, шопинг'></label></div>" +
+      "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
+      var f = m.querySelector("#spForm"), hint = m.querySelector("#spWeek");
+      function target() {
+        var wk = f.d.value && E.weekOfDate(f.d.value);
+        if (!wk) return { err: "Укажи дату" };
+        var ys = String(wk.year);
+        if (!state.years[ys]) return { err: "Плана на " + ys + " год пока нет — его можно создать на экране «Год»." };
+        if (state.years[ys].archived) return { err: ys + " — архивный год, в него не вносятся траты." };
+        return { year: ys, week: wk.idx };
+      }
+      function upd() {
+        var t = target();
+        hint.className = "sp-week small " + (t.err ? "neg" : "muted");
+        hint.innerHTML = t.err ? esc(t.err) : "Попадёт в неделю <b>" + esc(E.weekTitle(Number(t.year), t.week)) + "</b>" + (isNow(t.year, t.week) ? " · текущая" : weekDone(t.year, t.week) ? " · прошедшая" : " · будущая");
+      }
+      f.d.addEventListener("input", upd); upd();
+      function syncChips() { m.querySelectorAll("[data-cc]").forEach(function (b) { b.classList.toggle("on", b.dataset.cc === f.cat.value); }); }
+      m.querySelectorAll("[data-cc]").forEach(function (b) { b.onclick = function () { f.cat.value = b.dataset.cc; syncChips(); }; });
+      f.cat.addEventListener("change", syncChips);
+      m.querySelectorAll("[data-dd]").forEach(function (b) { b.onclick = function () { f.d.value = E.addDays(E.todayISO(), Number(b.dataset.dd)); upd(); }; });
+      function ok() {
+        var t = target(); if (t.err) { toast(t.err); return; }
+        if (!f.v.value.trim()) { f.v.focus(); return; }
+        try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
+        state.settings.lastCat = f.cat.value;
+        state.settings.recentCats = [f.cat.value].concat((state.settings.recentCats || []).filter(function (x) { return x !== f.cat.value; })).slice(0, 6);
+        closeModal(); if (o.after) o.after(t);
+        toast("Добавлено в «" + catName(f.cat.value) + "» · " + shortWeek(t.year, t.week)); changed();
+      }
+      f.onsubmit = function (e) { e.preventDefault(); ok(); };
+      m.querySelector("[data-act=ok]").onclick = ok;
+      m.querySelector("[data-act=cancel]").onclick = closeModal;
+    });
+  }
+
+  // Напоминание о сверке — событием в календаре (повтор каждую неделю)
+  function reminderModal() {
+    var cur = Object.assign({ day: "MO", time: "09:00" }, state.settings.reminder || {});
+    modal("<div class='m-body'><h2>Напоминание о сверке</h2><p class='small muted' style='margin:2px 0 0'>Добавлю в календарь событие на каждую неделю со ссылкой на сверку.</p>" +
+      "<div class='rem-opts'>" + [["MO", "Понедельник утром", "все траты недели уже в выписке"], ["SU", "Воскресенье вечером", "подвести итог перед новой неделей"]].map(function (x) {
+        return "<label class='rem-opt'><input type='radio' name='rd' value='" + x[0] + "'" + (cur.day === x[0] ? " checked" : "") + "><span><b>" + x[1] + "</b><small>" + x[2] + "</small></span></label>";
+      }).join("") + "</div><label class='f' style='max-width:160px'>Время<input type='time' id='rt' value='" + esc(cur.time) + "'></label></div>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='off'>Не нужно</button><span class='spacer'></span><button class='btn' data-act='google'>Google Календарь</button><button class='btn primary' data-act='ics'>Apple / Outlook</button></div>", function (m) {
+      m.querySelector("[data-act=off]").onclick = function () { state.settings.reminder = { off: true, day: cur.day, time: cur.time }; closeModal(); changed(); toast("Хорошо, без напоминания. Включить можно в «Настройках»"); };
+      m.querySelectorAll("[name=rd]").forEach(function (r) { r.onchange = function () { m.querySelector("#rt").value = r.value === "MO" ? "09:00" : "19:00"; }; });
+      function pick() {
+        var day = m.querySelector("[name=rd]:checked").value, time = m.querySelector("#rt").value || "09:00";
+        var d = new Date(), want = day === "MO" ? 1 : 0;
+        d.setDate(d.getDate() + ((want - d.getDay() + 7) % 7 || 7));
+        var p2 = function (n) { return (n < 10 ? "0" : "") + n; }, hm = time.split(":");
+        var start = d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "T" + p2(+hm[0]) + p2(+hm[1]) + "00";
+        var endD = new Date(d.getFullYear(), d.getMonth(), d.getDate(), +hm[0], +hm[1] + 15);
+        var end = endD.getFullYear() + p2(endD.getMonth() + 1) + p2(endD.getDate()) + "T" + p2(endD.getHours()) + p2(endD.getMinutes()) + "00";
+        var url = location.origin + location.pathname + "#recon";
+        state.settings.reminder = { day: day, time: time };
+        return { day: day, start: start, end: end, url: url };
+      }
+      var title = "Сверка бюджета", text = "Впиши остатки на картах и в наличке.";
+      m.querySelector("[data-act=ics]").onclick = function () {
+        var x = pick(), stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+        var ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Easy Budget//RU", "BEGIN:VEVENT", "UID:easy-budget-recon-" + Date.now() + "@easy-budget", "DTSTAMP:" + stamp,
+          "DTSTART:" + x.start, "DTEND:" + x.end, "RRULE:FREQ=WEEKLY;BYDAY=" + x.day, "SUMMARY:" + title, "DESCRIPTION:" + text + "\\n" + x.url, "URL:" + x.url,
+          "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:PT0M", "DESCRIPTION:" + title, "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+        if (/iPhone|iPad|iPod/.test(navigator.userAgent)) location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+        else download("easy-budget-sverka.ics", ics, "text/calendar");
+        closeModal(); changed(); toast("Открой файл — событие добавится в календарь");
+      };
+      m.querySelector("[data-act=google]").onclick = function () {
+        var x = pick(), tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        window.open("https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(title) + "&details=" + encodeURIComponent(text + "\n" + x.url) +
+          "&dates=" + x.start + "/" + x.end + "&recur=" + encodeURIComponent("RRULE:FREQ=WEEKLY;BYDAY=" + x.day) + (tz ? "&ctz=" + encodeURIComponent(tz) : ""), "_blank", "noopener");
+        closeModal(); changed(); toast("Сохрани событие в Google Календаре");
+      };
+    });
+  }
+
+  // ===== ГЛАВНАЯ =====
+  function myName() { var n = Store.user() && Store.user().name; if (!n || n === "Я") n = state.settings.myName || ""; return n.split(" ")[0]; }
+  function partnerName() { return sh && sh.partner ? sh.partner.name : "партнёр"; }
+  function greeting() { var h = new Date().getHours(); return h < 5 ? "Доброй ночи" : h < 12 ? "Доброе утро" : h < 18 ? "Добрый день" : "Добрый вечер"; }
+  function go(hash, after) { location.hash = hash; if (after) setTimeout(after, 60); }
+
+  routes.home = function () {
+    var d = defaultYearWeek(), y = d.year, w = d.week;
+    var r = E.compute(state, y), wk = r.weeks[w], mon = E.monthly(state, y).months[wk.month - 1];
+    var today = new Date(), t = E.todayISO();
+    var dateLine = today.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+    var minV = Infinity, minW = w;
+    for (var i = w; i < 60; i++) if (r.base[i] < minV) { minV = r.base[i]; minW = i; }
+    var lastRec = -1; for (i = w; i >= 0; i--) if (r.fact[i] !== null) { lastRec = i; break; }
+    var prevEnd = (wk.month - 1) * 5 - 1, capFrom = prevEnd >= 0 ? r.cap[prevEnd] : r.startCap, dCap = r.cap[w] - capFrom;
+    var name = myName(), ro = RO();
+
+    // что сделать
+    var todo = [];
+    if (!ro) {
+      var fw = finishedWeek(), fr = fw ? E.compute(state, fw.year) : null;
+      if (fw && fr.fact[fw.week] === null) todo.push({ ic: "✓", h: "Сверка за " + shortWeek(fw.year, fw.week), p: "Впиши остатки на картах и в наличке — пара минут." +
+        (lastRec < 0 ? "" : " Последняя сверка — " + shortWeek(y, lastRec) + "."), act: "recon", rw: fw });
+      else if (fw && fr.diff[fw.week] < state.settings.diffAlert) todo.push({ k: "warn", ic: "!", h: "Расхождение " + eur(rnd(fr.diff[fw.week]), { dec: 0, plus: true }) + " за " + shortWeek(fw.year, fw.week),
+        p: "Денег меньше, чем по плану. Найди в выписке крупную трату и внеси её.", act: "recon", rw: fw });
+      var yrH = state.years[y], planEmpty = !(yrH.recurring || []).length && !Object.keys(yrH.entries || {}).some(function (k) { return Object.keys(yrH.entries[k]).length; });
+      if (planEmpty) todo.unshift({ ic: "↻", h: "Заполнить план на " + y, p: "Начни с того, что повторяется: зарплата, аренда, подписки. Один раз — и суммы встанут во все недели.", act: "recurring" });
+      var nLog = toLogCount();
+      if (nLog) todo.push({ ic: "⇄", h: nLog + " " + (nLog % 10 === 1 && nLog % 100 !== 11 ? "общая трата" : nLog % 10 >= 2 && nLog % 10 <= 4 && (nLog % 100 < 10 || nLog % 100 >= 20) ? "общие траты" : "общих трат") + " не в личном плане", p: "Внеси их в свой план одной кнопкой или отметь, что уже есть.", act: "tolog" });
+      if (!state.settings.reminder) todo.push({ ic: "◷", h: "Поставить напоминание о сверке", p: "Событие в календаре раз в неделю — чтобы не забывать.", act: "reminder" });
+      if (minV < 0) todo.push({ k: "warn", ic: "!", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(y, minW), p: "Остаток уходит в минус. Можно сдвинуть крупные траты или переложить из накоплений.", act: "year" });
+      if (!sh) todo.push({ ic: "⇄", h: "Подключить общие траты", p: "Траты на двоих: кто сколько заплатил и кто кому должен, как в Splitwise.", act: "shared" });
+      else {
+        if (sh.partner && !sh.partner.userId && Store.mode === "cloud") todo.push({ ic: "✉", h: esc(partnerName()) + " ещё не вошла", p: "Пришли ей ссылку на сайт — пусть войдёт с " + esc(sh.partner.email || "своим email") + ", пространство подключится само.", act: "shared" });
+        var bal = S.balance(sh.expenses).EUR || 0;
+        if (Math.abs(bal) >= 5000) todo.push({ ic: "€", h: bal > 0 ? esc(partnerName()) + " должна тебе " + eur(bal, { dec: 0 }) : "Ты должна " + esc(partnerName()) + " " + eur(-bal, { dec: 0 }), p: "Можно рассчитаться на экране «Общие».", act: "shared" });
+      }
+      var ny = String(Number(y) + 1);
+      if (wk.month >= 10 && !state.years[ny]) todo.push({ ic: "▦", h: "Пора набросать план на " + ny, p: "Создай его на экране «Год» — регулярные траты перенесутся сами.", act: "year" });
+      if (!state.settings.tourDone) todo.push({ ic: "?", h: "Пройти знакомство — 1 минута", p: "Что такое «в обращении», зачем сверка и где что лежит.", act: "tour" });
+    }
+
+    // план недели
+    var items = [], tin = 0, tout = 0;
+    cats().forEach(function (c) {
+      var cell = r.cells[c.id][w]; if (!cell) return;
+      var v = c.currency === "RUB" ? 0 : cell.cents;
+      if (c.block !== "savings") { if (v > 0) tin += v; else tout += v; }
+      items.push({ c: c, cell: cell });
+    });
+    items.sort(function (a, b) { return Math.abs(b.cell.cents) - Math.abs(a.cell.cents); });
+
+    var html = "<div class='home'>";
+    html += "<header class='home-head'><div class='home-date'>" + esc(dateLine) + " · " + wk.wim + "-я неделя месяца</div>" +
+      "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1>" + (ro ? "<div class='sub'>Бюджет " + esc(view.name) + " — только просмотр</div>" : "") + "</header>";
+
+    // главный блок
+    var ok = minV >= 0;
+    html += "<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении сейчас</div>" +
+      "<div class='hero-value'>" + eur(rnd(r.base[w]), { dec: 0 }) + "</div>" +
+      "<div class='hero-status " + (ok ? "good" : "bad") + "'><span class='dot'></span>" + "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + "</div>" +
+      "<div class='hero-min small'>" + esc(shortWeek(y, minW)) + ", если всё пойдёт по плану</div>" +
+      "<div class='hero-note small muted'>" + (r.fact[w] === null ? (lastRec >= 0 ? "Посчитано от сверки " + esc(shortWeek(y, lastRec)) : "Посчитано по плану, сверок ещё не было") : "По сверке этой недели") +
+      " · <button class='linkish' data-explain='obr'>что это?</button></div></div>" +
+      "<div class='hero-side'><div class='hero-label'>Капитал</div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
+      "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
+      "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
+
+    // хорошие новости: только правдивое, до трёх
+    var wins = [], ytd = r.cap[w] - (r.startCap || 0), toEnd = r.cap[59] - r.cap[w];
+    if (ytd >= 10000) wins.push({ v: eur(rnd(ytd), { dec: 0, plus: true }), t: "капитал с начала года" });
+    if (toEnd >= 10000 && w < 59) wins.push({ v: eur(rnd(toEnd), { dec: 0, plus: true }), t: "накопишь до конца года — капитал будет " + eur(rnd(r.cap[59]), { dec: 0 }) });
+    if (mon.saved >= 5000) wins.push({ v: eur(rnd(mon.saved), { dec: 0 }), t: "отложишь в накопления в " + E.MONTHS[wk.month - 1].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те") });
+    var fwH = finishedWeek(), frH = fwH ? E.compute(state, fwH.year) : null;
+    if (fwH && frH.diff[fwH.week] !== null && frH.diff[fwH.week] >= 1000) wins.push({ v: eur(rnd(frH.diff[fwH.week]), { dec: 0, plus: true }), t: "к плану по сверке за " + shortWeek(fwH.year, fwH.week) });
+    if (fwH) { var streak = 0; for (var si = fwH.week; si >= 0 && frH.fact[si] !== null; si--) streak++; if (streak >= 3) wins.push({ v: streak + " " + (streak % 10 >= 2 && streak % 10 <= 4 && (streak % 100 < 10 || streak % 100 >= 20) ? "недели" : "недель"), t: "сверок подряд без пропусков" }); }
+    if (wins.length && !ro) html += "<div class='wins'>" + wins.slice(0, 3).map(function (x) { return "<div class='win'><span class='win-ic' aria-hidden='true'>↑</span><span><b>" + x.v + "</b> " + esc(x.t) + "</span></div>"; }).join("") + "</div>";
+
+    // быстрые действия
+    if (!ro) html += "<div class='quick-row'>" +
+      "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>внести в личный план</small></span></button>" +
+      "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить с " + esc(sh ? partnerName() : "партнёром") + "</small></span></button>" +
+      "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>" + (cashEurTotal() !== null ? E.eur(cashEurTotal(), { dec: 0 }) + " в кошельке и конвертах" : "кошелёк и конверты") + "</small></span></button>" +
+      "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
+
+    html += "<div class='home-grid'>";
+    // дела
+    if (!ro) html += "<section class='card a-todo'><h2>Что сделать</h2>" + (todo.length ? "<ul class='todo-list'>" + todo.map(function (x, j) {
+      return "<li class='" + (x.k || "") + "' data-todo='" + j + "'><span class='ic'>" + x.ic + "</span><span class='tx'><b>" + x.h + "</b><span>" + x.p + "</span></span><span class='arr'>›</span></li>";
+    }).join("") + "</ul>" : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>") +
+      "<div class='rc-home'><span class='small muted'>Сверки за последние недели</span>" + reconCalendar(y, true) + "</div></section>";
+
+    // неделя
+    html += "<section class='card a-week'><div class='row'><h2 style='margin:0'>Эта неделя</h2><span class='spacer'></span><span class='small muted'>" + esc(E.weekTitle(Number(y), w)) + "</span></div>" +
+      "<div class='mini-kpis'><div><span class='muted small'>приход</span><b class='pos'>" + eur(tin, { dec: 0 }) + "</b></div><div><span class='muted small'>расход</span><b>" + eur(-tout, { dec: 0 }) + "</b></div></div>" +
+      (items.length ? "<ul class='plan-list'>" + items.slice(0, 5).map(function (x) {
+        return "<li data-go='week'><span class='name'>" + esc(x.c.name) + "</span><span class='badge " + x.cell.src + "'>" + (x.cell.src === "rec" ? "регулярная" : "вручную") + "</span><span class='val " + sign(x.cell.cents) + "'>" + E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) + "</span></li>";
+      }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") +
+      "<button class='btn ghost sm more' data-go='week'>" + (items.length > 5 ? "Ещё " + (items.length - 5) + " · " : "") + "открыть неделю ›</button></section>";
+
+    // месяц
+    var monthName = E.MONTHS[wk.month - 1];
+    html += "<section class='card a-month'><div class='row'><h2 style='margin:0'>" + monthName[0].toUpperCase() + monthName.slice(1) + "</h2><span class='spacer'></span><span class='small muted'>неделя " + wk.wim + " из 5</span></div>" +
+      "<div class='month-bar' aria-hidden='true'>" + [1, 2, 3, 4, 5].map(function (n) { return "<span class='" + (n < wk.wim ? "past" : n === wk.wim ? "now" : "") + "'></span>"; }).join("") + "</div>" +
+      "<table class='t'><tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
+      "<tr><td>Расходы</td><td class='n'>" + eur(rnd(mon.total), { dec: 0 }) + "</td></tr>" +
+      "<tr><td>Отложить в накопления</td><td class='n'>" + eur(rnd(mon.saved), { dec: 0 }) + "</td></tr></table>" +
+      "<button class='btn ghost sm more' data-go='year'>весь год ›</button></section>";
+    html += "</div>";
+
+    html += "<p class='home-help small muted'>Впервые здесь или что-то непонятно? <a href='#help'>Как это работает</a></p></div>";
+    $main.innerHTML = html;
+
+    $main.querySelectorAll("[data-go]").forEach(function (el) { el.onclick = function () { ui.year = y; ui.week = w; go("#" + el.dataset.go); }; });
+    $main.querySelectorAll("[data-todo]").forEach(function (el) {
+      el.onclick = function () {
+        var td = todo[Number(el.dataset.todo)], a = td.act;
+        if (a === "tour") return showTour(0);
+        if (a === "reminder") return reminderModal();
+        if (a === "recon") ui.recWeek = td.rw || { year: y, week: w };
+        ui.year = y; ui.week = w; go("#" + a);
+      };
+    });
+    $main.querySelectorAll("[data-q]").forEach(function (el) {
+      el.onclick = function () {
+        var q = el.dataset.q; ui.year = y; ui.week = w;
+        if (q === "spend") spendModal();
+        else if (q === "shared") go("#shared", function () { var b = document.getElementById("addExpBtn"); if (b) b.click(); });
+        else if (q === "cash") go("#cash");
+        else { ui.recWeek = finishedWeek() || { year: y, week: w }; go("#recon"); }
+      };
+    });
+    $main.querySelectorAll("[data-explain]").forEach(function (el) { el.onclick = function () { explain(el.dataset.explain); }; });
+    bindRecCal(y);
+    if (!ro && !state.settings.tourDone && !ui.tourShown) { ui.tourShown = true; setTimeout(function () { showTour(0); }, 350); }
+  };
+
+  // капитал за год: линия по неделям, прошлое — сплошной, план — пунктиром
+  function spark(vals, now, y) {
+    var W = 320, H = 84, lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals), span = hi - lo || 1;
+    var X = function (i) { return (i / 59) * W; }, Y = function (v) { return 6 + (H - 12) * (1 - (v - lo) / span); };
+    var pts = vals.map(function (v, i) { return X(i).toFixed(1) + "," + Y(v).toFixed(1); });
+    var past = "M" + pts.slice(0, now + 1).join("L"), fut = "M" + pts.slice(now).join("L");
+    var area = past + "L" + X(now).toFixed(1) + "," + H + "L0," + H + "Z";
+    return "<svg viewBox='0 0 " + W + " " + H + "' preserveAspectRatio='none' class='spark' role='img' aria-label='Капитал за " + y + "'>" +
+      "<path d='" + area + "' fill='var(--accent)' opacity='.1'/><path d='" + fut + "' fill='none' stroke='var(--accent)' stroke-width='1.6' stroke-dasharray='3 4' opacity='.55' vector-effect='non-scaling-stroke'/>" +
+      "<path d='" + past + "' fill='none' stroke='var(--accent)' stroke-width='2' vector-effect='non-scaling-stroke' stroke-linejoin='round'/></svg>" +
+      "<span class='spark-dot' style='left:" + (now / 59 * 100).toFixed(2) + "%;top:" + (Y(vals[now]) / H * 100).toFixed(2) + "%'></span>" +
+      "<div class='spark-axis'><span>янв</span><span>сейчас — дальше план</span><span>дек</span></div>";
+  }
+
+
+  // ===== КАЛЕНДАРЬ СВЕРОК =====
+  // Цвет — по размеру расхождения, плавно: красный тем гуще, чем сильнее минус; зелёный — чем сильнее плюс
+  function reconStatus(y, w, r) {
+    if (r.fact[w] !== null) {
+      var lim = Math.abs(state.settings.diffAlert || -5000) || 5000, t = r.diff[w] / lim;
+      return t <= -6 ? "n4" : t <= -3 ? "n3" : t <= -1 ? "n2" : t < -0.3 ? "n1" : t <= 0.3 ? "z" : t <= 1 ? "p1" : t <= 3 ? "p2" : "p3";
+    }
+    if (isNow(y, w)) return "now";
+    return weekDone(y, w) ? "miss" : "future";
+  }
+  var RS_TEXT = { n4: "сильно меньше плана", n3: "заметно меньше плана", n2: "меньше плана — за порогом", n1: "чуть меньше плана", z: "точно по плану",
+    p1: "чуть больше плана", p2: "больше плана", p3: "сильно больше плана", miss: "сверки не было", now: "идёт сейчас", future: "впереди" };
+  function rcCell(y, w, r, sel) {
+    var st = reconStatus(y, w, r), d = r.diff[w];
+    var txt = E.weekTitle(Number(y), w) + " — " + RS_TEXT[st] + (d !== null ? ": " + E.eur(rnd(d), { dec: 0, plus: true }) : "");
+    return "<button class='rc " + st + (sel ? " sel" : "") + "' data-rw='" + w + "' data-tip='" + esc(txt) + "' data-cap='" + esc(txt) + "' aria-label='" + esc(txt) + "'></button>";
+  }
+  function reconCalendar(y, compact, selW) {
+    var r = E.compute(state, y), cells = "";
+    if (compact) {
+      var now = (E.weekOfDate(E.todayISO()) || {}).idx, end = String(new Date().getFullYear()) === String(y) ? now : 59, from = Math.max(0, end - 15);
+      for (var i = from; i <= end; i++) cells += rcCell(y, i, r, false);
+      return "<div class='rc-strip'>" + cells + "</div>";
+    }
+    var head = E.MONTHS_SHORT.map(function (m) { return "<span>" + m + "</span>"; }).join("");
+    for (var wim = 0; wim < 5; wim++) for (var m = 0; m < 12; m++) cells += rcCell(y, m * 5 + wim, r, m * 5 + wim === selW);
+    var done = 0, miss = 0;
+    for (var k = 0; k < 60; k++) { var t = reconStatus(y, k, r); if (t === "miss") miss++; else if (t !== "now" && t !== "future") done++; }
+    return "<div class='rc-wrap'><div class='rc-head'>" + head + "</div><div class='rc-grid'>" + cells + "</div></div>" +
+      "<div class='rc-cap small muted' id='rcCap'>" + (selW !== undefined ? esc(E.weekTitle(Number(y), selW) + " — " + RS_TEXT[reconStatus(y, selW, r)] + (r.diff[selW] !== null ? ": " + E.eur(rnd(r.diff[selW]), { dec: 0, plus: true }) : "")) : "") + "</div>" +
+      "<div class='rc-legend small'><span class='rc-sc'><span>меньше</span><span class='rc-scale'>" + ["n4", "n3", "n2", "n1", "z", "p1", "p2", "p3"].map(function (c) { return "<i class='rc " + c + "'></i>"; }).join("") + "</span><span>больше плана</span></span>" +
+      "<span class='rc-sep'><i class='rc miss'></i>пропущена</span><span class='muted'>сверок " + done + " · пропущено " + miss + "</span></div>";
+  }
+  function bindRecCal(y) {
+    $main.querySelectorAll("[data-rw]").forEach(function (b) {
+      b.addEventListener("mouseenter", function () { var c = document.getElementById("rcCap"); if (c) c.textContent = b.dataset.cap; });
+      b.onclick = function () { ui.recWeek = { year: y, week: Number(b.dataset.rw) }; if (location.hash === "#recon") render(); else location.hash = "#recon"; };
+    });
+  }
+
+  // ===== НАЛИЧКА =====
+  function cashState() { state.cash = state.cash || { pockets: [], tx: [], sharedMap: {}, since: null, defaultPocket: null }; return state.cash; }
+  function pocketName(id) { if (id === "bank") return "карта"; var p = (state.cash.pockets || []).find(function (x) { return x.id === id; }); return p ? p.name : "—"; }
+  function pocketCur(id) { var p = (state.cash.pockets || []).find(function (x) { return x.id === id; }); return p && p.cur === "RUB" ? "₽" : p && p.cur === "USD" ? "$" : "€"; }
+  function cashLines() { var c = state.cash; return c && c.since && sh && !RO() ? K.sharedLines(c, sh.expenses) : []; }
+  function cashToEur(cents, cur) { var fx = state.settings.fx || {}; return cur === "RUB" ? cents / (fx.RUB || state.settings.rate || 95) : cur === "USD" ? cents / (fx.USD || 1.08) : cents; }
+  function cashEurTotal() {
+    var c = state.cash; if (!c || !c.pockets.length) return null;
+    var b = K.balances(c, cashLines()), t = 0;
+    c.pockets.filter(function (p) { return !p.archived; }).forEach(function (p) { t += cashToEur(b[p.id] || 0, p.cur); });
+    return Math.round(t);
+  }
+
+  routes.cash = function () {
+    var c = cashState(), ro = RO();
+    var html = "<div class='page-head'><div><h1>Наличка</h1><div class='sub'>Сколько где лежит наличными. Пиши или диктуй своими словами — приложение поймёт.</div></div></div>";
+    if (!c.pockets.length) {
+      if (ro) { $main.innerHTML = html + "<p class='empty'>Учёт налички ещё не начат.</p>"; return; }
+      html += "<div class='card' style='max-width:560px'><h2>С чего начнём</h2><p class='muted' style='margin-top:-4px'>Назови свои кошельки и конверты и впиши, сколько в них сейчас. Потом можно добавить ещё.</p><form id='cashSetup'>" +
+        [["Кошелёк", ""], ["Конверт 1", ""], ["Конверт 2", ""]].map(function (x, i) { return "<div class='cash-row'><input name='n" + i + "' value='" + x[0] + "' placeholder='Название'><input name='v" + i + "' inputmode='decimal' placeholder='0 €'></div>"; }).join("") +
+        "<div id='moreRows'></div><div class='row' style='margin-top:12px'><button type='button' class='btn ghost' id='addRow'>+ ещё один</button><span class='spacer'></span><button class='btn primary' type='submit'>Начать учёт</button></div></form></div>";
+      $main.innerHTML = html;
+      var n = 3;
+      $main.querySelector("#addRow").onclick = function () { $main.querySelector("#moreRows").insertAdjacentHTML("beforeend", "<div class='cash-row'><input name='n" + n + "' placeholder='Название'><input name='v" + n + "' inputmode='decimal' placeholder='0 €'></div>"); n++; };
+      $main.querySelector("#cashSetup").onsubmit = function (e) {
+        e.preventDefault();
+        var f = e.target, list = [];
+        for (var i = 0; i < n; i++) {
+          var nm = f["n" + i] && f["n" + i].value.trim(); if (!nm) continue;
+          var v = 0; try { v = E.exprCents(f["v" + i].value || "0") || 0; } catch (err) { toast(nm + ": " + err.message); return; }
+          list.push({ id: E.uid("p"), name: nm, cur: "EUR", start: v, sort: list.length + 1 });
+        }
+        if (!list.length) { toast("Добавь хотя бы кошелёк"); return; }
+        c.pockets = list; c.since = E.todayISO(); c.defaultPocket = list[0].id;
+        changed(); toast("Учёт налички начат");
+      };
+      return;
+    }
+    var lines = cashLines(), bal = K.balances(c, lines), pockets = c.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
+    var total = cashEurTotal();
+    if (!ro) html += "<div class='card cash-input'><form id='cashQ' autocomplete='off'><div class='cash-q'><input name='q' placeholder='кофе 4,5 из кошелька' aria-label='Что произошло с наличкой'>" +
+      (window.SpeechRecognition || window.webkitSpeechRecognition ? "<button type='button' class='mic' id='mic' aria-label='Надиктовать'><svg width='20' height='20' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.7' stroke-linecap='round'><rect x='7' y='2.5' width='6' height='10' rx='3'/><path d='M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5'/></svg></button>" : "") +
+      "</div><div class='chips cash-ex'>" + ["такси 12 из кошелька", "переложила 100 из конверта 1 в кошелёк", "сняла 200", "положила 300 на карту"].map(function (x) { return "<button type='button' class='chip' data-ex='" + esc(x) + "'>" + esc(x) + "</button>"; }).join("") + "</div>" +
+      "<div id='cashPv'></div></form></div>";
+    html += "<div class='pockets'>" + pockets.map(function (p) {
+      return "<div class='pocket" + (p.id === c.defaultPocket ? " def" : "") + "'><div class='row'><b>" + esc(p.name) + "</b><span class='spacer'></span>" + (ro ? "" : "<button class='btn sm ghost' data-pk='" + p.id + "' aria-label='Настроить'>⋯</button>") + "</div>" +
+        "<div class='pocket-val'>" + E.fmt(bal[p.id] || 0, { cur: pocketCur(p.id) }) + "</div>" + (p.id === c.defaultPocket ? "<div class='small muted'>по умолчанию</div>" : "") +
+        (ro ? "" : "<button class='btn sm' data-recount='" + p.id + "'>Пересчитать</button>") + "</div>";
+    }).join("") + (ro ? "" : "<button class='pocket add' id='addPocket'>+ конверт</button>") + "</div>";
+    html += "<div class='small muted' style='margin:8px 2px 0'>Всего наличными: <b>" + E.eur(total, { dec: 0 }) + "</b> · учёт с " + esc(c.since.slice(8, 10) + "." + c.since.slice(5, 7) + "." + c.since.slice(0, 4)) + "</div>";
+
+    // история
+    var all = (c.tx || []).map(function (t) { return Object.assign({ own: true }, t); }).concat(lines).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.ts || 0) - (a.ts || 0); });
+    html += "<div class='section'><h2>История</h2>" + (all.length ? "<ul class='cash-list'>" + all.slice(0, ui.cashLimit || 60).map(function (t) {
+      var flow = t.kind === "move" ? pocketName(t.from) + " → " + pocketName(t.to) : t.kind === "in" ? "карта → " + pocketName(t.to) : t.kind === "out" ? pocketName(t.from) + " → карта" :
+        t.kind === "ext" ? "→ " + pocketName(t.to) : t.kind === "adjust" ? "пересчёт · " + pocketName(t.to) : pocketName(t.from);
+      var sgn = t.kind === "spend" || t.kind === "out" ? -1 : t.kind === "move" ? 0 : 1, v = t.kind === "adjust" ? t.cents : sgn * t.cents;
+      var title = t.shared ? esc(t.shared.desc) + " <span class='badge'>общая</span>" : esc(t.note || (K.KINDS.find(function (k) { return k.id === t.kind; }) || { name: "пересчёт" }).name);
+      var right = t.shared && pockets.length > 1 && !ro ? "<select data-shp='" + esc(t.shared.id) + "' aria-label='Из какого кармана'>" + pockets.map(function (p) { return "<option value='" + p.id + "'" + (p.id === t.from ? " selected" : "") + ">" + esc(p.name) + "</option>"; }).join("") + "</select>" : "<span class='muted small'>" + esc(flow) + "</span>";
+      return "<li><span class='d small muted'>" + esc(t.date.slice(8, 10) + "." + t.date.slice(5, 7)) + "</span><span class='tt'>" + title + "<span class='fl'>" + right + "</span></span>" +
+        "<span class='val " + (v > 0 ? "pos" : v < 0 ? "neg" : "") + "'>" + (v === 0 ? E.fmt(t.cents, { cur: pocketCur(t.from) }) : E.fmt(v, { cur: pocketCur(t.from || t.to), plus: v > 0 })) + "</span>" +
+        (t.own && !ro ? "<button class='btn sm ghost danger' data-deltx='" + t.id + "' aria-label='Удалить'>✕</button>" : "<span></span>") + "</li>";
+    }).join("") + "</ul>" + (all.length > (ui.cashLimit || 60) ? "<button class='btn ghost sm' id='cashMore'>Показать ещё</button>" : "") : "<p class='empty'>Пока пусто. Наличные траты из «Общих», которые платила ты, появятся здесь сами.</p>") + "</div>";
+    $main.innerHTML = html;
+    if (ro) return;
+
+    // быстрый ввод
+    var f = $main.querySelector("#cashQ"), pv = $main.querySelector("#cashPv"), cur = null;
+    function pocketOpts(sel, withBank) { return (withBank ? "<option value='bank'" + (sel === "bank" ? " selected" : "") + ">карта / банк</option>" : "") + "<option value=''" + (!sel ? " selected" : "") + ">—</option>" + pockets.map(function (p) { return "<option value='" + p.id + "'" + (p.id === sel ? " selected" : "") + ">" + esc(p.name) + "</option>"; }).join(""); }
+    function drawPv() {
+      if (!cur) { pv.innerHTML = ""; return; }
+      var k = cur.kind, needFrom = k === "spend" || k === "move" || k === "out", needTo = k === "move" || k === "in" || k === "ext";
+      pv.innerHTML = "<div class='cash-pv'><div class='seg'>" + K.KINDS.map(function (x) { return "<button type='button' class='" + (x.id === k ? "on" : "") + "' data-k='" + x.id + "'>" + x.name + "</button>"; }).join("") + "</div>" +
+        "<div class='form-grid'><label class='f'>Сумма<input name='pc' inputmode='decimal' value='" + (cur.cents ? String(cur.cents / 100).replace(".", ",") : "") + "' placeholder='0'></label>" +
+        (needFrom ? "<label class='f'>Откуда<select name='pf'>" + pocketOpts(cur.from, false) + "</select></label>" : "") +
+        (needTo ? "<label class='f'>Куда<select name='pt'>" + pocketOpts(cur.to, false) + "</select></label>" : "") +
+        "<label class='f'>Дата<input type='date' name='pd' value='" + (cur.date || E.todayISO()) + "'></label>" +
+        "<label class='f' style='grid-column:1/-1'>Что это<input name='pn' value='" + esc(cur.note || "") + "' placeholder='например, рынок'></label>" +
+        (k === "spend" ? "<label class='row small' style='grid-column:1/-1'><input type='checkbox' name='pp'> Внести и в личный план, в категорию <select name='pcat'>" + catOptions(defaultCat()) + "</select></label>" : "") +
+        "</div><div class='row' style='margin-top:10px'><span class='small muted'>" + esc(previewText()) + "</span><span class='spacer'></span><button type='button' class='btn ghost' id='pvX'>Отмена</button><button type='submit' class='btn primary'>Сохранить</button></div></div>";
+      pv.querySelectorAll("[data-k]").forEach(function (b) { b.onclick = function () { readPv(); cur.kind = b.dataset.k; if (cur.kind === "in" || cur.kind === "ext") cur.to = cur.to || cur.from || c.defaultPocket; drawPv(); }; });
+      pv.querySelector("#pvX").onclick = function () { cur = null; f.q.value = ""; drawPv(); };
+      pv.querySelectorAll("input,select").forEach(function (el) { el.addEventListener("change", function () { readPv(); pv.querySelector(".row .muted").textContent = previewText(); }); });
+    }
+    function readPv() {
+      if (!cur) return;
+      var g = function (n) { var el = pv.querySelector("[name=" + n + "]"); return el ? el.value : undefined; };
+      try { var v = E.exprCents(g("pc") || ""); cur.cents = v === null ? null : Math.abs(v); } catch (e) { cur.cents = null; }
+      if (g("pf") !== undefined) cur.from = g("pf") || null;
+      if (g("pt") !== undefined) cur.to = g("pt") || null;
+      cur.date = g("pd") || E.todayISO(); cur.note = g("pn") || "";
+    }
+    function previewText() {
+      if (!cur) return "";
+      var a = cur.cents ? E.fmt(cur.cents, { cur: pocketCur(cur.from || cur.to) }) : "?";
+      return cur.kind === "spend" ? "Трата " + a + " из «" + pocketName(cur.from) + "»" : cur.kind === "move" ? a + ": «" + pocketName(cur.from) + "» → «" + pocketName(cur.to) + "»" :
+        cur.kind === "in" ? "Сняла " + a + " с карты в «" + pocketName(cur.to) + "»" : cur.kind === "out" ? a + " из «" + pocketName(cur.from) + "» на карту" : "Получила " + a + " в «" + pocketName(cur.to) + "»";
+    }
+    var t0 = null;
+    f.q.addEventListener("input", function () { clearTimeout(t0); t0 = setTimeout(function () { if (!f.q.value.trim()) { cur = null; drawPv(); return; } cur = K.parse(f.q.value, pockets, c.defaultPocket); cur.date = E.todayISO(); drawPv(); }, 250); });
+    $main.querySelectorAll("[data-ex]").forEach(function (b) { b.onclick = function () { f.q.value = b.dataset.ex; f.q.dispatchEvent(new Event("input")); f.q.focus(); }; });
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      if (!cur) { if (f.q.value.trim()) { cur = K.parse(f.q.value, pockets, c.defaultPocket); drawPv(); } return; }
+      readPv();
+      var k = cur.kind;
+      if (!cur.cents) { toast("Укажи сумму"); return; }
+      if ((k === "spend" || k === "move" || k === "out") && !cur.from) { toast("Откуда?"); return; }
+      if ((k === "move" || k === "in" || k === "ext") && !cur.to) { toast("Куда?"); return; }
+      if (k === "move" && cur.from === cur.to) { toast("Откуда и куда — одно и то же"); return; }
+      var tx = { id: E.uid("t"), ts: Date.now(), date: cur.date, kind: k, cents: cur.cents, from: k === "in" || k === "ext" ? null : cur.from, to: k === "spend" || k === "out" ? null : cur.to, note: cur.note };
+      var pp = pv.querySelector("[name=pp]");
+      if (pp && pp.checked) {
+        var wk = E.weekOfDate(cur.date), ys = wk && String(wk.year), cat = pv.querySelector("[name=pcat]").value;
+        if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет — в личный план не вношу"); }
+        else { addToCell(ys, cat, wk.idx, String(cur.cents / 100), (cur.note || "") + " (нал)"); tx.plan = { year: ys, week: wk.idx, cat: cat }; state.settings.lastCat = cat; }
+      }
+      var msg = previewText();
+      c.tx.push(tx); cur = null; f.q.value = "";
+      toast("Записано: " + msg.charAt(0).toLowerCase() + msg.slice(1)); changed();
+    };
+    var mic = $main.querySelector("#mic");
+    if (mic) mic.onclick = function () {
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = new SR();
+      rec.lang = "ru-RU"; rec.interimResults = false; rec.maxAlternatives = 1;
+      mic.classList.add("on");
+      rec.onresult = function (ev) { f.q.value = ev.results[0][0].transcript; f.q.dispatchEvent(new Event("input")); };
+      rec.onerror = function (ev) { toast(ev.error === "not-allowed" ? "Нет доступа к микрофону — можно диктовать с клавиатуры" : "Не расслышала, попробуй ещё"); };
+      rec.onend = function () { mic.classList.remove("on"); };
+      try { rec.start(); } catch (err) { mic.classList.remove("on"); }
+    };
+    $main.querySelectorAll("[data-shp]").forEach(function (sel) { sel.onchange = function () { c.sharedMap = c.sharedMap || {}; c.sharedMap[sel.dataset.shp] = sel.value; changed(); }; });
+    $main.querySelectorAll("[data-deltx]").forEach(function (b) {
+      b.onclick = function () {
+        var t = c.tx.find(function (x) { return x.id === b.dataset.deltx; });
+        if (!confirm("Удалить запись «" + ((t && t.note) || "без описания") + "»?" + (t && t.plan ? " Сумма в личном плане останется — поправь её на экране «Неделя», если нужно." : " Баланс пересчитается."))) return;
+        c.tx = c.tx.filter(function (x) { return x.id !== b.dataset.deltx; }); changed();
+      };
+    });
+    $main.querySelectorAll("[data-recount]").forEach(function (b) {
+      b.onclick = function () {
+        var id = b.dataset.recount, now = bal[id] || 0;
+        modal("<div class='m-body'><h2>Сколько в «" + esc(pocketName(id)) + "» на самом деле?</h2><p class='small muted' style='margin:2px 0 0'>По учёту — " + E.fmt(now, { cur: pocketCur(id) }) + ". Впиши, сколько насчитала, и баланс выровняется.</p>" +
+          "<div class='form-grid' style='margin-top:12px'><label class='f'>Сейчас<input id='rcV' inputmode='decimal' autofocus value='" + String(now / 100).replace(".", ",") + "'></label></div></div>" +
+          "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
+          m.querySelector("[data-act=cancel]").onclick = closeModal;
+          m.querySelector("[data-act=ok]").onclick = function () {
+            var v; try { v = E.exprCents(m.querySelector("#rcV").value); } catch (err) { toast(err.message); return; }
+            if (v === null) return;
+            if (v !== now) c.tx.push({ id: E.uid("t"), ts: Date.now(), date: E.todayISO(), kind: "adjust", to: id, cents: v - now, note: "пересчёт: " + (v > now ? "больше" : "меньше") + " на " + E.fmt(Math.abs(v - now)) });
+            closeModal(); changed(); toast(v === now ? "Всё сходится" : "Баланс поправлен");
+          };
+        });
+      };
+    });
+    $main.querySelectorAll("[data-pk]").forEach(function (b) {
+      b.onclick = function () {
+        var p = c.pockets.find(function (x) { return x.id === b.dataset.pk; });
+        modal("<div class='m-body'><h2>" + esc(p.name) + "</h2><div class='form-grid' style='margin-top:12px'><label class='f'>Название<input id='pkN' value='" + esc(p.name) + "'></label>" +
+          "<label class='f'>Валюта<select id='pkC'>" + ["EUR", "USD", "RUB"].map(function (x) { return "<option" + (x === (p.cur || "EUR") ? " selected" : "") + ">" + x + "</option>"; }).join("") + "</select></label>" +
+          "<label class='row small' style='grid-column:1/-1'><input type='checkbox' id='pkD'" + (p.id === c.defaultPocket ? " checked" : "") + "> По умолчанию: сюда идут траты, где не указано откуда, и наличные из «Общих»</label></div></div>" +
+          "<div class='m-foot'><button class='btn ghost danger' data-act='del'>Убрать «" + esc(p.name) + "»</button><span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
+          m.querySelector("[data-act=cancel]").onclick = closeModal;
+          m.querySelector("[data-act=del]").onclick = function () {
+            if ((bal[p.id] || 0) !== 0 && !confirm("Тут ещё " + E.fmt(bal[p.id], { cur: pocketCur(p.id) }) + ". Всё равно убрать? История сохранится.")) return;
+            p.archived = true; if (c.defaultPocket === p.id) { var o = c.pockets.find(function (x) { return !x.archived; }); c.defaultPocket = o ? o.id : null; }
+            closeModal(); changed();
+          };
+          m.querySelector("[data-act=ok]").onclick = function () {
+            p.name = m.querySelector("#pkN").value.trim() || p.name; p.cur = m.querySelector("#pkC").value;
+            if (m.querySelector("#pkD").checked) c.defaultPocket = p.id;
+            closeModal(); changed();
+          };
+        });
+      };
+    });
+    $main.querySelector("#addPocket").onclick = function () {
+      var nm = prompt("Название (например, «Конверт на отпуск»)"); if (!nm || !nm.trim()) return;
+      var v = prompt("Сколько в нём сейчас, €", "0"), cents = 0;
+      try { cents = E.exprCents(v || "0") || 0; } catch (err) { toast(err.message); return; }
+      c.pockets.push({ id: E.uid("p"), name: nm.trim(), cur: "EUR", start: 0, sort: c.pockets.length + 1 });
+      if (cents) c.tx.push({ id: E.uid("t"), ts: Date.now(), date: E.todayISO(), kind: "adjust", to: c.pockets[c.pockets.length - 1].id, cents: cents, note: "начальный остаток" });
+      changed();
+    };
+    var cm = $main.querySelector("#cashMore"); if (cm) cm.onclick = function () { ui.cashLimit = (ui.cashLimit || 60) + 100; render(); };
+  };
+
+  // ===== ОБЩИЕ → ЛИЧНЫЙ ПЛАН =====
+  function logOpts() {
+    // по умолчанию — с начала прошлого месяца
+    var set = state.settings, t = new Date(), pm = t.getMonth() || 12, py = t.getMonth() ? t.getFullYear() : t.getFullYear() - 1;
+    var since = set.sharedLogSince || (py + "-" + (pm < 10 ? "0" : "") + pm + "-01");
+    return { since: since, min: set.sharedLogMin || 4000, handled: set.sharedLog || {}, map: set.sharedMap || {} };
+  }
+  function toLogCount() {
+    if (!sh || RO()) return 0;
+    var o = logOpts(), c = sharedForCalc();
+    return S.toLog(state, c, o).filter(function (x) { return !x.maybe; }).length + S.coverageGaps(state, c, o).length;
+  }
+  routes.tolog = function () {
+    if (!sh || RO()) { location.hash = "#shared"; return; }
+    var set = state.settings, o = logOpts(), calc = sharedForCalc();
+    set.sharedLog = set.sharedLog || {}; set.sharedMap = set.sharedMap || {};
+    var list = S.toLog(state, calc, o), gaps = S.coverageGaps(state, calc, o);
+    var fresh = list.filter(function (x) { return !x.maybe; }), maybe = list.filter(function (x) { return x.maybe; });
+    var html = "<div class='page-head'><div><h1>Общие → личный план</h1><div class='sub'>Заметные общие траты (твоя доля от " + E.eur(o.min, { dec: 0 }) + "), которых, похоже, нет в личном плане. Еда и развлечения сверяются отдельно — по месяцу целиком.</div></div>" +
+      "<div class='row'><label class='small muted'>с <input type='date' id='lgSince' value='" + o.since + "'></label><label class='small muted'>от <input id='lgMin' inputmode='decimal' value='" + o.min / 100 + "' style='width:64px'> €</label></div></div>";
+    function row(x) {
+      var e = x.e;
+      return "<li class='lg' data-id='" + esc(e.id) + "'><div class='lg-main'><b>" + esc(e.desc) + "</b><span class='small muted'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + " · " + esc(x.sharedCat) + " · всего " + E.fmt(e.cost, { cur: e.currency === "EUR" ? "€" : e.currency, dec: 0 }) +
+        (x.maybe ? " · в плане уже есть " + E.eur(-x.maybe.cents, { dec: 0 }) + " в " + esc(shortWeek(x.year, x.maybe.week)) : "") + "</span></div>" +
+        "<div class='lg-val'>" + E.eur(x.share) + "<span class='small muted'>твоя доля</span></div>" +
+        "<div class='lg-act'><select data-lc aria-label='Категория личного плана'><option value=''>категория…</option>" + catOptions(x.catId, function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select>" +
+        "<button class='btn sm primary' data-la='add'>Внести</button><button class='btn sm' data-la='had'>Уже есть</button><button class='btn sm ghost' data-la='skip'>Не нужно</button></div></li>";
+    }
+    if (!fresh.length && !maybe.length && !gaps.length) html += "<div class='card all-good'><span class='ic'>✓</span>Всё заметное из общих уже в личном плане.</div>";
+    if (gaps.length) html += "<div class='card'><h2>Еда и развлечения вышли за план</h2><ul class='lg-list'>" + gaps.map(function (g) {
+      return "<li class='lg' data-gap='" + g.key + "'><div class='lg-main'><b>" + E.MONTHS[g.month - 1][0].toUpperCase() + E.MONTHS[g.month - 1].slice(1) + " " + g.year + "</b><span class='small muted'>общие " + E.eur(rnd(g.shared), { dec: 0 }) + " (твоя доля) при личном плане " + E.eur(rnd(g.personal), { dec: 0 }) + "</span></div>" +
+        "<div class='lg-val neg'>+" + E.eur(rnd(g.gap), { dec: 0 }) + "</div><div class='lg-act'><button class='btn sm primary' data-ga='add'>Добавить разницу в план</button><button class='btn sm ghost' data-ga='skip'>Не нужно</button></div></li>";
+    }).join("") + "</ul></div>";
+    if (fresh.length) html += "<div class='card'><h2>Не нашла в личном плане · " + fresh.length + "</h2><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
+    if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b> <span class='small muted'>в нужной категории в тот месяц есть сумма не меньше</span></summary>" +
+      "<div class='row' style='margin:10px 0'><button class='btn sm' id='allHad'>Да, всё это уже учтено</button></div><ul class='lg-list'>" + maybe.map(row).join("") + "</ul></details>";
+    $main.innerHTML = html;
+    $main.querySelector("#lgSince").onchange = function (e) { set.sharedLogSince = e.target.value; changed(); };
+    $main.querySelector("#lgMin").onchange = function (e) { var v = Number(String(e.target.value).replace(",", ".")); if (v > 0) { set.sharedLogMin = Math.round(v * 100); changed(); } };
+    $main.querySelectorAll("li[data-id]").forEach(function (li) {
+      var x = list.find(function (q) { return q.e.id === li.dataset.id; });
+      li.querySelectorAll("[data-la]").forEach(function (b) {
+        b.onclick = function () {
+          var a = b.dataset.la;
+          if (a === "add") {
+            var cat = li.querySelector("[data-lc]").value;
+            if (!cat) { toast("Выбери категорию"); li.querySelector("[data-lc]").focus(); return; }
+            addToCell(x.year, cat, x.week, String(x.share / 100), x.e.desc + " (общая)");
+            if (x.sharedCat !== "Прочее") set.sharedMap[x.sharedCat] = cat;
+            toast("Внесено в «" + catName(cat) + "» · " + shortWeek(x.year, x.week));
+          }
+          set.sharedLog[x.e.id] = a; changed();
+        };
+      });
+    });
+    var ah = $main.querySelector("#allHad"); if (ah) ah.onclick = function () { maybe.forEach(function (x) { set.sharedLog[x.e.id] = "had"; }); changed(); toast("Отмечено"); };
+    $main.querySelectorAll("li[data-gap]").forEach(function (li) {
+      var g = gaps.find(function (q) { return q.key === li.dataset.gap; });
+      li.querySelectorAll("[data-ga]").forEach(function (b) {
+        b.onclick = function () {
+          if (b.dataset.ga === "add") {
+            var cat = (set.coverage && set.coverage.food && set.coverage.food[0]) || defaultCat();
+            addToCell(g.year, cat, (g.month - 1) * 5 + 4, String(rnd(g.gap) / 100), "общие сверх плана");
+            toast("Добавлено " + E.eur(rnd(g.gap), { dec: 0 }) + " в «" + catName(cat) + "»");
+          }
+          set.sharedLog[g.key] = b.dataset.ga; changed();
+        };
+      });
+    });
+  };
+
+
+  // ===== МЫ: общий бюджет =====
+  function loadPartnerData(force) {
+    var p = people.find(function (x) { return x.theirLevel === "full" || x.theirLevel === "totals"; }) || people[0];
+    if (!p) return Promise.resolve(null);
+    if (!force && ui.us && ui.us.id === p.userId && Date.now() - ui.us.at < 120000) return Promise.resolve(ui.us);
+    var job = p.theirLevel === "full" ? Store.loadBudgetOf(p.userId).then(function (row) {
+      if (!row) return null;
+      var st = migrate(row.data); st._ver = 1;
+      var yrs = {}; Object.keys(st.years).forEach(function (y) { try { var m = E.monthly(st, y); yrs[y] = { months: m.months, total: m.total, archived: !!st.years[y].archived }; } catch (e) { /* пропуск */ } });
+      return { years: yrs };
+    }) : p.theirLevel === "totals" ? Store.loadSummaryOf(p.userId).then(function (row) { return row ? row.data : null; }) : Promise.resolve(null);
+    return job.then(function (d) { ui.us = { id: p.userId, name: p.name, level: p.theirLevel, data: d, at: Date.now() }; return ui.us; })
+      .catch(function () { ui.us = { id: p.userId, name: p.name, level: "hidden", data: null, at: Date.now() }; return ui.us; });
+  }
+  routes.us = function () {
+    if (RO()) { switchTo("me"); return; }
+    if (!ui.usLoaded) {
+      $main.innerHTML = "<p class='loading'>Собираю общий бюджет…</p>";
+      ui.usLoaded = true;
+      loadPartnerData(true).then(function () { if (location.hash === "#us") render(); ui.usLoaded = false; });
+      return;
+    }
+    var pd = ui.us && ui.us.data, pName = (ui.us && ui.us.name) || (sh && sh.partner ? sh.partner.name : "партнёр"), meName = myName() || "Я";
+    var ys = activeYears(), y = ui.usYear && ys.indexOf(ui.usYear) >= 0 ? ui.usYear : (ys.indexOf(E.todayISO().slice(0, 4)) >= 0 ? E.todayISO().slice(0, 4) : ys[ys.length - 1]);
+    var mine = E.monthly(state, y), theirs = pd && pd.years && pd.years[y], both = !!theirs;
+    var nowM = String(new Date().getFullYear()) === y ? new Date().getMonth() : 11;
+    var sum = function (k, m) { var a = mine.months[m][k] || 0, b = both ? (theirs.months[m][k] || 0) : 0; return a + b; };
+    var tot = function (k) { return (mine.total[k] || 0) + (both ? (theirs.total[k] || 0) : 0); };
+    var capMe = mine.months[nowM].cap, capThem = both ? theirs.months[nowM].cap : null;
+    var html = "<div class='page-head'><div><h1>Мы · " + y + "</h1><div class='sub'>" + esc(meName) + " и " + esc(pName) + ": общий капитал, доходы и расходы вдвоём, на что уходят общие деньги.</div></div>" +
+      "<div class='chips'>" + ys.map(function (x) { return "<button class='chip" + (x === y ? " on" : "") + "' data-uy='" + x + "'>" + x + "</button>"; }).join("") + "</div></div>";
+    if (!both) html += "<div class='hint' style='margin:0 0 16px'>" + (ui.us ? esc(pName) + " пока не открыла свой бюджет" + (ui.us.data ? " за " + y : "") + ". В её «Настройках → Кто что видит» можно открыть полностью или только итоги — тогда здесь появятся цифры на двоих." :
+      "Здесь появятся цифры на двоих, когда партнёр войдёт в приложение и откроет доступ к своему бюджету.") + " Пока — только твои цифры и общие траты.</div>";
+
+    // KPI
+    html += "<div class='kpis'>" +
+      kpi(both ? "Капитал вместе" : "Твой капитал", capMe === null ? "—" : eur(rnd(capMe + (capThem || 0)), { dec: 0 }), "на конец " + E.MONTHS_GEN[nowM] + (both && capThem !== null ? " · " + esc(meName) + " " + eur(rnd(capMe), { dec: 0 }) + " · " + esc(pName) + " " + eur(rnd(capThem), { dec: 0 }) : "")) +
+      kpi("Доходы за год", eur(rnd(tot("income")), { dec: 0 }), both ? "вместе" : "твои") +
+      kpi("Расходы за год", eur(rnd(tot("total")), { dec: 0 }), "на жизнь " + eur(rnd(tot("living") / 12), { dec: 0 }) + " в месяц") +
+      kpi("Сберегаем", tot("income") ? Math.round((tot("income") - tot("total")) / tot("income") * 100) + "%" : "—", "доходы минус расходы, от доходов") + "</div>";
+
+    // капитал по месяцам
+    var capVals = mine.months.map(function (m, i) { return { me: m.cap, them: both ? theirs.months[i].cap : null }; });
+    html += "<div class='grid2'><div class='card'><h2>" + (both ? "Капитал вместе" : "Капитал") + "</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам",
+      fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+      series: [{ name: meName, color: "var(--series-1)", values: capVals.map(function (c) { return c.me === null ? 0 : c.me / 100; }) }].concat(both ? [{ name: pName, color: "var(--series-2)", values: capVals.map(function (c) { return c.them === null ? 0 : c.them / 100; }) }] : []) }) + "</div>";
+    html += "<div class='card'><h2>Доходы и расходы" + (both ? " вдвоём" : "") + "</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам",
+      fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+      series: [{ name: "доходы", color: "var(--series-3)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
+
+    // общие траты: категории и кто платит
+    var ex = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === y; }) : [];
+    var prevEx = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === String(Number(y) - 1); }) : [];
+    var toE = function (e) { return S.toEur(e.cost, e.currency, e.date, state.settings); };
+    var byCat = {}, prevCat = {}, paidMe = 0, paidThem = 0, sharedTot = 0;
+    ex.forEach(function (e) { var v = toE(e), c = S.catOf(e, sh.learned); byCat[c] = (byCat[c] || 0) + v; sharedTot += v; if (e.paidByMe) paidMe += v; else paidThem += v; });
+    prevEx.forEach(function (e) { var c = S.catOf(e, sh.learned); prevCat[c] = (prevCat[c] || 0) + toE(e); });
+    var cats2 = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
+    if (ex.length) {
+      var months = nowM + 1;
+      html += "<div class='section grid2'><div class='card'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>Всего " + eur(rnd(sharedTot), { dec: 0 }) + " за " + y + " — в среднем " + eur(rnd(sharedTot / months), { dec: 0 }) + " в месяц на двоих.</p><ul class='bar-list'>" +
+        cats2.slice(0, 8).map(function (c) {
+          var v = byCat[c], pc = Math.round(v / sharedTot * 100), pv = prevCat[c];
+          return "<li><span class='bl-name'>" + esc(c) + "</span><span class='bl-bar'><i style='width:" + Math.max(2, pc) + "%'></i></span><span class='bl-val'>" + eur(rnd(v), { dec: 0 }) + "<small>" + pc + "%" + (pv ? " · " + (v / months * 12 > pv * 1.15 ? "↑" : v / months * 12 < pv * 0.85 ? "↓" : "≈") + " к " + (Number(y) - 1) : "") + "</small></span></li>";
+        }).join("") + "</ul></div>";
+      var shMe = paidMe / (paidMe + paidThem || 1);
+      html += "<div class='card'><h2>Кто платит за общее</h2><div class='split-bar'><i style='width:" + Math.round(shMe * 100) + "%'></i></div>" +
+        "<div class='row small' style='margin-top:6px'><span><b>" + esc(meName) + "</b> " + eur(rnd(paidMe), { dec: 0 }) + " · " + Math.round(shMe * 100) + "%</span><span class='spacer'></span><span><b>" + esc(pName) + "</b> " + eur(rnd(paidThem), { dec: 0 }) + " · " + Math.round((1 - shMe) * 100) + "%</span></div>" +
+        "<p class='small muted'>Это кто оплачивал, а не чья доля больше: доли делятся при вводе траты, а разницу показывает баланс в «Общих».</p></div></div>";
+    }
+
+    // выводы про нас
+    var out = [];
+    if (both || true) {
+      var avg = tot("total") / 12, heavy = mine.months.map(function (_, i) { return { i: i, v: sum("total", i) }; }).filter(function (x) { return x.v > avg * 1.3; });
+      if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Тяжёлые месяцы" + (both ? " на двоих" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
+    }
+    if (ex.length && tot("total")) out.push({ k: "", ic: "⇄", h: "Общие траты — " + Math.round(sharedTot / months / (tot("total") / 12) * 100) + "% " + (both ? "ваших" : "") + " расходов", p: both ? "Остальное — личное у каждой. Чем выше доля, тем важнее, чтобы общие траты были в личных планах — для этого есть «Общие → личный план»." : "Доля от твоих расходов. С данными партнёра посчитаю на двоих." });
+    var grow = cats2.filter(function (c) { return prevCat[c] && byCat[c] / months * 12 > prevCat[c] * 1.25 && byCat[c] > 20000; }).slice(0, 3);
+    if (grow.length) out.push({ k: "warn", ic: "↗", h: "Растут к " + (Number(y) - 1) + ": " + grow.join(", "), p: grow.map(function (c) { return c + ": " + eur(rnd(prevCat[c]), { dec: 0 }) + " за год → темп " + eur(rnd(byCat[c] / months * 12), { dec: 0 }); }).join(" · ") });
+    if (both) {
+      var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
+      out.push({ k: dcap >= 0 ? "good" : "warn", ic: "◆", h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: esc(meName) + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + esc(pName) + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + " (по плану и сверкам)." });
+    }
+    var bal = sh ? S.balance(sh.expenses).EUR || 0 : 0;
+    if (Math.abs(bal) >= 5000) out.push({ k: "", ic: "€", h: bal > 0 ? pName + " должна тебе " + eur(bal, { dec: 0 }) : "Ты должна " + pName + " " + eur(-bal, { dec: 0 }), p: "Рассчитаться — на экране «Общие»." });
+    if (out.length) html += "<div class='section'><h2>Выводы про нас</h2><div class='grid2'>" + out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("") + "</div></div>";
+    if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть бюджет " + esc(pName) + " целиком</button></div>";
+    $main.innerHTML = html;
+    $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });
+    var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
+  };
+
+  // ===== ЗНАКОМСТВО И СПРАВКА =====
+  var GLOSSARY = {
+    obr: ["В обращении", "Деньги для жизни: карты и наличка, с которых ты платишь каждый день. Накопления и инвестиции сюда не входят. Приложение считает, сколько их будет в каждую неделю, если всё пойдёт по плану."],
+    diff: ["Расхождение", "Разница между тем, что реально лежит на счетах (по сверке), и тем, что должно быть по плану. Минус — потратила больше, чем записано; плюс — меньше."],
+    cap: ["Капитал", "Всё вместе: деньги в обращении, накопительный счёт, инвестиции, отложенная наличка и рубли по курсу. Перевод в накопления капитал не меняет — деньги просто перекладываются."],
+    recon: ["Сверка", "Раз в неделю, по её итогам, вписываешь остатки на счетах. Дальше расчёт идёт от реальных цифр, а не от плана, и сразу видно расхождение."],
+    rec: ["Регулярные траты", "То, что повторяется каждый месяц: аренда, подписки, телефон, а также зарплата. Задаёшь один раз, указываешь недели месяца — и сумма сама встаёт в план."],
+    weeks: ["Недели месяца", "Каждый месяц делится на 5 недель: с понедельника по воскресенье, первая и последняя могут быть короче. Короткая неделя — «неделя-сюрприз», в ней обычно получается накопить."],
+  };
+  function explain(key) {
+    var g = GLOSSARY[key];
+    modal("<div class='m-body'><h2>" + esc(g[0]) + "</h2><p style='margin:8px 0 0'>" + esc(g[1]) + "</p></div><div class='m-foot'><a class='btn ghost' href='#help'>Все термины</a><button class='btn primary' data-act='ok'>Понятно</button></div>",
+      function (m) { m.querySelector("[data-act=ok]").onclick = closeModal; });
+  }
+
+  var TOUR = [
+    { ic: "€", h: "Easy Budget за минуту", p: "Это план на год, разбитый по неделям, и простая проверка: совпадает ли он с жизнью. Не нужно записывать каждый кофе — только крупное и регулярное." },
+    { ic: "◷", h: "Неделя — главный ритм", p: "На экране «Неделя» — что придёт и что уйдёт в эти семь дней. Нашла в выписке крупную трату — внеси её с датой: прошлой или будущей, сумма встанет в нужную неделю." },
+    { ic: "↻", h: "Регулярные траты", p: "Аренда, подписки, телефон, зарплата — задай один раз, укажи, в какую неделю месяца списывается, и приложение само расставит суммы на весь год." },
+    { ic: "✓", h: "Сверка раз в неделю", p: "В воскресенье вечером или в понедельник утром впиши, сколько реально на картах и в наличке. Разница с планом — «расхождение»: если оно большое, какая-то трата не внесена." },
+    { ic: "⇄", h: "Общие траты", p: "Траты вдвоём — как в Splitwise: кто платил, как делим, кто кому должен. Твоя доля автоматически учитывается в личном бюджете." },
+    { ic: "⌂", h: "Главная подскажет, что делать", p: "Здесь видно самый низкий остаток до конца года и короткий список дел. На телефоне добавь сайт на экран «Домой»: Safari → «Поделиться» → «На экран Домой»." },
+  ];
+  function finishTour() {
+    if (RO() || !myState) return;
+    if (!myState.settings.tourDone) { myState.settings.tourDone = true; myState._ver = (myState._ver || 0) + 1; save(); }
+  }
+  function showTour(n) {
+    var s = TOUR[n], last = n === TOUR.length - 1;
+    modal("<div class='m-body tour'><div class='tour-ic'>" + s.ic + "</div><h2>" + esc(s.h) + "</h2><p>" + esc(s.p) + "</p>" +
+      "<div class='tour-dots'>" + TOUR.map(function (_, j) { return "<span class='" + (j === n ? "on" : "") + "'></span>"; }).join("") + "</div></div>" +
+      "<div class='m-foot'>" + (last ? "" : "<button class='btn ghost' data-act='skip'>Пропустить</button>") + "<span class='spacer'></span>" +
+      (n > 0 ? "<button class='btn' data-act='back'>Назад</button>" : "") + "<button class='btn primary' data-act='next' autofocus>" + (last ? "Начать" : "Дальше") + "</button></div>",
+      function (m) {
+        m.classList.add("tour-modal");
+        var sk = m.querySelector("[data-act=skip]"), bk = m.querySelector("[data-act=back]");
+        if (sk) sk.onclick = closeModal;
+        if (bk) bk.onclick = function () { showTour(n - 1); };
+        m.querySelector("[data-act=next]").onclick = function () { if (last) closeModal(); else showTour(n + 1); };
+        m.onclose = function () { m.onclose = null; finishTour(); if (/^#?(home)?$/.test(location.hash)) render(); };
+      });
+  }
+
+  routes.help = function () {
+    var sections = [
+      ["home", "⌂", "Главная", "Самый низкий остаток до конца года, капитал и список дел на сейчас."],
+      ["week", "◷", "Неделя", "План на текущую неделю: приходы, расходы, быстрое добавление траты."],
+      ["shared", "⇄", "Общие", "Траты вдвоём с партнёром, доли и баланс «кто кому должен». Импорт из Splitwise."],
+      ["us", "♡", "Мы", "Общий бюджет: капитал вместе, доходы и расходы вдвоём, на что уходят общие деньги и кто платит. Цифры партнёра — если он открыл доступ."],
+      ["cash", "₵", "Наличка", "Кошелёк и конверты: пишешь или диктуешь «кофе 4,5 из кошелька» — баланс считается сам. Наличные из «Общих» подтягиваются."],
+      ["recon", "✓", "Сверка", "Остатки на счетах по итогам недели и расхождение с планом. Календарь показывает, где сверки были."],
+      ["tolog", "⇄", "Общие → личный план", "Заметные общие траты, которых нет в личной таблице: внести одной кнопкой или отметить, что уже есть."],
+      ["year", "▦", "Год", "Вся таблица: категории × недели. Здесь же создаётся план на следующий год."],
+      ["recurring", "↻", "Регулярные траты", "Аренда, подписки, зарплата — один раз задаёшь, дальше они сами в плане."],
+      ["analysis", "◔", "Анализ", "Графики: куда уходят деньги, как меняется капитал, сравнение лет."],
+      ["insights", "✦", "Выводы", "Автоматические наблюдения: тяжёлые месяцы, рост статей, лишние деньги без процентов."],
+      ["settings", "⚙", "Настройки", "Категории, счета, курс, доступ партнёра, импорт таблицы и бэкап."],
+    ];
+    var html = "<div class='page-head'><div><h1>Как это работает</h1><div class='sub'>Короткая инструкция и словарь. Знакомство можно пройти ещё раз.</div></div>" +
+      "<button class='btn primary' id='tourAgain'>Показать знакомство</button></div>";
+    html += "<div class='card'><h2>Ритм на неделю — 5 минут</h2><ol class='steps'>" +
+      "<li><b>В понедельник утром (или в воскресенье вечером) открой «Главную».</b> В «Что сделать» будет сверка за прошедшую неделю. Пусто — значит, всё в порядке.</li>" +
+      "<li><b>Внеси крупные траты</b> из выписки: кнопка «Трата в план», дата — когда списали. Мелочи не нужны — они уже заложены в «продукты / расходы на неделю».</li>" +
+      "<li><b>Сделай сверку:</b> впиши остатки на картах и в наличке. Приложение покажет расхождение с планом.</li>" +
+      "<li><b>Общие траты</b> вносите оба, сразу с телефона, — баланс посчитается сам.</li></ol></div>";
+    html += "<div class='section'><h2>Словарь</h2><div class='grid2'>" + Object.keys(GLOSSARY).map(function (k) {
+      return "<div class='card gloss'><b>" + esc(GLOSSARY[k][0]) + "</b><p>" + esc(GLOSSARY[k][1]) + "</p></div>";
+    }).join("") + "</div></div>";
+    html += "<div class='section'><h2>Что где лежит</h2><div class='sec-grid'>" + sections.map(function (x) {
+      return "<a class='sec' href='#" + x[0] + "'><span class='ico'>" + x[1] + "</span><span><b>" + esc(x[2]) + "</b><small>" + esc(x[3]) + "</small></span></a>";
+    }).join("") + "</div></div>";
+    html += "<div class='section grid2'><div class='card'><h2>На телефон</h2><p class='muted' style='margin:0'>iPhone: Safari → «Поделиться» → <b>«На экран Домой»</b>. Android: Chrome → ⋮ → «Установить приложение». Откроется как обычное приложение, вход сохранится.</p></div>" +
+      "<div class='card'><h2>Данные и доступ</h2><p class='muted' style='margin:0'>Бюджет хранится в облаке и виден только тебе. Что видит партнёр — полностью, только итоги или ничего — выбирается в «Настройках». Бэкап в JSON — там же.</p></div></div>";
+    $main.innerHTML = html;
+    $main.querySelector("#tourAgain").onclick = function () { showTour(0); };
+  };
+
+  // «Ещё» в нижнем меню на телефоне
+  document.getElementById("navMore").onclick = function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll("#nav a.x")).map(function (a) {
+      return "<a class='sec' href='" + a.getAttribute("href") + "'><span class='ico'>" + a.querySelector(".ico").textContent + "</span><span><b>" + esc(a.textContent.replace(a.querySelector(".ico").textContent, "")) + "</b></span></a>";
+    }).join("");
+    modal("<div class='m-body'><h2>Ещё</h2><div class='more-list'>" + links + "</div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>",
+      function (m) { m.querySelector("[data-act=x]").onclick = closeModal; m.querySelectorAll("a").forEach(function (a) { a.addEventListener("click", closeModal); }); });
+  };
+
   // ===== НЕДЕЛЯ =====
   routes.week = function () {
     var y = ui.year, w = ui.week, yr = state.years[y];
@@ -278,11 +1026,11 @@
 
     html += "<div class='kpis'>" +
       kpi("В обращении", eur(rnd(r.base[w]), { dec: 0 }), fact === null ? "расчёт по плану" : "по факту сверки") +
-      kpi("Расхождение", diff === null ? "—" : eur(rnd(diff), { dec: 0, plus: true }), diff === null ? "<button class='btn sm primary' data-act='recon'>Внести остатки</button>" :
-        (diff < alert ? "<span class='neg'>⚠ мимо плана больше " + eur(-alert, { dec: 0 }) + "</span>" : "<span class='pos'>✓ в пределах плана</span>"), diff !== null && diff < alert) +
+      kpi("Расхождение", diff === null ? "—" : eur(rnd(diff), { dec: 0, plus: true }), diff === null ? (weekDone(y, w) ? "<button class='btn sm primary' data-act='recon'>Сделать сверку</button>" : "сверка — когда неделя закончится") :
+        (diff < alert ? "<span class='neg'>⚠ больше порога в " + eur(-alert, { dec: 0 }) + "</span>" : "<span class='pos'>✓ в пределах плана</span>"), diff !== null && diff < alert) +
       kpi("Капитал", eur(rnd(r.cap[w]), { dec: 0 }), "за неделю " + "<span class='" + sign(r.dweek[w]) + "'>" + eur(rnd(r.dweek[w]), { dec: 0, plus: true }) + "</span>" +
         (wk.wim === 5 ? " · за месяц <span class='" + sign(r.dmonth[w]) + "'>" + eur(rnd(r.dmonth[w]), { dec: 0, plus: true }) + "</span>" : "")) +
-      kpi("Хватит до конца года?", minV < 0 ? "Нет" : "Да", "минимум " + eur(rnd(minV), { dec: 0 }) + " — " + esc(E.MONTHS_SHORT[r.weeks[minW].month - 1] + " " + r.weeks[minW].label), minV < 0) +
+      kpi("Самый низкий остаток", eur(rnd(minV), { dec: 0 }), esc(shortWeek(y, minW)) + " · до конца года", minV < 0) +
       "</div>";
 
     // план недели
@@ -296,7 +1044,7 @@
         var v = c.currency === "RUB" ? 0 : cell.cents;
         if (c.block !== "savings") { if (v > 0) tin += v; else tout += v; }
         items += "<li data-cell='" + c.id + "'><span class='name'>" + esc(c.name) + (cell.note ? " <span class='muted small'>· " + esc(cell.note) + "</span>" : "") + "</span>" +
-          "<span class='badge " + cell.src + "'>" + (cell.src === "rec" ? "рег." : "вручную") + "</span>" +
+          "<span class='badge " + cell.src + "'>" + (cell.src === "rec" ? "регулярная" : "вручную") + "</span>" +
           "<span class='val " + sign(cell.cents) + "'>" + E.fmt(cell.cents, { cur: cur(c) }) + "</span></li>";
       });
     });
@@ -305,11 +1053,8 @@
       (items ? "<ul class='plan-list'>" + items + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") + "</div>";
 
     // быстрое добавление
-    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Внести трату</h2><p class='small muted' style='margin-top:-6px'>Нашла в выписке что-то крупное — добавь в категорию, сумма прибавится к плану недели. Для расходов можно без минуса.</p>" +
-      "<form id='quick' class='form-grid'><label class='f' style='grid-column:1/-1'>Категория<select name='cat'>" + catOptions("c31") + "</select></label>" +
-      "<label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required></label>" +
-      "<label class='f'>Заметка<input type='text' name='note' placeholder='шопинг'></label>" +
-      "<button class='btn primary' type='submit'>Добавить</button></form></div>");
+    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Внести трату</h2><p class='small muted' style='margin-top:-6px'>Крупная трата из выписки? Внеси её — сумма прибавится к плану нужной недели.</p>" +
+      "<button class='btn primary' data-act='spend'>+ Внести трату</button></div>");
 
     html += "<div class='card'><h2>" + E.MONTHS[wk.month - 1][0].toUpperCase() + E.MONTHS[wk.month - 1].slice(1) + " целиком</h2><table class='t'>" +
       "<tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
@@ -325,12 +1070,8 @@
     $main.querySelector("[data-act=today]").onclick = function () { var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week; render(); };
     var rb = $main.querySelector("[data-act=recon]"); if (rb && RO()) rb.remove(); else if (rb) rb.onclick = function () { ui.recWeek = { year: y, week: w }; location.hash = "#recon"; };
     $main.querySelectorAll("[data-cell]").forEach(function (li) { li.onclick = function () { editCell(y, li.dataset.cell, w); }; });
-    if ($main.querySelector("#quick")) $main.querySelector("#quick").onsubmit = function (e) {
-      e.preventDefault();
-      var f = e.target;
-      try { addToCell(y, f.cat.value, w, f.v.value, f.note.value); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
-      toast("Добавлено в «" + catName(f.cat.value) + "»"); changed();
-    };
+    var sb = $main.querySelector("[data-act=spend]");
+    if (sb) sb.onclick = function () { spendModal({ date: isNow(y, w) ? E.todayISO() : wk.from, after: function (t) { ui.year = t.year; ui.week = t.week; } }); };
   };
   function kpi(label, value, foot, flag) {
     return "<div class='kpi" + (flag ? " flag" : "") + "'><div class='kpi-label'>" + label + "</div><div class='kpi-value'>" + value + "</div><div class='kpi-foot'>" + (foot || "") + "</div></div>";
@@ -358,7 +1099,7 @@
       rules[ru.catId] = (rules[ru.catId] ? rules[ru.catId] + "; " : "") + E.fmt(ru.cents) + " · " + ru.weeks;
     });
     var html = "<div class='page-head'><div><h1>Год " + y + "</h1><div class='sub'>Строки — категории, столбцы — недели. <span style='color:var(--rec)'>Серым</span> — регулярные, " +
-      "<span style='color:var(--manual)'>синим</span> — вписано вручную. Кликни ячейку, чтобы изменить.</div></div>" +
+      "<span style='color:var(--manual)'>синим</span> — вписано вручную. Нажми на ячейку, чтобы изменить.</div></div>" +
       yearChips(y, true, RO() ? "" : "<button class='chip' data-act='newyear'>+ " + (Number(years()[years().length - 1]) + 1) + "</button>") + "</div>";
 
     var head1 = "<tr><th class='sticky'>" + y + "</th><th class='sticky2'>регулярно</th>", head2 = "<tr><th class='sticky'></th><th class='sticky2'>сумма · недели</th>";
@@ -384,7 +1125,7 @@
         weeks.forEach(function (wk) {
           var cell = r.cells[c.id][wk.idx];
           var cls = "v " + (wk.wim === 1 ? "mstart " : "") + (wk.idx === nowIdx ? "now " : "") + (cell ? cell.src + " " : "") + (cell && cell.note ? "note " : "") + (ro ? "ro" : "");
-          var title = cell ? (cell.src === "manual" ? "=" + (cell.expr || "") : "регулярный") + (cell.note ? " · " + cell.note : "") : "";
+          var title = cell ? (cell.src === "manual" ? "=" + (cell.expr || "") : "регулярная") + (cell.note ? " · " + cell.note : "") : "";
           body += "<td class='" + cls + "' data-c='" + c.id + "' data-w='" + wk.idx + "' title='" + esc(title) + "'>" + (cell ? E.fmt(cell.cents, { dec: Math.abs(cell.cents) < 10000 && cell.cents % 100 ? 2 : 0 }) : "") + "</td>";
         });
         body += "</tr>";
@@ -464,7 +1205,7 @@
   function newYearDialog() {
     var last = Number(activeYears()[activeYears().length - 1] || new Date().getFullYear() - 1), ny = last + 1;
     modal("<div class='m-body'><h2>Новый год: " + ny + "</h2><p class='muted'>Старт года — остатки на 31.12." + last + " по каждой строке капитала (считаются сами).</p>" +
-      "<label class='row'><input type='checkbox' id='nyRec' checked> Скопировать регулярные платежи</label>" +
+      "<label class='row'><input type='checkbox' id='nyRec' checked> Перенести регулярные траты</label>" +
       "<label class='row' style='margin-top:6px'><input type='checkbox' id='nyOne'> Скопировать разовые траты «как в прошлом году» в те же недели</label></div>" +
       "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Создать " + ny + "</button></div>", function (m) {
       m.querySelector("[data-act=cancel]").onclick = closeModal;
@@ -477,7 +1218,7 @@
 
   // ===== СВЕРКА =====
   routes.recon = function () {
-    var sel = ui.recWeek || defaultYearWeek();
+    var sel = ui.recWeek || finishedWeek() || defaultYearWeek();
     if (state.years[sel.year].archived) sel = defaultYearWeek();
     var y = sel.year, w = sel.week, yr = state.years[y], r = E.compute(state, y), wk = r.weeks[w];
     yr.recon = yr.recon || {}; yr.savRecon = yr.savRecon || {};
@@ -488,16 +1229,21 @@
       return null;
     }
     var accs = state.accounts.filter(function (a) { return !a.archived; }).sort(function (a, b) { return a.sort - b.sort; });
-    var html = "<div class='page-head'><div><h1>Сверка</h1><div class='sub'>Раз в 1–2 недели: внеси реальные остатки на счетах в обращении. Получится ФАКТ — дальше план считается от него.</div></div>" +
+    var html = "<div class='page-head'><div><h1>Сверка</h1><div class='sub'>Впиши, сколько сейчас на счетах, — увидишь, совпало ли с планом. Дальше план считается от этих цифр.</div></div>" +
       "<div class='row'>" + yearChips(y, false) + "<select id='recW'>" + weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }) + "</select></div></div>";
+    html += "<div class='card rc-card'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>нажми на неделю, чтобы открыть</span></div>" + reconCalendar(y, false, w) + "</div>";
+    var fwk = finishedWeek();
+    if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 16px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
+      (fwk ? " <button class='btn sm' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
     html += "<div class='grid2'><div class='card'><h2>Остатки · " + esc(E.weekTitle(Number(y), w)) + "</h2><form id='recForm' class='form-grid'>";
     accs.forEach(function (a) {
       var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
       html += "<label class='f'>" + esc(a.name) + (a.kind === "info" ? " <span class='badge'>не в факте</span>" : !active ? " <span class='badge'>с " + esc(a.countsFrom) + "</span>" : "") +
-        "<input type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk)) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></label>";
+        "<input type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk)) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + ">" +
+        (/налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name) ? "<button type='button' class='linkish small' data-cashfill='" + a.id + "' style='text-align:left'>по учёту налички: " + E.eur(cashEurTotal()) + " — подставить</button>" : "") + "</label>";
     });
-    html += "</form><details style='margin-top:14px'" + (Object.keys(srec).length ? " open" : "") + "><summary>Накопления и рубли (по желанию, раз в квартал)</summary>" +
-      "<p class='small muted'>Остаток целиком: заменяет расчёт, а не прибавляется. Так учитываются рост инвестиций и проценты.</p><form id='savForm' class='form-grid'>";
+    html += "</form><details style='margin-top:14px'" + (Object.keys(srec).length ? " open" : "") + "><summary>Накопления, рубли и доллары (по желанию, раз в квартал)</summary>" +
+      "<p class='small muted'>Впиши весь остаток, а не изменение: он заменит расчёт. Так учитываются рост инвестиций и проценты.</p><form id='savForm' class='form-grid'>";
     E.CAPITAL_ROWS.forEach(function (cr) {
       html += "<label class='f'>" + cr.name + "<input type='text' inputmode='decimal' name='" + cr.key + "' value='" + (srec[cr.key] !== undefined ? esc(srec[cr.key] / 100) : "") +
         "' placeholder='" + esc(E.fmt(rnd(r.rows[cr.key][w]))) + "'></label>";
@@ -506,9 +1252,7 @@
       (rec && Object.keys(rec).length ? "<button class='btn ghost danger' id='recClear'>Очистить неделю</button>" : "") + "</div></div>";
 
     html += "<div><div class='card' id='recResult'></div>" +
-      "<div class='card'><h2>Нашла трату в выписке?</h2><form id='recAdd' class='form-grid'><label class='f' style='grid-column:1/-1'>Категория<select name='cat'>" + catOptions("c31") + "</select></label>" +
-      "<label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required></label><label class='f'>Заметка<input type='text' name='note'></label>" +
-      "<button class='btn' type='submit'>Внести в эту неделю</button></form></div></div></div>";
+      "<div class='card'><h2>Нашла трату в выписке?</h2><p class='small muted' style='margin-top:-6px'>Внеси её — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести трату</button></div></div></div>";
 
     // история сверок
     var hist = [];
@@ -537,7 +1281,7 @@
       if (f !== null) {
         var d = f - calc;
         s += "<tr class='total'><td>Расхождение</td><td class='n " + (d < state.settings.diffAlert ? "neg" : d >= 0 ? "pos" : "") + "'>" + eur(d, { plus: true }) + "</td></tr></table>";
-        s += d < state.settings.diffAlert ? "<div class='alert'>Потрачено больше плана. Найди в выписке траты на <b>~" + eur(rnd(-d), { dec: 0 }) + "</b> и внеси их в категории справа — так станет понятно, куда ушли деньги.</div>"
+        s += d < state.settings.diffAlert ? "<div class='alert'>Потрачено больше плана. Найди в выписке траты на <b>~" + eur(rnd(-d), { dec: 0 }) + "</b> и внеси их кнопкой «Внести трату» — станет понятно, куда ушли деньги.</div>"
           : d > 5000 ? "<div class='ok-box'>Денег больше, чем по плану, на " + eur(rnd(d), { dec: 0 }) + ". Возможно, не внесён доход или трата ещё не списалась.</div>"
             : "<div class='ok-box'>Всё сходится с планом. Следующие недели посчитаются от факта.</div>";
       } else s += "</table><p class='small muted'>Впиши остатки — расхождение посчитается сразу.</p>";
@@ -545,6 +1289,8 @@
       box.innerHTML = s;
     }
     $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
+    $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
+    bindRecCal(y);
     liveResult();
     bindYearChips(function (yy) { ui.recWeek = { year: yy, week: yy === sel.year ? w : 0 }; render(); });
     $main.querySelector("#recW").onchange = function (e) { ui.recWeek = { year: y, week: Number(e.target.value) }; render(); };
@@ -567,16 +1313,13 @@
       changed(); toast("Сверка сохранена");
     };
     var cl = $main.querySelector("#recClear");
-    if (cl) cl.onclick = function () { if (!confirm("Удалить сверку этой недели?")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
-    $main.querySelector("#recAdd").onsubmit = function (e) {
-      e.preventDefault();
-      try { addToCell(y, e.target.cat.value, w, e.target.v.value, e.target.note.value); } catch (err) { toast("Ошибка: " + err.message); return; }
-      ui.recWeek = { year: y, week: w }; toast("Внесено — расхождение пересчитано"); changed();
-    };
+    if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
+    $main.querySelector("#recAdd").onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; } }); };
+    var td = $main.querySelector("#toDone"); if (td) td.onclick = function () { ui.recWeek = fwk; render(); };
     $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; render(); }; });
   };
 
-  // ===== РЕГУЛЯРНЫЕ =====
+  // ===== РЕГУЛЯРНЫЕ ТРАТЫ =====
   routes.recurring = function () {
     var y = ui.recYear && state.years[ui.recYear] && !state.years[ui.recYear].archived ? ui.recYear : ui.year, yr = state.years[y];
     yr.recurring = yr.recurring || [];
@@ -585,7 +1328,17 @@
       return (ca.sort - cb.sort) || (a.from < b.from ? -1 : 1);
     });
     var monthOpts = function (sel) { return E.MONTHS.map(function (m, i) { var v = y + "-" + (i < 9 ? "0" : "") + (i + 1) + "-01"; return "<option value='" + v + "'" + (v === sel ? " selected" : "") + ">с " + E.MONTHS_GEN[i].replace(/я$/, "я") + " (" + m + ")</option>"; }).join(""); };
-    var html = "<div class='page-head'><div><h1>Регулярные платежи</h1><div class='sub'>Сумма разойдётся по неделям месяца: 1…5, списком (2,4) или «все». Изменение «с мая» не трогает прошлые месяцы.</div></div>" + yearChips(y, false) + "</div>";
+    var html = "<div class='page-head'><div><h1>Регулярные траты</h1><div class='sub'>То, что повторяется каждый месяц: аренда, подписки, телефон и зарплата (доходы — со знаком плюс). Задаёшь один раз — сумма сама встаёт в нужные недели.</div></div>" + yearChips(y, false) + "</div>";
+    var cands = RO() ? [] : E.findRepeats(state, y);
+    var wText = function (ws) { return ws === "все" ? "каждую неделю" : ws.split(",").map(function (x) { return x + "-я"; }).join(" и ") + (ws.indexOf(",") > 0 ? " недели" : " неделя"); };
+    var mText = function (c) { return c.toM === 11 ? (c.fromM === 0 ? "весь год" : "с " + E.MONTHS_GEN[c.fromM].replace(/я$/, "я") + " до конца года") : E.MONTHS_SHORT[c.fromM] + "–" + E.MONTHS_SHORT[c.toM]; };
+    if (cands.length) html += "<div class='card repeat-card'><h2>Нашла " + cands.length + " " + (cands.length % 10 === 1 && cands.length % 100 !== 11 ? "трату, которая повторяется" : "трат, которые повторяются") + ", но вписаны вручную</h2>" +
+      "<p class='small muted' style='margin-top:-4px'>Одна и та же сумма в одни и те же недели, месяц за месяцем. Если сделать их регулярными, менять сумму придётся в одном месте, и в план следующего года они перенесутся сами. " +
+      "<b>Цифры в плане не изменятся:</b> перед сохранением проверяю каждую клетку года, а записи с заметками оставляю как есть.</p><ul class='repeat-list'>" +
+      cands.map(function (c, i) {
+        var cat = state.categories.find(function (x) { return x.id === c.catId; }) || { name: c.catId, currency: "EUR" };
+        return "<li><label><input type='checkbox' checked data-rp='" + i + "'><span class='name'>" + esc(cat.name) + "</span><span class='muted small'>" + esc(wText(c.weeks)) + " · " + esc(mText(c)) + "</span><span class='val " + sign(c.cents) + "'>" + E.fmt(c.cents, { cur: cur(cat) }) + "</span></label></li>";
+      }).join("") + "</ul><div class='row' style='margin-top:12px'><button class='btn primary' id='rpGo'>Сделать регулярными</button><button class='btn ghost' id='rpBackup'>Сначала скачать бэкап</button></div></div>";
     html += "<div class='tbl-wrap'><table class='t'><thead><tr><th>Категория</th><th class='n'>Сумма</th><th>Недели</th><th>Действует</th><th class='n'>В год</th><th></th></tr></thead><tbody>";
     var weeks = E.genWeeks(Number(y));
     list.forEach(function (ru) {
@@ -595,24 +1348,34 @@
         "<td>" + esc(ru.weeks) + "</td><td class='small'>" + (ru.from ? "с " + esc(ru.from.slice(8, 10) + "." + ru.from.slice(5, 7)) : "") + (ru.to ? " по " + esc(ru.to.slice(8, 10) + "." + ru.to.slice(5, 7)) : " — до конца года") + "</td>" +
         "<td class='n'>" + E.fmt(ru.cents * n, { cur: cur(c), dec: 0 }) + "</td><td class='n'><button class='btn sm' data-edit='" + ru.id + "'>Изменить</button> <button class='btn sm ghost danger' data-del='" + ru.id + "' aria-label='Удалить'>✕</button></td></tr>";
     });
-    if (!list.length) html += "<tr><td colspan='6' class='muted'>Регулярных платежей нет — добавь ниже.</td></tr>";
+    if (!list.length) html += "<tr><td colspan='6' class='muted'>Регулярных трат пока нет — добавь первую ниже: например, аренду.</td></tr>";
     html += "</tbody></table></div>";
-    html += "<div class='card section'><h2>Добавить регулярный</h2><form id='addRule' class='form-grid'><label class='f'>Категория<select name='cat'>" + catOptions() + "</select></label>" +
+    html += "<div class='card section'><h2>Добавить регулярную трату</h2><p class='small muted' style='margin-top:-6px'>«Недели месяца» — когда списывается: <b>1</b> — первая неделя, <b>2,4</b> — вторая и четвёртая, <b>все</b> — каждую неделю (например, продукты).</p><form id='addRule' class='form-grid'><label class='f'>Категория<select name='cat'>" + catOptions() + "</select></label>" +
       "<label class='f'>Сумма (минус — расход)<input type='text' name='expr' placeholder='-150' required inputmode='decimal'></label>" +
       "<label class='f'>Недели месяца<input type='text' name='weeks' placeholder='все · 1 · 2,4 · 5' required></label>" +
       "<label class='f'>Действует<select name='from'>" + monthOpts(y + "-01-01") + "</select></label><button class='btn primary' type='submit'>Добавить</button></form></div>";
     $main.innerHTML = html;
     bindYearChips(function (yy) { ui.recYear = yy; render(); });
+    if (cands.length) {
+      $main.querySelector("#rpBackup").onclick = backupDownload;
+      $main.querySelector("#rpGo").onclick = function () {
+        var picked = cands.filter(function (_, i) { return $main.querySelector("[data-rp='" + i + "']").checked; });
+        if (!picked.length) { toast("Отметь хотя бы одну"); return; }
+        var done = 0, skipped = 0;
+        picked.forEach(function (c) { if (E.applyRepeat(state, y, c)) done++; else skipped++; });
+        changed(); toast("Готово: " + done + " теперь регулярные, план не изменился" + (skipped ? ". Пропущено " + skipped + " — суммы бы сдвинулись" : ""));
+      };
+    }
     $main.querySelector("#addRule").onsubmit = function (e) {
       e.preventDefault();
       var f = e.target, c;
       try { c = E.exprCents(f.expr.value); } catch (err) { toast("Ошибка: " + err.message); return; }
-      if (!/^(все|\s*[1-5](\s*,\s*[1-5])*)$/i.test(f.weeks.value.trim())) { toast("Недели: «все» или цифры 1–5 через запятую"); return; }
+      if (!/^(все|\s*[1-5](\s*,\s*[1-5])*)$/i.test(f.weeks.value.trim())) { toast("Недели месяца: «все» или цифры от 1 до 5 через запятую, например 2,4"); return; }
       yr.recurring.push({ id: E.uid("r"), catId: f.cat.value, expr: f.expr.value.trim(), cents: c, weeks: f.weeks.value.trim().toLowerCase(), from: f.from.value, to: null });
-      changed(); toast("Добавлено");
+      changed(); toast("Регулярная трата «" + catName(f.cat.value) + "» добавлена");
     };
     $main.querySelectorAll("[data-del]").forEach(function (b) {
-      b.onclick = function () { if (!confirm("Удалить правило? Уже вписанные вручную суммы останутся.")) return; yr.recurring = yr.recurring.filter(function (x) { return x.id !== b.dataset.del; }); changed(); };
+      b.onclick = function () { if (!confirm("Удалить регулярную трату «" + catName((yr.recurring.find(function (x) { return x.id === b.dataset.del; }) || {}).catId) + "»? Она пропадёт из плана " + y + " года. Суммы, вписанные вручную, останутся.")) return; yr.recurring = yr.recurring.filter(function (x) { return x.id !== b.dataset.del; }); changed(); };
     });
     $main.querySelectorAll("[data-edit]").forEach(function (b) {
       b.onclick = function () {
@@ -640,7 +1403,7 @@
     var cloud = Store.mode === "cloud", meName = (Store.user() && Store.user().name) || "";
     $main.innerHTML = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>Общее пространство для двоих: траты, доли, баланс «кто кому должен».</div></div></div>" +
       "<div class='card' style='max-width:560px'><h2>Создать общее пространство</h2>" +
-      (cloud ? "<p class='muted' style='margin-top:-4px'>Партнёр подключится сам: пусть откроет этот сайт и войдёт со своим email — приложение узнает приглашение.</p>" : "") +
+      (cloud ? "<p class='muted' style='margin-top:-4px'>Партнёру ничего настраивать не нужно: пусть откроет этот сайт и войдёт с email, который ты укажешь.</p>" : "") +
       "<form id='spForm' class='form-grid'><label class='f'>Моё имя<input name='me' value='" + esc(meName) + "' required></label>" +
       "<label class='f'>Имя партнёра<input name='partner' required placeholder='Рита'></label>" +
       (cloud ? "<label class='f' style='grid-column:1/-1'>Email партнёра (для входа)<input type='email' name='email' required placeholder='rita@…'></label>" : "") +
@@ -669,10 +1432,11 @@
       return "<div class='kpi-value'>" + E.fmt(Math.abs(v), { cur: k === "EUR" ? "€" : k, dec: 2 }) + "</div><div class='kpi-foot'>" + (v > 0 ? esc(partner) + " должна тебе" : "ты должна " + esc(partner)) + "</div>";
     }).join("") || "<div class='kpi-value'>0 €</div><div class='kpi-foot'>вы в расчёте</div>";
     var invite = sh.partner && !sh.partner.userId && Store.mode === "cloud"
-      ? "<div class='hint small'>" + esc(partner) + " ещё не входила. Пусть откроет сайт и войдёт с <b>" + esc(sh.partner.email || "") + "</b> — пространство подключится само.</div>" : "";
+      ? "<div class='hint small row'><span style='flex:1 1 260px'>" + esc(partner) + " ещё не входила. Пусть откроет сайт и войдёт с <b>" + esc(sh.partner.email || "") + "</b> — пространство подключится само." +
+        " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить таблицу " + esc(partner) + "</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
 
     var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + ". Вносите оба, с любого устройства. Возвраты долга и расчёты — не траты.</div></div>" +
-      "<div class='row'><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div></div>" + invite;
+      "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div></div>" + invite;
     html += "<div class='grid2'><div class='kpi'><div class='kpi-label'>Баланс</div>" + balHtml + "<div class='row' style='margin-top:10px'><button class='btn primary sm' id='settle'>Рассчитаться</button></div></div>";
     html += "<div class='card add-card'><h2>Новая трата</h2><p class='muted small' style='margin-top:-6px'>Как в Splitwise: описание, сумма, кто платил и как делим — поровну, точными суммами, процентами, долями или с поправкой.</p>" +
       "<button class='btn primary' id='addExpBtn'>+ Добавить трату</button></div></div>" +
@@ -691,7 +1455,7 @@
       "<select id='fM'>" + mlist.map(function (m) { return "<option value='" + m + "'" + (m === st.month ? " selected" : "") + ">" + (m === "all" ? "все месяцы" : E.MONTHS[Number(m) - 1]) + "</option>"; }).join("") + "</select>" +
       "<select id='fC'><option value='all'>все категории</option>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
       "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["refund", "возвраты долга"], ["settlement", "расчёты"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div>";
-    html += "<div class='tbl-wrap'><table class='t'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Моя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
+    html += "<div class='tbl-wrap'><table class='t feed'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Твоя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
     filtered.slice(0, st.limit).forEach(function (e) {
       var k = e.kind, catSel;
       if (k === "settlement") catSel = "<span class='badge'>расчёт</span>";
@@ -712,7 +1476,7 @@
 
     var ms = S.monthlyShares(calc, set, st.year);
     var catsUsed = S.SHARED_CATS.filter(function (c) { return ms.byCat[c] && ms.byCat[c].some(function (v) { return Math.abs(v) >= 50; }); });
-    html += "<div class='section'><h2>Моя доля по категориям, € · " + st.year + "</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Категория</th>" +
+    html += "<div class='section'><h2>Твоя доля по категориям, € · " + st.year + "</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Категория</th>" +
       E.MONTHS_SHORT.map(function (m) { return "<th class='n'>" + m + "</th>"; }).join("") + "<th class='n'>Год</th></tr></thead><tbody>";
     var colTot = new Array(12).fill(0);
     catsUsed.forEach(function (c) {
@@ -723,7 +1487,7 @@
 
     if (myState.years[st.year]) {
       var cov = S.coverage(myState, calc, st.year);
-      html += "<div class='section'><h2>Сверка с моим личным планом: еда и развлечения</h2><p class='small muted' style='margin-top:-6px'>Еда = продукты + кафе + доставка из общих трат. «Вне общего счёта» — сколько из личных сумм на продукты и развлечения ушло мимо общих трат.</p>" +
+      html += "<div class='section'><h2>Общие и личный план: еда и развлечения</h2><p class='small muted' style='margin-top:-6px'>Еда = продукты + кафе + доставка из общих трат. «Вне общего счёта» — сколько из личных сумм на продукты и развлечения ушло мимо общих трат.</p>" +
         "<div class='tbl-wrap'><table class='t'><thead><tr><th></th>" + E.MONTHS_SHORT.map(function (m) { return "<th class='n'>" + m + "</th>"; }).join("") + "</tr></thead><tbody>" +
         covRow("Общие: еда", cov, "sharedFood") + covRow("Общие: развлечения", cov, "sharedFun") + covRow("Личный план: продукты + развлечения", cov, "personal") +
         "<tr><td>Вне общего счёта</td>" + cov.map(function (c) { return "<td class='n " + (c.personal && c.outside < 0 ? "neg" : "") + "'>" + (c.personal || c.shared ? E.fmt(rnd(c.outside)) : "") + "</td>"; }).join("") + "</tr>" +
@@ -752,8 +1516,13 @@
       b.onclick = function () { Store.updateShared(b.dataset.kind, { kind: b.dataset.to }).then(function () { return reloadShared(); }); };
     });
     $main.querySelectorAll("[data-delx]").forEach(function (b) {
-      b.onclick = function () { if (!confirm("Удалить запись у обоих?")) return; Store.deleteShared(b.dataset.delx).then(function () { return reloadShared("Удалено"); }); };
+      b.onclick = function () { if (!confirm("Удалить трату у вас обеих? Баланс пересчитается.")) return; Store.deleteShared(b.dataset.delx).then(function () { return reloadShared("Удалено"); }); };
     });
+    var pp = $main.querySelector("#prepPartner");
+    if (pp) {
+      $main.querySelector("#prepFile").onchange = function (e) { preparePartnerBudget(sh.partner.email, partner, e.target.files[0]); e.target.value = ""; };
+      Store.pendingFor(sh.partner.email).then(function (r) { if (r && pp.isConnected) pp.querySelector("span").textContent = "Обновить таблицу " + partner + " · загружена " + new Date(r.created_at).toLocaleDateString("ru-RU"); });
+    }
     $main.querySelector("#settle").onclick = function () {
       var v = bal.EUR || 0;
       modal("<div class='m-body'><h2>Рассчитаться</h2><p class='muted'>Перевод между вами — не трата, только меняет баланс.</p><div class='form-grid'>" +
@@ -1102,8 +1871,8 @@
         p: "Подушки на 2–3 месяца хватает в обращении; остальное (~" + eur(rnd(obrNow - monthly * 2), { dec: 0 }) + ") можно положить на счёт с процентом — перевод в накопления капитал не уменьшит." });
       var minV = Infinity, minW = 0;
       for (var i = wNow; i < 60; i++) if (rr.base[i] < minV) { minV = rr.base[i]; minW = i; }
-      out.push({ k: minV < 0 ? "warn" : "good", ic: minV < 0 ? "!" : "✓", h: minV < 0 ? "До конца года денег в обращении не хватит" : "До конца года денег хватает",
-        p: "Минимум в обращении — " + eur(rnd(minV), { dec: 0 }) + " (" + E.weekTitle(Number(curY), minW) + ")." });
+      out.push({ k: minV < 0 ? "warn" : "good", ic: minV < 0 ? "!" : "✓", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(curY, minW),
+        p: minV < 0 ? "Деньги в обращении уходят в минус. Стоит сдвинуть крупные траты или переложить из накоплений." : "Это самая низкая точка денег в обращении до конца года, если всё пойдёт по плану." });
     }
     // 6. общие траты
     var cov = RO() || !sh ? [] : S.coverage(state, sharedForCalc(), curY).filter(function (c) { return c.personal > 0 && c.shared > 0; });
@@ -1149,7 +1918,7 @@
     html += "</div>";
     html += "<div class='card'><h2>Основное</h2><form id='setMain' class='form-grid'>" +
       "<label class='f'>Курс: ₽ за 1 €<input type='text' name='rate' value='" + esc(s.rate) + "' inputmode='decimal'></label>" +
-      "<label class='f'>Порог красного расхождения, €<input type='text' name='alert' value='" + esc(-s.diffAlert / 100) + "' inputmode='decimal'></label>" +
+      "<label class='f'>Расхождение, после которого тревожиться, €<input type='text' name='alert' value='" + esc(-s.diffAlert / 100) + "' inputmode='decimal'></label>" +
       "<label class='f'>Курс GEL за 1 €<input type='text' name='gel' value='" + esc(s.fx.GEL) + "'></label>" +
       "<label class='f'>Курс USD за 1 €<input type='text' name='usd' value='" + esc(s.fx.USD) + "'></label>" +
       "<button class='btn primary' type='submit'>Сохранить</button></form>" +
@@ -1195,11 +1964,14 @@
     html += "</tbody></table></div><form id='addCat' class='row' style='margin-top:8px'><input type='text' name='name' placeholder='Новая категория' required><select name='block'>" +
       E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'>" + esc(x.name) + "</option>"; }).join("") + "</select><select name='cur'><option>EUR</option><option>RUB</option></select><button class='btn' type='submit'>+ категория</button></form></div>";
 
+    var rm = state.settings.reminder;
+    html += "<div class='section card'><h2>Напоминание о сверке</h2><p class='muted' style='margin-top:-4px'>" + (rm && rm.off ? "Выключено." : rm ? "Настроено: " + (rm.day === "MO" ? "по понедельникам" : "по воскресеньям") + " в " + esc(rm.time) + ". Если удалила событие из календаря — добавь заново." :
+      "Событие в календаре каждую неделю, со ссылкой на сверку.") + "</p><button class='btn' id='remBtn'>" + (rm ? "Изменить" : "Настроить") + "</button></div>";
     // данные
     html += "<div class='section card'><h2>Данные</h2><div class='row'><label class='btn primary'>Импорт из Excel / Google Sheets (.xlsx)<input type='file' id='xlsx' accept='.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' hidden></label>" +
       "<button class='btn' id='exp'>Скачать бэкап (JSON)</button><label class='btn'>Загрузить бэкап<input type='file' id='imp' accept='.json,application/json' hidden></label>" +
       "<button class='btn' id='expCsv'>Год в CSV</button><span class='spacer'></span>" + (window.SEED && !cloud ? "<button class='btn ghost danger' id='reseed'>Заново из seed.js</button>" : "") +
-      "<button class='btn ghost danger' id='wipe'>Начать с нуля</button></div><p class='small muted'>Google Sheets: Файл → Скачать → Microsoft Excel (.xlsx), затем «Импорт». Таблица должна быть в формате листов «Мой_ГГГГ».</p></div>";
+      "<button class='btn ghost danger' id='wipe'>Начать с нуля</button></div><p class='small muted'>Google Sheets: Файл → Скачать → Microsoft Excel (.xlsx), затем «Импорт». Подходят листы «Мой_ГГГГ» и «ГГГГ_€ REAL».</p></div>";
     $main.innerHTML = html;
 
     $main.querySelector("#setMain").onsubmit = function (e) {
@@ -1253,8 +2025,7 @@
       changed(); toast("Категория добавлена");
     };
     $main.querySelector("#exp").onclick = function () {
-      var data = JSON.parse(JSON.stringify(state)); delete data._ver;
-      download("easy-budget-backup-" + E.todayISO() + ".json", JSON.stringify(data), "application/json");
+      backupDownload();
     };
     $main.querySelector("#imp").onchange = function (e) {
       var file = e.target.files[0]; if (!file) return;
@@ -1275,6 +2046,12 @@
     if (rs) rs.onclick = function () { if (!confirm("Заменить бюджет данными из seed.js?")) return; replaceMine(fromSeed()); };
     $main.querySelector("#wipe").onclick = function () { if (!confirm("Стереть мой бюджет и начать с пустого года? Общие траты не тронутся.")) return; replaceMine(blank()); };
     $main.querySelector("#xlsx").onchange = function (e) { var f = e.target.files[0]; if (f) importXlsxFile(f); };
+    $main.querySelector("#remBtn").onclick = reminderModal;
+    // оглавление: настройки длинные
+    var heads = $main.querySelectorAll("h2"), toc = "";
+    heads.forEach(function (h, i) { h.id = "set-" + i; h.style.scrollMarginTop = "16px"; toc += "<button type='button' class='chip' data-goto='set-" + i + "'>" + esc(h.textContent.replace(/\s*\(.*$/, "")) + "</button>"; });
+    $main.querySelector(".page-head").insertAdjacentHTML("afterend", "<nav class='chips set-toc' aria-label='Разделы настроек'>" + toc + "</nav>");
+    $main.querySelectorAll("[data-goto]").forEach(function (b) { b.onclick = function () { document.getElementById(b.dataset.goto).scrollIntoView({ behavior: "smooth", block: "start" }); }; });
     $main.querySelector("#setProfile").onsubmit = function (e) {
       e.preventDefault();
       var n = e.target.name.value.trim();
@@ -1324,6 +2101,10 @@
       });
     });
   }
+  function backupDownload() {
+    var data = JSON.parse(JSON.stringify(myState)); delete data._ver;
+    download("easy-budget-backup-" + E.todayISO() + ".json", JSON.stringify(data), "application/json");
+  }
   function download(name, text, type) {
     var a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: type }));
@@ -1364,14 +2145,16 @@
 
   // ---------- роутер ----------
   function render() {
-    var route = (location.hash || "#week").slice(1);
-    if (!routes[route]) route = "week";
+    var route = (location.hash || "#home").slice(1);
+    if (!routes[route]) route = "home";
     document.body.classList.remove("auth");
     $main.classList.toggle("wide", route === "year");
     document.querySelectorAll("#nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === route); });
+    var extra = document.querySelector("#nav a.x[data-route='" + route + "']");
+    document.getElementById("navMore").classList.toggle("active", !!extra);
     profileBar();
     try {
-      if (RO() && route !== "shared") {
+      if (RO() && route !== "shared" && route !== "help" && route !== "tolog") {
         if (view.level === "totals" && view.summary) return partnerTotals();
         if (!state) { $main.innerHTML = "<div class='card'><h2>" + esc(view.name) + " закрыла доступ к своему бюджету</h2><p class='muted'>Она может открыть его в своих настройках.</p></div>"; return; }
         if (/^(recon|recurring|settings)$/.test(route)) {
@@ -1382,7 +2165,7 @@
       }
       routes[route]();
     }
-    catch (err) { console.error(err); $main.innerHTML = "<div class='alert'>Ошибка на экране: " + esc(err.message) + "</div>"; }
+    catch (err) { console.error(err); $main.innerHTML = "<div class='alert'>Этот экран не открылся: " + esc(err.message) + ". Обнови страницу — данные не пропали.</div>"; }
   }
   window.addEventListener("hashchange", function () { closeModal(); if (myState) render(); window.scrollTo(0, 0); });
 
@@ -1429,8 +2212,53 @@
         else start();
       }).catch(fail);
       else if (mode === "forgot") Store.resetPassword(email).then(function () { showLogin("✓ Письмо со ссылкой отправлено на " + email + ".", "in"); }).catch(fail);
-      else if (mode === "reset") Store.updatePassword(pw).then(function () { toast("Пароль обновлён"); location.hash = "#week"; start(); }).catch(fail);
+      else if (mode === "reset") Store.updatePassword(pw).then(function () { toast("Пароль обновлён"); location.hash = "#home"; start(); }).catch(fail);
     };
+  }
+
+  // Партнёр заранее загрузил мою таблицу — предложить начать с неё
+  function showPending(p) {
+    document.body.classList.add("auth");
+    var d = p.data, ys = Object.keys(d.years || {}).sort();
+    $main.innerHTML = "<div class='login card' style='max-width:560px'><div class='brand'><span class='brand-mark'>€</span><span class='brand-name'>Easy Budget</span></div>" +
+      "<h1>Твой бюджет уже здесь</h1><p class='muted'>Таблицу загрузили заранее: " + (ys.length ? "годы " + ys.join(", ") + ", " : "") + d.categories.filter(function (c) { return !c.archived; }).length + " категорий, " +
+      d.accounts.length + " счетов. Проверь цифры на «Главной» — если что-то не так, таблицу можно загрузить заново в «Настройках».</p>" +
+      "<form id='pnF' class='form-grid' style='margin-top:12px'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='" + esc((Store.user() || {}).name || "") + "' required></label>" +
+      "<button class='btn primary' type='submit'>Начать с этим бюджетом</button></form>" +
+      "<div class='row small' style='margin-top:12px'><button class='btn ghost sm' id='pnOther'>Начать по-другому</button></div></div>";
+    $main.querySelector("#pnF").onsubmit = function (e) {
+      e.preventDefault();
+      var n = e.target.name.value.trim(); if (!n) return;
+      if (n !== (Store.user() || {}).name) Store.updateProfileName(n).catch(function () {});
+      myState = state = migrate(JSON.parse(JSON.stringify(d)));
+      boot(); save();
+      Store.deletePending().catch(function () {});
+      toast("Бюджет на месте");
+    };
+    $main.querySelector("#pnOther").onclick = showOnboarding;
+  }
+  // Загрузить таблицу партнёра заранее: она заберёт её при первом входе
+  function preparePartnerBudget(email, name, file) {
+    (function () {
+      if (!file) return;
+      toast("Читаю таблицу…");
+      file.arrayBuffer().then(function (buf) {
+        var res;
+        try { res = window.BudgetImporter.importArrayBuffer(buf); } catch (err) { toast("Не получилось прочитать: " + err.message); return; }
+        var st = res.state, ys = Object.keys(st.years).sort();
+        modal("<div class='m-body'><h2>Бюджет для " + esc(name) + "</h2><p class='muted'>Нашла: годы " + ys.join(", ") + "; категорий " + st.categories.filter(function (c) { return !c.archived; }).length + "; счетов " + st.accounts.length + "; курс " + String(st.settings.rate).replace(".", ",") + " ₽/€.</p>" +
+          (res.warnings.length ? "<div class='hint small'>" + res.warnings.map(esc).join("<br>") + "</div>" : "") +
+          "<p class='small muted'>Когда " + esc(name) + " войдёт с <b>" + esc(email) + "</b>, приложение предложит начать с этим бюджетом. До этого его видишь только ты.</p></div>" +
+          "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить для " + esc(name) + "</button></div>", function (m) {
+          m.querySelector("[data-act=cancel]").onclick = closeModal;
+          m.querySelector("[data-act=ok]").onclick = function () {
+            st.settings.myName = name; st.settings.tourDone = false;
+            Store.savePendingFor(email, st).then(function () { closeModal(); toast("Готово: бюджет ждёт " + name); render(); })
+              .catch(function (err) { toast(/pending_budgets|relation|schema/i.test(err.message) ? "Сначала добавь таблицу в базу: SQL из файла supabase/pending_budget.sql" : "Не сохранилось: " + err.message); });
+          };
+        });
+      });
+    })();
   }
 
   function showOnboarding() {
@@ -1438,7 +2266,7 @@
     var u = Store.user() || {};
     $main.innerHTML = "<div class='login card' style='max-width:620px'><h1>Добро пожаловать</h1><p class='muted'>Бюджета пока нет. С чего начнём?</p>" +
       "<form id='obName' class='form-grid'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='" + esc(u.name || "") + "' required placeholder='Рита'></label></form>" +
-      "<div class='grid2' style='margin-top:12px'><label class='card' style='cursor:pointer'><b>Импорт таблицы</b><p class='small muted'>Excel или Google Sheets (Файл → Скачать → .xlsx) в формате листов «Мой_ГГГГ».</p>" +
+      "<div class='grid2' style='margin-top:12px'><label class='card' style='cursor:pointer'><b>Импорт таблицы</b><p class='small muted'>Excel или Google Sheets (Файл → Скачать → .xlsx). Подходят листы «Мой_ГГГГ» и «ГГГГ_€ REAL».</p>" +
       "<span class='btn primary'>Выбрать .xlsx</span><input type='file' id='obX' accept='.xlsx' hidden></label>" +
       "<div class='card'><b>С чистого листа</b><p class='small muted'>Пустой год с базовыми категориями — настроишь под себя.</p><button class='btn' id='obBlank'>Начать</button>" +
       "<label class='btn ghost' style='margin-top:6px'>Из бэкапа (JSON)<input type='file' id='obJ' accept='.json' hidden></label></div></div></div>";
@@ -1481,7 +2309,7 @@
       var b = x[0];
       if (!b) {
         if (Store.mode === "local" && window.SEED) return seedLocal();
-        return showOnboarding();
+        return Store.loadPending().then(function (p) { return p ? showPending(p) : showOnboarding(); }, function () { return showOnboarding(); });
       }
       myState = migrate(b.data);
       boot();

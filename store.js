@@ -130,6 +130,18 @@
           return { data: s, version: 1 };
         });
       },
+      // бюджет, подготовленный партнёром заранее (по моему email)
+      loadPending: function () {
+        return sb.from("pending_budgets").select("data,created_at").eq("email", (me.email || "").toLowerCase()).maybeSingle()
+          .then(function (r) { return r.error ? null : r.data; });
+      },
+      deletePending: function () { return sb.from("pending_budgets").delete().eq("email", (me.email || "").toLowerCase()).then(must); },
+      savePendingFor: function (email, data) {
+        return sb.from("pending_budgets").upsert({ email: String(email).toLowerCase(), data: data, created_by: me.id, created_at: new Date().toISOString() }).then(must);
+      },
+      pendingFor: function (email) {
+        return sb.from("pending_budgets").select("created_at").eq("email", String(email).toLowerCase()).maybeSingle().then(function (r) { return r.error ? null : r.data; });
+      },
       remoteVersion: function () { return Promise.resolve(null); },
       saveMyBudget: function (state) {
         var d = clone(state); delete d._ver; d.savedAt = new Date().toISOString();
@@ -137,6 +149,10 @@
       },
       updateProfileName: function (n) { me.name = n; return Promise.resolve(); },
       listPeople: function () { return Promise.resolve([]); },
+      loadPending: function () { return Promise.resolve(null); },
+      deletePending: function () { return Promise.resolve(); },
+      savePendingFor: function () { return Promise.reject(new Error("Подготовить бюджет для партнёра можно только в облачной версии")); },
+      pendingFor: function () { return Promise.resolve(null); },
       loadBudgetOf: function () { return Promise.resolve(null); },
       loadSummaryOf: function () { return Promise.resolve(null); },
       setVisibility: function () { return Promise.resolve(); },

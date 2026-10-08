@@ -24,6 +24,7 @@
     { key: "card_rub", name: "карта / счёт ₽" },
     { key: "dep_rub", name: "вклад ₽" },
     { key: "inv_rub", name: "инвестиции ₽" },
+    { key: "usd", name: "доллары $" },
   ];
 
   // ---------- даты ----------
@@ -200,12 +201,12 @@
     var y = state.years[year];
     if (!y) return null;
     var weeks = genWeeks(Number(year));
-    var cats = state.categories, rate = state.settings.rate || 1;
+    var cats = state.categories, rate = state.settings.rate || 1, usdRate = (state.settings.fx && state.settings.fx.USD) || 1.08;
     var cells = yearCells(state, year);
     var res = { year: Number(year), weeks: weeks, cells: cells, archived: !!y.archived };
 
     // суммы по неделе
-    var eurFlow = [], rubFlow = [], link = { sav: [], inv: [], cash: [], dep_rub: [], inv_rub: [] };
+    var eurFlow = [], rubFlow = [], link = { sav: [], inv: [], cash: [], dep_rub: [], inv_rub: [], usd: [] };
     for (var w = 0; w < 60; w++) {
       eurFlow[w] = 0; rubFlow[w] = 0;
       for (var k in link) link[k][w] = 0;
@@ -229,7 +230,7 @@
 
     var start = startOf(state, year);
     res.start = start;
-    var startCap = capitalOf(start, rate);
+    var startCap = capitalOf(start, rate, usdRate);
     res.startCap = startCap;
 
     var obr = [], fact = [], diff = [], base = [], rows = {}, cap = [], dweek = [], dmonth = [], rubEur = [];
@@ -252,14 +253,14 @@
       diff[w] = f === null ? null : f - obr[w];
       base[w] = f === null ? obr[w] : f;
       var s = sr[w] || {};
-      SAV_KEYS.concat(["dep_rub", "inv_rub"]).forEach(function (k) {
+      SAV_KEYS.concat(["dep_rub", "inv_rub", "usd"]).forEach(function (k) {
         var prev = w === 0 ? start[k] : rows[k][w - 1];
         rows[k][w] = (s[k] !== undefined && s[k] !== null) ? s[k] : prev - link[k][w];
       });
       var prevCard = w === 0 ? start.card_rub : rows.card_rub[w - 1];
       rows.card_rub[w] = (s.card_rub !== undefined && s.card_rub !== null) ? s.card_rub : prevCard + rubFlow[w];
       rubEur[w] = (rows.card_rub[w] + rows.dep_rub[w] + rows.inv_rub[w]) / rate;
-      cap[w] = base[w] + rows.sav[w] + rows.inv[w] + rows.cash[w] + rubEur[w];
+      cap[w] = base[w] + rows.sav[w] + rows.inv[w] + rows.cash[w] + rubEur[w] + rows.usd[w] / usdRate;
       dweek[w] = cap[w] - (w === 0 ? startCap : cap[w - 1]);
       dmonth[w] = weeks[w].wim === 5 ? cap[w] - (w < 5 ? startCap : cap[w - 5]) : null;
     }
@@ -274,14 +275,14 @@
     return res;
   }
 
-  function capitalOf(s, rate) {
-    return s.obr + s.sav + s.inv + s.cash + (s.card_rub + s.dep_rub + s.inv_rub) / rate;
+  function capitalOf(s, rate, usdRate) {
+    return s.obr + s.sav + s.inv + s.cash + (s.card_rub + s.dep_rub + s.inv_rub) / rate + (s.usd || 0) / (usdRate || 1.08);
   }
 
   // Старт года: вручную или остатки последней недели прошлого года (3.7)
   function startOf(state, year) {
     var y = state.years[year];
-    var zero = { obr: 0, sav: 0, inv: 0, cash: 0, card_rub: 0, dep_rub: 0, inv_rub: 0 };
+    var zero = { obr: 0, sav: 0, inv: 0, cash: 0, card_rub: 0, dep_rub: 0, inv_rub: 0, usd: 0 };
     if (!y.fromPrev) return Object.assign({}, zero, y.start || {});
     var prev = state.years[String(Number(year) - 1)];
     if (!prev || prev.archived) return Object.assign({}, zero, y.start || {});
@@ -378,7 +379,7 @@
     var prev = state.years[String(year - 1)];
     var ny = { year: year, labels: genWeeks(year).map(function (w) { return w.label; }), start: null, fromPrev: !!prev && !prev.archived,
       entries: {}, recurring: [], recon: {}, savRecon: {}, notes: "" };
-    if (!ny.fromPrev) ny.start = { obr: 0, sav: 0, inv: 0, cash: 0, card_rub: 0, dep_rub: 0, inv_rub: 0 };
+    if (!ny.fromPrev) ny.start = { obr: 0, sav: 0, inv: 0, cash: 0, card_rub: 0, dep_rub: 0, inv_rub: 0, usd: 0 };
     if (prev && opts.copyRecurring !== false) {
       var endISO = (year - 1) + "-12-31";
       (prev.recurring || []).forEach(function (r) {
@@ -400,6 +401,63 @@
     return ny;
   }
 
+  // Ручные записи, которые повторяются месяц за месяцем (та же сумма в те же недели месяца) — кандидаты в регулярные
+  function findRepeats(state, year, minMonths) {
+    minMonths = minMonths || 3;
+    var y = state.years[String(year)], out = [];
+    if (!y) return out;
+    var rules = y.recurring || [];
+    Object.keys(y.entries || {}).forEach(function (cid) {
+      var e = y.entries[cid], by = {};
+      Object.keys(e).forEach(function (w) {
+        var en = e[w], wi = Number(w);
+        if (en.cents === null || en.cents === undefined || !en.cents || en.shared) return;
+        var m = Math.floor(wi / 5);
+        by[en.cents] = by[en.cents] || {};
+        (by[en.cents][m] = by[en.cents][m] || []).push(wi % 5 + 1);
+      });
+      Object.keys(by).forEach(function (cents) {
+        var months = by[cents], key = function (m) { return months[m] ? months[m].slice().sort().join(",") : ""; };
+        for (var m = 0; m < 12; m++) {
+          if (!months[m]) continue;
+          var k = key(m), s = m;
+          while (m + 1 < 12 && key(m + 1) === k) m++;
+          if (m - s + 1 < minMonths) continue;
+          // уже есть регулярная в этой категории на эти месяцы — не предлагаем
+          var from = iso(year, s + 1, 1), to = iso(year, m + 1, daysInMonth(year, m + 1));
+          if (rules.some(function (r) { return r.catId === cid && !(r.to && r.to < from) && !(r.from && r.from > to); })) continue;
+          out.push({ catId: cid, cents: Number(cents), weeks: k === "1,2,3,4,5" ? "все" : k, fromM: s, toM: m });
+        }
+      });
+    });
+    return out;
+  }
+  // Превратить кандидата в регулярную трату. Суммы в плане не должны измениться — иначе откат.
+  function applyRepeat(state, year, c) {
+    year = String(year);
+    var y = state.years[year], before = yearCells(state, year);
+    y.recurring = y.recurring || [];
+    var rule = { id: uid("r"), catId: c.catId, expr: String(c.cents / 100), cents: c.cents, weeks: c.weeks,
+      from: iso(Number(year), c.fromM + 1, 1), to: c.toM === 11 ? null : iso(Number(year), c.toM + 1, daysInMonth(Number(year), c.toM + 1)) };
+    y.recurring.push(rule);
+    var e = y.entries[c.catId] || {}, removed = [];
+    Object.keys(e).forEach(function (w) {
+      var wi = Number(w), m = Math.floor(wi / 5), en = e[w];
+      if (m < c.fromM || m > c.toM || en.cents !== c.cents || en.note) return;
+      if (!/^[-+]?\d+([.,]\d+)?$/.test(String(en.expr).trim())) return;
+      removed.push([w, en]); delete e[w];
+    });
+    var after = yearCells(state, year), same = Object.keys(before).every(function (cid) {
+      return before[cid].every(function (x, w) { var a = after[cid][w]; return (x ? x.cents : 0) === (a ? a.cents : 0); });
+    });
+    if (!same) {
+      y.recurring.splice(y.recurring.indexOf(rule), 1);
+      removed.forEach(function (p) { e[p[0]] = p[1]; });
+      return null;
+    }
+    return { rule: rule, removed: removed.length };
+  }
+
   var uidN = 0;
   function uid(p) { return (p || "id") + Date.now().toString(36) + (uidN++).toString(36) + Math.random().toString(36).slice(2, 6); }
 
@@ -410,5 +468,6 @@
     yearCells: yearCells, compute: compute, startOf: startOf, capitalOf: capitalOf, monthly: monthly,
     categoryTotals: categoryTotals, setEntry: setEntry, changeRuleFrom: changeRuleFrom, createYear: createYear,
     catsById: catsById, ruleMatches: ruleMatches, accountActive: accountActive, uid: uid,
+    findRepeats: findRepeats, applyRepeat: applyRepeat,
   };
 })(typeof window !== "undefined" ? window : this);
