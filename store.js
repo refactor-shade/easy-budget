@@ -47,6 +47,16 @@
   }
 
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  // ошибка сети (а не отказ сервера): такие изменения откладываем и отправим, когда связь вернётся
+  function isNetErr(err) {
+    if (root.navigator && root.navigator.onLine === false) return true;
+    var m = String((err && (err.message || err.details)) || err || "");
+    return /failed to fetch|load failed|networkerror|network request failed|fetch failed|err_internet|timeout/i.test(m);
+  }
+  function uuid() {
+    if (root.crypto && root.crypto.randomUUID) return root.crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); });
+  }
 
   // ---------- приватные категории: отдельный документ, видит только владелец ----------
   function splitPrivate(state) {
@@ -95,7 +105,7 @@
     var cost = Number(row.amount_cents), share = Number((row.shares || {})[meId] || 0), mine = row.paid_by === meId;
     return { id: row.id, ext: row.ext_id, date: String(row.date).slice(0, 10), desc: row.description, cost: cost, currency: row.currency,
       net: (mine ? cost : 0) - share, share: share, paidByMe: mine, kind: row.kind, cat: row.category || null, swCat: row.sw_category || null,
-      method: row.method, source: row.source, paidBy: row.paid_by, shares: row.shares, createdBy: row.created_by, split: row.split || null, note: row.note || "" };
+      method: row.method, source: row.source, paidBy: row.paid_by, shares: row.shares, createdBy: row.created_by, split: row.split || null, note: row.note || "", pending: !!row._pending };
   }
   function toRow(e, meId, partnerId, spaceId) {
     var shares = {};
@@ -192,6 +202,7 @@
         });
       },
       wipe: function () { return Promise.all([kvDel("state"), kvDel("space"), kvDel("shared_rows")]); },
+      outboxCount: function () { return Promise.resolve(0); }, flushOutbox: function () { return Promise.resolve(); }, onOutbox: function () {},
     };
     return api;
   }
@@ -222,7 +233,13 @@
       _afterLogin: function () {
         return sb.rpc("claim_invites").then(function () {
           return sb.from("profiles").select("name").eq("id", me.id).maybeSingle();
-        }).then(function (r) { if (r.data && r.data.name) me.name = r.data.name; });
+        }).then(function (r) {
+          if (r.data && r.data.name) { me.name = r.data.name; kvSet("name:" + me.id, me.name); }
+        }).catch(function (err) {
+          // без сети вход всё равно есть (сессия на устройстве) — имя берём из кэша
+          if (!isNetErr(err)) throw err;
+          return kvGet("name:" + me.id).then(function (n) { if (n) me.name = n; });
+        }).then(function () { api.flushOutbox(); });
       },
       signUp: function (email, password) {
         return sb.auth.signUp({ email: email, password: password, options: { emailRedirectTo: location.origin + location.pathname } }).then(must).then(function (d) {
@@ -258,10 +275,21 @@
           version = r[0].version;
           var data = mergePrivate(r[0].data, r[1] && r[1].data);
           kvSet("cache:" + me.id, { data: data, version: version });
-          return { data: data, version: version };
+          // есть изменения, сделанные без сети и ещё не отправленные?
+          return kvGet("outbox:budget:" + me.id).then(function (ob) {
+            if (!ob) return { data: data, version: version };
+            if (ob.base === version) return { data: ob.data, version: version, pendingLocal: true };
+            // бюджет успели изменить на другом устройстве — берём облачный, а свои изменения отдаём на сохранение копией
+            return kvDel("outbox:budget:" + me.id).then(function () { return { data: data, version: version, conflictLocal: ob }; });
+          });
         }).catch(function (err) {
-          // нет сети — берём кэш с этого устройства
-          return kvGet("cache:" + me.id).then(function (c) { if (c) { version = c.version; c.offline = true; return c; } throw err; });
+          // нет сети — берём неотправленное или кэш с этого устройства
+          return Promise.all([kvGet("outbox:budget:" + me.id), kvGet("cache:" + me.id)]).then(function (x) {
+            var ob = x[0], c = x[1];
+            if (ob) { version = ob.base; return { data: ob.data, version: ob.base, offline: true, pendingLocal: true }; }
+            if (c) { version = c.version; c.offline = true; return c; }
+            throw err;
+          });
         });
       },
       // резервные копии: в облаке (последние 12) и на этом устройстве — на случай без сети
@@ -299,13 +327,17 @@
       },
       localVersion: function () { return version; },
       saveMyBudget: function (state) {
-        var parts = splitPrivate(state);
-        return sb.rpc("save_budget", { new_data: parts.pub, expected_version: version }).then(function (r) {
+        var parts = splitPrivate(state), base = version, local = clone(state);
+        delete local._ver;
+        // сначала на устройство: если связь пропадёт или приложение закроют, изменения не потеряются
+        var stash = kvSet("outbox:budget:" + me.id, { data: local, base: base, at: new Date().toISOString() });
+        return stash.then(function () { return sb.rpc("save_budget", { new_data: parts.pub, expected_version: base }); }).then(function (r) {
           if (r.error) {
             if (/version_conflict/.test(r.error.message)) { var e = new Error("conflict"); e.code = "conflict"; throw e; }
             throw r.error;
           }
           version = r.data;
+          kvDel("outbox:budget:" + me.id);
           kvSet("cache:" + me.id, { data: mergePrivate(parts.pub, parts.priv), version: version });
           return Promise.all([
             sb.from("budget_private").upsert({ owner_id: me.id, data: parts.priv, updated_at: new Date().toISOString() }).then(must),
@@ -343,6 +375,12 @@
 
       // общее пространство
       loadSpace: function () {
+        return api._loadSpace().then(function (sp) { kvSet("space:" + me.id, sp); return sp; }, function (err) {
+          if (!isNetErr(err)) throw err;
+          return kvGet("space:" + me.id);
+        });
+      },
+      _loadSpace: function () {
         return sb.from("space_people").select("space_id").eq("user_id", me.id).limit(1).then(must).then(function (r) {
           if (!r.length) return null;
           var sid = r[0].space_id;
@@ -357,8 +395,19 @@
       createSpace: function (name, myName, partnerName, partnerEmail) {
         return sb.rpc("create_space", { space_name: name, my_name: myName, partner_name: partnerName, partner_email: partnerEmail || "" }).then(must).then(api.loadSpace);
       },
-      saveSpaceSettings: function (spaceId, settings) { return sb.from("spaces").update({ settings: settings }).eq("id", spaceId).then(must); },
+      saveSpaceSettings: function (spaceId, settings) {
+        return api._try({ op: "settings", spaceId: spaceId, settings: settings });
+      },
       loadShared: function (spaceId) {
+        return api._loadShared(spaceId).then(function (rows) {
+          kvSet("shared:" + spaceId, rows);
+          return api._overlay(spaceId, rows);
+        }, function (err) {
+          if (!isNetErr(err)) throw err;
+          return kvGet("shared:" + spaceId).then(function (rows) { return api._overlay(spaceId, rows || []); });
+        });
+      },
+      _loadShared: function (spaceId) {
         var all = [], page = 1000;
         function next(from) {
           return sb.from("shared_expenses").select("*").eq("space_id", spaceId).order("date").order("created_at").range(from, from + page - 1).then(must).then(function (rows) {
@@ -368,7 +417,13 @@
         }
         return next(0);
       },
+      // Траты на двоих: пробуем отправить сразу, без сети — в очередь на устройстве
       insertShared: function (rows) {
+        rows.forEach(function (r) { if (!r.ext_id && !r.id) r.id = uuid(); });
+        if (rows.length > 50) return api._insertShared(rows); // импорт CSV — только при связи
+        return api._try({ op: "insert", rows: rows }).then(function (n) { return typeof n === "number" ? n : rows.length; });
+      },
+      _insertShared: function (rows) {
         var chunks = [];
         for (var i = 0; i < rows.length; i += 500) chunks.push(rows.slice(i, i + 500));
         var added = 0;
@@ -382,8 +437,71 @@
           });
         }, Promise.resolve()).then(function () { return added; });
       },
-      updateShared: function (id, patch) { patch.updated_at = new Date().toISOString(); return sb.from("shared_expenses").update(patch).eq("id", id).then(must); },
-      deleteShared: function (id) { return sb.from("shared_expenses").delete().eq("id", id).then(must); },
+      updateShared: function (id, patch) { patch.updated_at = new Date().toISOString(); return api._try({ op: "update", id: id, patch: patch }); },
+      deleteShared: function (id) { return api._try({ op: "delete", id: id }); },
+      _run: function (o) {
+        if (o.op === "insert") return api._insertShared(o.rows);
+        if (o.op === "update") return sb.from("shared_expenses").update(o.patch).eq("id", o.id).then(must);
+        if (o.op === "delete") return sb.from("shared_expenses").delete().eq("id", o.id).then(must);
+        if (o.op === "settings") return sb.from("spaces").update({ settings: o.settings }).eq("id", o.spaceId).then(must);
+        return Promise.resolve();
+      },
+      _queue: function () { return kvGet("outbox:shared:" + me.id).then(function (q) { return q || []; }); },
+      // если очередь не пуста — новое действие встаёт за ней, чтобы порядок не нарушился
+      _try: function (o) {
+        return api._queue().then(function (q) {
+          if (q.length) return api._enqueue(o).then(function () { api.flushOutbox(); return null; });
+          return api._run(o).catch(function (err) {
+            if (!isNetErr(err)) throw err;
+            return api._enqueue(o).then(function () { return null; });
+          });
+        });
+      },
+      _enqueue: function (o) {
+        return api._queue().then(function (q) { o.at = new Date().toISOString(); q.push(o); return kvSet("outbox:shared:" + me.id, q); }).then(api._notify);
+      },
+      // неотправленные действия поверх загруженных строк — чтобы лента сразу показывала то, что внесено без сети
+      _overlay: function (spaceId, rows) {
+        return api._queue().then(function (q) {
+          if (!q.length) return rows;
+          var out = rows.slice();
+          q.forEach(function (o) {
+            if (o.op === "insert") o.rows.forEach(function (r) { if (r.space_id === spaceId && !out.some(function (x) { return (r.id && x.id === r.id) || (r.ext_id && x.ext_id === r.ext_id); })) out.push(Object.assign({ created_at: o.at, created_by: me.id, _pending: true }, r)); });
+            else if (o.op === "update") out = out.map(function (x) { return x.id === o.id ? Object.assign({}, x, o.patch, { _pending: true }) : x; });
+            else if (o.op === "delete") out = out.filter(function (x) { return x.id !== o.id; });
+          });
+          return out;
+        });
+      },
+      _listeners: [],
+      onOutbox: function (cb) { api._listeners.push(cb); },
+      _notify: function () { return api.outboxCount().then(function (n) { api._listeners.forEach(function (f) { f(n); }); }); },
+      outboxCount: function () {
+        if (!me) return Promise.resolve(0);
+        return Promise.all([api._queue(), kvGet("outbox:budget:" + me.id)]).then(function (x) { return x[0].length + (x[1] ? 1 : 0); });
+      },
+      // отправить очередь по порядку; на первой сетевой ошибке остановиться и подождать связи
+      flushOutbox: function () {
+        if (!me || api._flushing) return api._flushing || Promise.resolve();
+        api._flushing = api._queue().then(function (q) {
+          var dropped = 0, sent = 0;
+          function step() {
+            if (!q.length) return;
+            return api._run(q[0]).then(function () { q.shift(); sent++; return kvSet("outbox:shared:" + me.id, q).then(step); }, function (err) {
+              if (isNetErr(err)) return;
+              // сервер отказал (например, трату уже удалили) — убираем из очереди, чтобы не застрять
+              console.warn("outbox drop", q[0], err); q.shift(); dropped++;
+              return kvSet("outbox:shared:" + me.id, q).then(step);
+            });
+          }
+          return Promise.resolve(step()).then(function () { return { sent: sent, dropped: dropped, left: q.length }; });
+        }).then(function (res) {
+          api._flushing = null; api._notify();
+          if (res.sent || res.dropped) api._listeners.forEach(function (f) { f(null, res); });
+          return res;
+        }, function () { api._flushing = null; });
+        return api._flushing;
+      },
       subscribeShared: function (spaceId, cb) {
         if (channel) sb.removeChannel(channel);
         channel = sb.channel("shared-" + spaceId)
@@ -392,6 +510,7 @@
       },
       wipe: function () { return Promise.resolve(); },
     };
+    if (root.addEventListener) root.addEventListener("online", function () { api.flushOutbox(); });
     return api;
   }
 

@@ -113,6 +113,9 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--ink-2); font-weight: 600; te
 
 /* ---------- KPI ---------- */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 18px; }
+/* ровно 4 карточки: в ряд или 2×2, без «сироты» во втором ряду */
+.kpis:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1180px) { .kpis:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
 .kpi-label { color: var(--muted); font-size: 13px; }
 .kpi-value { font: 600 26px/1.2 var(--font); margin-top: 4px; letter-spacing: -.01em; }
@@ -702,3 +705,49 @@ button.sync:hover { border-color: var(--line-strong); color: var(--ink-2); }
   .home-grid:not(:has(.a-note)) { grid-template-areas: "todo" "week" "month"; }
   .home-grid:not(:has(.a-todo)):not(:has(.a-note)) { grid-template-areas: "week" "month"; }
 }
+
+/* ---------- меню «⋯» и фильтры ленты ---------- */
+.menu-more { position: relative; }
+.menu-more > summary { list-style: none; cursor: pointer; min-width: 40px; justify-content: center; }
+.menu-more > summary::-webkit-details-marker { display: none; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; }
+.menu-item { display: block; text-align: left; padding: 10px 12px; border-radius: 8px; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.menu-item:hover { background: var(--accent-soft); }
+.sh-filters { display: contents; }
+.sh-ftoggle { display: none; }
+@media (max-width: 820px) {
+  .sh-ftoggle { display: inline-flex; order: 6; }
+  .sh-ftoggle.on { background: var(--accent-soft); }
+  .sh-filters { display: none; order: 7; flex-basis: 100%; gap: 8px; flex-wrap: wrap; }
+  .sh-filters.open { display: flex; }
+  .sh-filters select { flex: 1 1 140px; }
+}
+
+/* ---------- статус синхронизации: точка + короткий текст ---------- */
+button.sync { display: inline-flex; align-items: center; gap: 6px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.sync.ok .sync-dot { background: var(--pos, #2f6f4f); }
+.sync.busy .sync-dot { background: #c9962b; animation: syncPulse 1s ease-in-out infinite alternate; }
+.sync.warn .sync-dot { background: var(--neg); }
+@keyframes syncPulse { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .sync.busy .sync-dot { animation: none; } }
+@media (max-width: 820px) {
+  /* текст статуса на телефоне — только когда что-то не так */
+  .sync:not(.warn) .sync-t { display: none; }
+  button.sync { padding: 8px; min-height: 32px; }
+  /* без переключателя профилей полоска не занимает отдельную строку */
+  .content { position: relative; }
+  .topbar.solo { position: absolute; top: calc(env(safe-area-inset-top) + 4px); right: 8px; padding: 0; z-index: 5; }
+  .topbar.solo + .main { padding-top: calc(36px + env(safe-area-inset-top)); }
+}
+@media (max-width: 820px) { .sh-search { flex: 1 1 160px; } }
+
+/* ---------- «Год»: переключатель недели/месяцы ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px; background: var(--surface); }
+.seg-b { border: 0; background: none; font: inherit; font-size: 14px; color: var(--ink-2); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+.seg-b.on { background: var(--ink); color: var(--bg); }
+.g-months td[data-m], .g-months th[data-m] { cursor: pointer; }
+.g-months td.v, .g-months th { min-width: 64px; }
+.pend { color: #a87a1f; font-weight: 600; }
+.push-box { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); }
+.install-steps { padding-left: 20px; margin: 8px 0 12px; line-height: 1.7; }
