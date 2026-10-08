@@ -390,7 +390,7 @@
     if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
     o = o || {};
     var date = o.date || E.todayISO();
-    modal("<form class='m-body' id='spForm'><h2>Трата вне плана</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
+    modal("<form class='m-body' id='spForm'><h2>Внести трату</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
       "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
       "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
       "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
@@ -565,13 +565,13 @@
     }
     var savW = 0; cats().forEach(function (c) { if (c.block === "savings" && c.currency !== "RUB") { var x = r.cells[c.id][w]; if (x) savW -= x.cents; } });
     if (savW >= 5000) facts.push({ k: "up", h: eur(rnd(savW), { dec: 0 }), t: "переводишь в накопления на этой неделе" });
-    if (facts.length && !ro) html += "<div class='facts'><div class='facts-h small muted'>Заметное</div>" + facts.slice(0, 4).map(function (x) {
-      return "<div class='fact " + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + esc(x.h) + "</b> " + esc(x.t) + "</span></div>";
-    }).join("") + "</div>";
+    var noteCard = facts.length && !ro ? "<section class='card a-note'><h2>Заметное</h2><ul class='note-list'>" + facts.slice(0, 4).map(function (x) {
+      return "<li class='" + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + esc(x.h) + "</b> " + esc(x.t) + "</span></li>";
+    }).join("") + "</ul></section>" : "";
 
     // быстрые действия
     if (!ro) html += "<div class='quick-row'>" +
-      "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата вне плана</b><small>нашла в выписке — внести</small></span></button>" +
+      "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>прошлая, новая или будущая</small></span></button>" +
       "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить на двоих</small></span></button>" +
       "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>внести трату наличными</small></span></button>" +
       "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
@@ -593,6 +593,7 @@
 
     // месяц
     var monthName = E.MONTHS[wk.month - 1];
+    html += noteCard;
     html += "<section class='card a-month'><div class='row'><h2 style='margin:0'>" + monthName[0].toUpperCase() + monthName.slice(1) + "</h2><span class='spacer'></span><span class='small muted'>неделя " + wk.wim + " из 5</span></div>" +
       "<div class='month-bar' aria-hidden='true'>" + [1, 2, 3, 4, 5].map(function (n) { return "<span class='" + (n < wk.wim ? "past" : n === wk.wim ? "now" : "") + "'></span>"; }).join("") + "</div>" +
       "<table class='t'><tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
@@ -1330,7 +1331,7 @@
       (items ? "<ul class='plan-list'>" + items + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") + "</div>";
 
     // быстрое добавление
-    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Трата вне плана</h2><p class='small muted' style='margin-top:-6px'>Нашла в выписке то, чего не было в плане? Внеси — сумма встанет в нужную неделю.</p>" +
+    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Внести трату</h2><p class='small muted' style='margin-top:-6px'>Нашла в выписке или собираешься потратить — внеси, и сумма встанет в нужную неделю.</p>" +
       "<button class='btn primary' data-act='spend'>+ Внести</button></div>");
 
     html += "<div class='card'><h2>" + E.MONTHS[wk.month - 1][0].toUpperCase() + E.MONTHS[wk.month - 1].slice(1) + " целиком</h2><table class='t'>" +

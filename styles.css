@@ -324,7 +324,7 @@ td.open:hover { text-decoration: underline; }
 .qa small { display: block; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qa > span:last-child { min-width: 0; }
 
-.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "todo week" "month week"; gap: 16px; align-items: start; }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "todo week" "note week" "month week"; gap: 16px; align-items: start; }
 .home-grid:not(:has(.a-todo)) { grid-template-areas: "month week"; }
 .a-todo { grid-area: todo; } .a-week { grid-area: week; } .a-month { grid-area: month; }
 .home-grid .card + .card { margin-top: 0; }
@@ -357,7 +357,7 @@ td.open:hover { text-decoration: underline; }
   .qa { flex-direction: column; text-align: center; gap: 6px; padding: 12px 6px; }
   .qa small { display: none; }
   .qa b { font-size: 13px; }
-  .home-grid, .home-grid:not(:has(.a-todo)) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "todo" "week" "month"; }
+  .home-grid, .home-grid:not(:has(.a-todo)) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "todo" "note" "week" "month"; }
 }
 
 /* ---------- знакомство и справка ---------- */
@@ -685,3 +685,20 @@ button.sync:hover { border-color: var(--line-strong); color: var(--ink-2); }
 .fd-empty { padding: 16px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fd-amt.owe { color: #f0955a; } }
 @media (max-width: 820px) { .feed2 .fd-row { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; padding: 11px 12px; } .fd-amt { font-size: 15px; } }
+
+.a-note { grid-area: note; }
+.home-grid:not(:has(.a-todo)) { grid-template-areas: "note week" "month week"; }
+.home-grid:not(:has(.a-note)) { grid-template-areas: "todo week" "month week"; }
+.home-grid:not(:has(.a-todo)):not(:has(.a-note)) { grid-template-areas: "month week"; }
+.note-list { list-style: none; margin: 0; padding: 0; }
+.note-list li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; color: var(--ink-2); font-size: 14px; }
+.note-list li + li { border-top: 1px solid var(--line); }
+.note-list b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.note-list .fact-ic { margin-top: 0; }
+.note-list li.up .fact-ic { color: var(--pos); }
+.note-list li.down .fact-ic { color: var(--neg); }
+@media (max-width: 820px) {
+  .home-grid:not(:has(.a-todo)) { grid-template-areas: "note" "week" "month"; }
+  .home-grid:not(:has(.a-note)) { grid-template-areas: "todo" "week" "month"; }
+  .home-grid:not(:has(.a-todo)):not(:has(.a-note)) { grid-template-areas: "week" "month"; }
+}
