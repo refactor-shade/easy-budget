@@ -542,18 +542,18 @@
       "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
       "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-    // коротко о деньгах: факты как есть — и плюсы, и минусы, обычными фразами
+    // коротко о деньгах: сначала цифра, потом понятное пояснение — и плюсы, и минусы
     var facts = [], ytd = r.cap[w] - (r.startCap || 0), toEnd = r.cap[59] - r.cap[w];
-    var sgnI = function (v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }, E0 = function (v) { return eur(rnd(Math.abs(v)), { dec: 0 }); };
-    if (Math.abs(ytd) >= 1000) facts.push({ k: sgnI(ytd), h: "Капитал сейчас " + eur(rnd(r.cap[w]), { dec: 0 }), t: "на " + E0(ytd) + (ytd > 0 ? " больше" : " меньше") + ", чем 1 января" });
-    if (w < 59 && Math.abs(toEnd) >= 1000) facts.push({ k: sgnI(toEnd), h: "К 31 декабря — " + eur(rnd(r.cap[59]), { dec: 0 }), t: "если всё пойдёт по плану, капитал " + (toEnd > 0 ? "вырастет" : "уменьшится") + " на " + E0(toEnd) });
+    var sgnI = function (v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }, EP = function (v) { return eur(rnd(v), { dec: 0, plus: true }); };
+    if (Math.abs(ytd) >= 1000) facts.push({ k: sgnI(ytd), h: EP(ytd), t: "капитал с 1 января: было " + eur(rnd(r.startCap || 0), { dec: 0 }) + ", сейчас " + eur(rnd(r.cap[w]), { dec: 0 }) });
+    if (w < 59 && Math.abs(toEnd) >= 1000) facts.push({ k: sgnI(toEnd), h: EP(toEnd), t: "капитал до 31 декабря по плану — будет " + eur(rnd(r.cap[59]), { dec: 0 }) });
     var monLoc = E.MONTHS[wk.month - 1].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те");
-    facts.push(mon.saved >= 1000 ? { k: "flat", h: "Отложить " + eur(rnd(mon.saved), { dec: 0 }), t: "в накопления в " + monLoc + " по плану" } : { k: "flat", h: "Без накоплений", t: "в " + monLoc + " по плану ничего не откладывается" });
+    facts.push(mon.saved >= 1000 ? { k: "flat", h: eur(rnd(mon.saved), { dec: 0 }), t: "отложить в накопления в " + monLoc + " по плану" } : { k: "flat", h: "0 €", t: "в накопления в " + monLoc + " по плану" });
     var fwH = finishedWeek(), frH = fwH ? E.compute(state, fwH.year) : null;
-    if (fwH && frH.diff[fwH.week] !== null) { var dd = frH.diff[fwH.week]; facts.push({ k: sgnI(dd), h: "Сверка " + shortWeek(fwH.year, fwH.week), t: Math.abs(dd) < 1000 ? "сошлась с планом" : "на счетах на " + E0(dd) + (dd > 0 ? " больше" : " меньше") + ", чем по плану" }); }
-    else if (fwH) { var missed = 0; for (var mi = fwH.week; mi > fwH.week - 4 && mi >= 0; mi--) if (frH.fact[mi] === null) missed++; if (missed) facts.push({ k: "flat", h: missed + " из 4 недель без сверки", t: "последние недели не сверены" }); }
+    if (fwH && frH.diff[fwH.week] !== null) { var dd = frH.diff[fwH.week]; facts.push({ k: sgnI(dd), h: EP(dd), t: "на счетах " + (dd >= 0 ? "больше" : "меньше") + " плана по сверке " + shortWeek(fwH.year, fwH.week) }); }
+    else if (fwH) { var missed = 0; for (var mi = fwH.week; mi > fwH.week - 4 && mi >= 0; mi--) if (frH.fact[mi] === null) missed++; if (missed) facts.push({ k: "flat", h: missed + " из 4", t: "последних недель без сверки" }); }
     if (facts.length && !ro) html += "<div class='facts'><div class='facts-h small muted'>Коротко</div>" + facts.slice(0, 4).map(function (x) {
-      return "<div class='fact " + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span class='fact-tx'><b>" + esc(x.h) + "</b><small>" + esc(x.t) + "</small></span></div>";
+      return "<div class='fact " + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + esc(x.h) + "</b> " + esc(x.t) + "</span></div>";
     }).join("") + "</div>";
 
     // быстрые действия
