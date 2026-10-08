@@ -528,7 +528,7 @@
     if (!ro) html += "<div class='quick-row'>" +
       "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>внести в личный план</small></span></button>" +
       "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить на двоих</small></span></button>" +
-      "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>" + (cashEurTotal() !== null ? E.eur(cashEurTotal(), { dec: 0 }) + " в кошельке и конвертах" : "кошелёк и конверты") + "</small></span></button>" +
+      "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>внести трату наличными</small></span></button>" +
       "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
 
     html += "<div class='home-grid'>";
@@ -574,7 +574,7 @@
         var q = el.dataset.q; ui.year = y; ui.week = w;
         if (q === "spend") spendModal();
         else if (q === "shared") go("#shared", function () { var b = document.getElementById("addExpBtn"); if (b) b.click(); });
-        else if (q === "cash") go("#cash");
+        else if (q === "cash") go("#cash", function () { var i = document.querySelector("#cashQ [name=q]"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } });
         else { ui.recWeek = finishedWeek() || { year: y, week: w }; go("#recon"); }
       };
     });
