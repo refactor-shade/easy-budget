@@ -233,6 +233,15 @@
     ["Аптека, здоровье, уход", /здоров|аптек|врач|уход|красот|спорт/i], ["Дом и быт", /дом|быт|мебел/i], ["Ребёнок: школа, лагеря", /реб[её]н|школ|лагер|дет/i],
     ["Документы и налоги", /документ|налог|бухгалт|gestor/i], ["Няня / помощь", /нян|помощ/i], ["Твои подписки (личное)", /подписк/i],
   ];
+  // Коммуналка: свет, вода, газ из «Жильё и счета» — без аренды и без интернета/телефона
+  var RENT_RE = /rent|аренд|квартплат/i, NET_RE = /internet|интернет|wifi|wi-fi|lowi|movistar|vodafone|orange|digi|телефон|phone/i;
+  function isUtility(e, learned) { return e.kind === "expense" && catOf(e, learned) === "Жильё и счета" && !RENT_RE.test(e.desc || "") && !NET_RE.test(e.desc || ""); }
+  function utilityCat(state) {
+    var ok = function (c) { return !c.archived && c.block !== "income" && c.block !== "savings"; };
+    var c = state.categories.find(function (x) { return ok(x) && /коммун|utilit|счета за дом/i.test(x.name) && !/квартир|аренд/i.test(x.name); }) ||
+      state.categories.find(function (x) { return ok(x) && /коммун|utilit/i.test(x.name); });
+    return c ? c.id : null;
+  }
   function guessPersonalCat(state, sharedCat) {
     var g = MAP_GUESS.find(function (x) { return x[0] === sharedCat; });
     if (!g) return null;
@@ -252,7 +261,8 @@
       if (FOOD.indexOf(cat) >= 0 || FUN.indexOf(cat) >= 0 || cat === "Сводные суммы") return;
       var ys = e.date.slice(0, 4), y = state.years[ys];
       if (!y || y.archived) return;
-      var wk = E.weekOfDate(e.date), catId = map[cat] || guessPersonalCat(state, cat), maybe = null;
+      var util = isUtility(e, shared.learned), uc = util ? (opts.utilCat || utilityCat(state)) : null;
+      var wk = E.weekOfDate(e.date), catId = uc || map[cat] || guessPersonalCat(state, cat), maybe = null;
       if (catId) {
         var r = E.compute(state, ys), m0 = Math.floor(wk.idx / 5) * 5;
         for (var w = m0; w < m0 + 5; w++) {
@@ -260,7 +270,7 @@
           if (x && -x.cents >= share * 0.8) { maybe = { week: w, cents: x.cents }; break; }
         }
       }
-      out.push({ e: e, share: share, sharedCat: cat, catId: catId, year: ys, week: wk.idx, maybe: maybe });
+      out.push({ e: e, share: share, sharedCat: util ? "Коммуналка" : cat, catId: catId, year: ys, week: wk.idx, maybe: maybe, utility: util });
     });
     return out.sort(function (a, b) { return (a.maybe ? 1 : 0) - (b.maybe ? 1 : 0) || b.share - a.share; });
   }
@@ -285,6 +295,6 @@
   root.BudgetShared = {
     SHARED_CATS: SHARED_CATS, FOOD: FOOD, FUN: FUN, guessCategory: guessCategory, parseCSV: parseCSV,
     importSplitwise: importSplitwise, computeSplit: computeSplit, makeExpense: makeExpense, makeSettlement: makeSettlement, mergeExpenses: mergeExpenses, balance: balance, toEur: toEur, catOf: catOf,
-    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat,
+    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, isUtility: isUtility, utilityCat: utilityCat, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat,
   };
 })(typeof window !== "undefined" ? window : this);

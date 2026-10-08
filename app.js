@@ -761,12 +761,89 @@
     // по умолчанию — с начала прошлого месяца
     var set = state.settings, t = new Date(), pm = t.getMonth() || 12, py = t.getMonth() ? t.getFullYear() : t.getFullYear() - 1;
     var since = set.sharedLogSince || (py + "-" + (pm < 10 ? "0" : "") + pm + "-01");
-    return { since: since, min: set.sharedLogMin || 4000, handled: set.sharedLog || {}, map: set.sharedMap || {} };
+    return { since: since, min: set.sharedLogMin || 4000, handled: set.sharedLog || {}, map: set.sharedMap || {}, utilCat: set.utilCat || S.utilityCat(state) };
   }
   function toLogCount() {
     if (!sh || RO()) return 0;
     var o = logOpts(), c = sharedForCalc();
     return S.toLog(state, c, o).filter(function (x) { return !x.maybe; }).length + S.coverageGaps(state, c, o).length;
+  }
+
+  // Коммуналка: план против факта из общих (свет, вода, газ)
+  function utilitiesCard() {
+    var set = state.settings, y = E.todayISO().slice(0, 4), yr = state.years[y];
+    if (!sh || !yr || yr.archived) return { html: "", bind: function () {} };
+    var ucat = set.utilCat || S.utilityCat(state), r = E.compute(state, y), nowM = Number(E.todayISO().slice(5, 7)) - 1;
+    var bills = sh.expenses.filter(function (e) { return e.date.slice(0, 4) === y && S.isUtility(e, sh.learned); });
+    if (!bills.length) return { html: "", bind: function () {} };
+    var fact = [], paid = [], plan = [], firstM = 12;
+    for (var m = 0; m < 12; m++) {
+      fact[m] = 0; paid[m] = 0; plan[m] = 0;
+      if (ucat) for (var w = m * 5; w < m * 5 + 5; w++) { var x = r.cells[ucat][w]; if (x) plan[m] -= x.cents; }
+    }
+    // счёт часто покрывает несколько месяцев: период — обычный промежуток между счетами этого вида
+    var kind = function (e) { var d = (e.desc || "").toLowerCase(); return /gas|газ/.test(d) ? "gas" : /agua|water|вод/.test(d) ? "water" : /electr|luz|свет|электр/.test(d) ? "el" : "other"; };
+    var allBills = sh.expenses.filter(function (e) { return S.isUtility(e, sh.learned); }), period = {};
+    ["gas", "water", "el", "other"].forEach(function (k) {
+      var ds = allBills.filter(function (e) { return kind(e) === k; }).map(function (e) { return new Date(e.date).getTime(); }).sort(function (a, b) { return a - b; });
+      var gaps = []; for (var i = 1; i < ds.length; i++) gaps.push((ds[i] - ds[i - 1]) / 864e5);
+      gaps.sort(function (a, b) { return a - b; });
+      var med = gaps.length ? gaps[Math.floor(gaps.length / 2)] : (k === "gas" || k === "water" ? 60 : 30);
+      period[k] = Math.max(1, Math.min(3, Math.round(med / 30)));
+    });
+    bills.forEach(function (e) {
+      var m = Number(e.date.slice(5, 7)) - 1, v = S.toEur(e.share, e.currency, e.date, set), p = period[kind(e)];
+      paid[m] += v;
+      for (var j = 0; j < p; j++) { var mm = m - j; if (mm >= 0) { fact[mm] += v / p; if (mm < firstM) firstM = mm; } }
+    });
+    var past = []; for (m = firstM; m < nowM; m++) past.push(m);
+    var last6 = past.slice(-6), avg = last6.length ? Math.round(last6.reduce(function (t, m) { return t + fact[m]; }, 0) / last6.length / 100) * 100 : 0;
+    var html = "<div class='card util-card'><h2>Коммуналка: план и факт</h2><p class='small muted' style='margin-top:-6px'>Твоя доля общих счетов за свет, воду и газ. Аренда и интернет сюда не входят.</p>" +
+      (ucat ? "" : "<div class='hint small'>Не нашла категорию для коммуналки — выбери её: <select id='ucSel'><option value=''>…</option>" + catOptions(null, function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select></div>") +
+      "<div class='tbl-wrap' style='margin-top:10px'><table class='t'><thead><tr><th></th>" + past.map(function (m) { return "<th class='n'>" + E.MONTHS_SHORT[m] + "</th>"; }).join("") + "<th class='n'>в среднем</th></tr></thead><tbody>" +
+      "<tr><td>План</td>" + past.map(function (m) { return "<td class='n'>" + Math.round(plan[m] / 100) + "</td>"; }).join("") + "<td class='n'>" + (past.length ? Math.round(past.reduce(function (t, m) { return t + plan[m]; }, 0) / past.length / 100) : "—") + "</td></tr>" +
+      "<tr><td>Факт по периодам</td>" + past.map(function (m) { return "<td class='n " + (fact[m] > plan[m] * 1.1 ? "neg" : "") + "'>" + Math.round(fact[m] / 100) + "</td>"; }).join("") + "<td class='n'><b>" + (past.length ? Math.round(past.reduce(function (t, m) { return t + fact[m]; }, 0) / past.length / 100) : "—") + "</b></td></tr>" +
+      "<tr class='muted'><td>Оплачено в месяце</td>" + past.map(function (m) { return "<td class='n'>" + Math.round(paid[m] / 100) + "</td>"; }).join("") + "<td></td></tr>" +
+      "</tbody></table></div><p class='small muted'>Счёт разнесён по месяцам, которые он покрывает: " + [["el", "свет"], ["water", "вода"], ["gas", "газ"]].filter(function (k) { return allBills.some(function (e) { return kind(e) === k[0]; }); }).map(function (k) { return k[1] + " — " + (period[k[0]] === 1 ? "каждый месяц" : "раз в " + period[k[0]] + " мес"); }).join(", ") +
+      ". «Оплачено» — когда деньги реально ушли.</p>" +
+      (ucat && past.length ? "<div class='row'><button class='btn' id='ucFact'>Заменить план фактом за " + E.MONTHS_SHORT[past[0]] + "–" + E.MONTHS_SHORT[past[past.length - 1]] + "</button>" +
+        (avg ? "<button class='btn' id='ucAvg'>Поставить " + E.eur(avg, { dec: 0 }) + " в месяц на будущее</button>" : "") + "</div>" : "") + "</div>";
+    function bind() {
+      var sel = $main.querySelector("#ucSel"); if (sel) sel.onchange = function () { if (sel.value) { set.utilCat = sel.value; changed(); } };
+      var bf = $main.querySelector("#ucFact");
+      if (bf) bf.onclick = function () {
+        if (!confirm("Заменить «" + catName(ucat) + "» за " + E.MONTHS_SHORT[past[0]] + "–" + E.MONTHS_SHORT[past[past.length - 1]] + " реальными счетами из «Общих»? Суммы встанут в те недели, когда счёт оплачен (так верно считаются деньги в обращении); в остальные недели этих месяцев — 0.")) return;
+        set.sharedLog = set.sharedLog || {};
+        past.forEach(function (m) {
+          for (var w = m * 5; w < m * 5 + 5; w++) {
+            var inWeek = bills.filter(function (e) { var k = E.weekOfDate(e.date); return k && k.idx === w; });
+            var sum = inWeek.reduce(function (t, e) { return t + S.toEur(e.share, e.currency, e.date, set); }, 0);
+            var had = r.cells[ucat][w];
+            if (sum) E.setEntry(state, y, ucat, String(w), String(-Math.round(sum) / 100), "счета из общих: " + inWeek.map(function (e) { return e.desc; }).join(", "));
+            else if (had) E.setEntry(state, y, ucat, String(w), "0", "счетов не было");
+            inWeek.forEach(function (e) { set.sharedLog[e.id] = "added"; });
+          }
+        });
+        changed(); toast("План коммуналки за прошедшие месяцы = факт");
+      };
+      var ba = $main.querySelector("#ucAvg");
+      if (ba) ba.onclick = function () {
+        var fromM = nowM + 1;
+        if (fromM > 11) { toast("В этом году будущих месяцев не осталось — поставь сумму в плане следующего года"); return; }
+        // неделя месяца, в которую коммуналка стоит в плане чаще всего
+        var cnt = [0, 0, 0, 0, 0, 0];
+        for (var w = 0; w < 60; w++) if (r.cells[ucat][w]) cnt[w % 5 + 1]++;
+        var wim = String(cnt.indexOf(Math.max.apply(null, cnt)) || 2);
+        if (!confirm("С " + E.MONTHS_GEN[fromM] + " коммуналка в плане — " + E.eur(avg, { dec: 0 }) + " в месяц (" + wim + "-я неделя), одной регулярной тратой. Суммы, вписанные вручную в будущие недели, уберу. Прошлые месяцы не тронутся.")) return;
+        var fromISO = y + "-" + (fromM < 9 ? "0" : "") + (fromM + 1) + "-01";
+        yr.recurring = (yr.recurring || []).map(function (ru) { if (ru.catId === ucat && (!ru.to || ru.to >= fromISO)) { if (ru.from && ru.from >= fromISO) return null; ru.to = E.addDays(fromISO, -1); } return ru; }).filter(Boolean);
+        yr.recurring.push({ id: E.uid("r"), catId: ucat, expr: String(-avg / 100), cents: -avg, weeks: wim, from: fromISO, to: null });
+        var en = (yr.entries || {})[ucat] || {};
+        Object.keys(en).forEach(function (k) { if (Number(k) >= fromM * 5) delete en[k]; });
+        changed(); toast("Коммуналка на будущее: " + E.eur(avg, { dec: 0 }) + " в месяц");
+      };
+    }
+    return { html: html, bind: bind };
   }
   routes.tolog = function () {
     if (!sh || RO()) { location.hash = "#shared"; return; }
@@ -784,6 +861,7 @@
         "<div class='lg-act'><select data-lc aria-label='Категория личного плана'><option value=''>категория…</option>" + catOptions(x.catId, function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select>" +
         "<button class='btn sm primary' data-la='add'>Внести</button><button class='btn sm' data-la='had'>Уже есть</button><button class='btn sm ghost' data-la='skip'>Не нужно</button></div></li>";
     }
+    var uc = utilitiesCard(); html += uc.html;
     if (!fresh.length && !maybe.length && !gaps.length) html += "<div class='card all-good'><span class='ic'>✓</span>Всё заметное из общих уже в личном плане.</div>";
     if (gaps.length) html += "<div class='card'><h2>Еда и развлечения вышли за план</h2><ul class='lg-list'>" + gaps.map(function (g) {
       return "<li class='lg' data-gap='" + g.key + "'><div class='lg-main'><b>" + E.MONTHS[g.month - 1][0].toUpperCase() + E.MONTHS[g.month - 1].slice(1) + " " + g.year + "</b><span class='small muted'>общие " + E.eur(rnd(g.shared), { dec: 0 }) + " (твоя доля) при личном плане " + E.eur(rnd(g.personal), { dec: 0 }) + "</span></div>" +
@@ -793,6 +871,7 @@
     if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b> <span class='small muted'>в нужной категории в тот месяц есть сумма не меньше</span></summary>" +
       "<div class='row' style='margin:10px 0'><button class='btn sm' id='allHad'>Да, всё это уже учтено</button></div><ul class='lg-list'>" + maybe.map(row).join("") + "</ul></details>";
     $main.innerHTML = html;
+    uc.bind();
     $main.querySelector("#lgSince").onchange = function (e) { set.sharedLogSince = e.target.value; changed(); };
     $main.querySelector("#lgMin").onchange = function (e) { var v = Number(String(e.target.value).replace(",", ".")); if (v > 0) { set.sharedLogMin = Math.round(v * 100); changed(); } };
     $main.querySelectorAll("li[data-id]").forEach(function (li) {

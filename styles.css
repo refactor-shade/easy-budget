@@ -571,3 +571,4 @@ button.hero-value:hover { text-decoration: underline dotted; text-decoration-thi
 .t tr.mc-group td { background: var(--surface-2); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 8px 12px; }
 @media (max-width: 820px) { .t.mcard tr.mc-group { display: block; padding: 0; } .t.mcard tr.mc-group td { display: block; padding: 8px 12px; } }
 @media (min-width: 821px) { .t.mcard td select { max-width: 180px; } .t.mcard td input[type=text] { width: 100%; max-width: 230px; } }
+.util-card { margin-bottom: 16px; }
