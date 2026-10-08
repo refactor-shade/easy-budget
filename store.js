@@ -130,18 +130,6 @@
           return { data: s, version: 1 };
         });
       },
-      // бюджет, подготовленный партнёром заранее (по моему email)
-      loadPending: function () {
-        return sb.from("pending_budgets").select("data,created_at").eq("email", (me.email || "").toLowerCase()).maybeSingle()
-          .then(function (r) { return r.error ? null : r.data; });
-      },
-      deletePending: function () { return sb.from("pending_budgets").delete().eq("email", (me.email || "").toLowerCase()).then(must); },
-      savePendingFor: function (email, data) {
-        return sb.from("pending_budgets").upsert({ email: String(email).toLowerCase(), data: data, created_by: me.id, created_at: new Date().toISOString() }).then(must);
-      },
-      pendingFor: function (email) {
-        return sb.from("pending_budgets").select("created_at").eq("email", String(email).toLowerCase()).maybeSingle().then(function (r) { return r.error ? null : r.data; });
-      },
       remoteVersion: function () { return Promise.resolve(null); },
       saveMyBudget: function (state) {
         var d = clone(state); delete d._ver; d.savedAt = new Date().toISOString();
@@ -270,6 +258,18 @@
           // нет сети — берём кэш с этого устройства
           return kvGet("cache:" + me.id).then(function (c) { if (c) { version = c.version; c.offline = true; return c; } throw err; });
         });
+      },
+      // бюджет, подготовленный партнёром заранее (по моему email)
+      loadPending: function () {
+        return sb.from("pending_budgets").select("data,created_at").eq("email", (me.email || "").toLowerCase()).maybeSingle()
+          .then(function (r) { return r.error ? null : r.data; });
+      },
+      deletePending: function () { return sb.from("pending_budgets").delete().eq("email", (me.email || "").toLowerCase()).then(must); },
+      savePendingFor: function (email, data) {
+        return sb.from("pending_budgets").upsert({ email: String(email).toLowerCase(), data: data, created_by: me.id, created_at: new Date().toISOString() }).then(must);
+      },
+      pendingFor: function (email) {
+        return sb.from("pending_budgets").select("created_at").eq("email", String(email).toLowerCase()).maybeSingle().then(function (r) { return r.error ? null : r.data; });
       },
       remoteVersion: function () {
         return sb.from("budgets").select("version").eq("owner_id", me.id).maybeSingle().then(function (r) { return r.data ? r.data.version : 0; });
