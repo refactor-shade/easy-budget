@@ -138,6 +138,11 @@
       updateProfileName: function (n) { me.name = n; return Promise.resolve(); },
       listPeople: function () { return Promise.resolve([]); },
       loadPending: function () { return Promise.resolve(null); },
+      saveSnapshot: function (data, reason) {
+        return kvGet("snapshots").then(function (l) { l = l || []; l.unshift({ id: "s" + Date.now(), created_at: new Date().toISOString(), reason: reason, data: data }); return kvSet("snapshots", l.slice(0, 12)); });
+      },
+      listSnapshots: function () { return kvGet("snapshots").then(function (l) { return (l || []).map(function (x) { return { id: x.id, created_at: x.created_at, reason: x.reason }; }); }); },
+      getSnapshot: function (id) { return kvGet("snapshots").then(function (l) { return ((l || []).find(function (x) { return x.id === id; }) || {}).data || null; }); },
       deletePending: function () { return Promise.resolve(); },
       savePendingFor: function () { return Promise.reject(new Error("Подготовить бюджет для партнёра можно только в облачной версии")); },
       pendingFor: function () { return Promise.resolve(null); },
@@ -258,6 +263,24 @@
           // нет сети — берём кэш с этого устройства
           return kvGet("cache:" + me.id).then(function (c) { if (c) { version = c.version; c.offline = true; return c; } throw err; });
         });
+      },
+      // резервные копии: в облаке (последние 12) и на этом устройстве — на случай без сети
+      saveSnapshot: function (data, reason) {
+        var local = kvGet("snapshots:" + me.id).then(function (l) { l = l || []; l.unshift({ id: "l" + Date.now(), created_at: new Date().toISOString(), reason: reason, data: data, local: true }); return kvSet("snapshots:" + me.id, l.slice(0, 6)); });
+        var cloud = sb.from("budget_snapshots").insert({ reason: reason, data: data }).then(must).then(function () {
+          return sb.from("budget_snapshots").select("id").eq("owner_id", me.id).order("created_at", { ascending: false }).then(must);
+        }).then(function (rows) { var old = rows.slice(12).map(function (r) { return r.id; }); return old.length ? sb.from("budget_snapshots").delete().in("id", old).then(must) : null; });
+        return Promise.all([local, cloud.catch(function () { return null; })]);
+      },
+      listSnapshots: function () {
+        return Promise.all([
+          sb.from("budget_snapshots").select("id,created_at,reason").eq("owner_id", me.id).order("created_at", { ascending: false }).limit(12).then(must).catch(function () { return []; }),
+          kvGet("snapshots:" + me.id).then(function (l) { return (l || []).map(function (x) { return { id: x.id, created_at: x.created_at, reason: x.reason, local: true }; }); }),
+        ]).then(function (r) { return r[0].length ? r[0] : r[1]; });
+      },
+      getSnapshot: function (id) {
+        if (String(id).charAt(0) === "l") return kvGet("snapshots:" + me.id).then(function (l) { return ((l || []).find(function (x) { return x.id === id; }) || {}).data || null; });
+        return sb.from("budget_snapshots").select("data").eq("id", id).single().then(must).then(function (r) { return r.data; });
       },
       // бюджет, подготовленный партнёром заранее (по моему email)
       loadPending: function () {

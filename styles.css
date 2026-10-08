@@ -601,3 +601,34 @@ button.hero-value:hover { text-decoration: underline dotted; text-decoration-thi
 }
 @media (min-width: 821px) { .t.mcard td.mc-title { width: 180px; min-width: 170px; } .t.mcard td.mc-title input { max-width: none; } }
 @media (min-width: 821px) { .t.mcard td select { max-width: 150px; } .t.mcard th { white-space: normal; } }
+
+/* ---------- отмена ---------- */
+.undo-bar { position: fixed; z-index: 61; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px);
+  background: var(--ink); color: var(--bg); padding: 8px 8px 8px 16px; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transition: .2s; font-size: 14px; }
+.undo-bar.on { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.undo-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.undo-bar button { flex: none; border: 0; border-radius: 10px; padding: 8px 12px; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; }
+.undo-bar.on ~ .toast, body:has(.undo-bar.on) .toast { bottom: 84px; }
+@media (max-width: 820px) {
+  .undo-bar { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  body:has(.undo-bar.on) .toast { bottom: calc(140px + env(safe-area-inset-bottom)); }
+}
+/* ---------- общие: кнопка категории и выбор ---------- */
+.cat-btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; max-width: 100%; text-align: left; }
+.cat-btn::after { content: " ▾"; color: var(--muted); }
+.cat-btn:hover { border-color: var(--accent); }
+.cat-grid { gap: 8px; margin-top: 10px; }
+.cat-grid .chip { padding: 9px 14px; font-size: 14.5px; }
+.cat-grid .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+.cat-grid .chip.add { border-style: dashed; color: var(--ink-2); }
+/* ---------- выпадающие списки: стрелка не у края ---------- */
+select { -webkit-appearance: none; appearance: none; padding-right: 32px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a8983' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat !important; background-position: right 11px center !important; background-size: 12px 8px !important; }
+.cash-pv select, .lg select, .cash-list .fl select, table.t select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a8983' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+table.t select { padding-right: 28px !important; background-position: right 8px center !important; }
+/* ---------- резервные копии ---------- */
+.snap-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.snap-list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.snap-list li > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.snap-list small { color: var(--muted); }

@@ -56,11 +56,39 @@
       if (!b) return;
       myState = migrate(b.data);
       if (view.who === "me") state = myState;
-      render();
+      resetUndoBase(); render();
     });
   }
-  function changed(noRender) {
+  // Отмена: храним состояние до последнего изменения (до 20 шагов)
+  var undoStack = [], undoBase = null, undoTimer = null;
+  function snapMine() { return myState ? JSON.stringify(myState) : null; }
+  function resetUndoBase() { undoBase = snapMine(); }
+  function pushUndo(item) {
+    undoStack.push(item); if (undoStack.length > 20) undoStack.shift();
+    var el = document.getElementById("undoBar");
+    if (!el) { el = document.createElement("div"); el.id = "undoBar"; el.className = "undo-bar"; document.body.appendChild(el); }
+    // уведомление, показанное только что (до сохранения), переезжает в полоску
+    var label = item.label || "Изменено";
+    if ((label === "Сохранено") && toast.last && Date.now() - toast.last.at < 400) { label = toast.last.msg; document.getElementById("toast").classList.remove("on"); }
+    el.innerHTML = "<span>" + esc(label) + "</span><button type='button'>↶ Отменить</button>";
+    el.querySelector("button").onclick = doUndo;
+    pushUndo.at = Date.now();
+    el.classList.add("on"); clearTimeout(undoTimer); undoTimer = setTimeout(function () { el.classList.remove("on"); }, 8000);
+  }
+  function doUndo() {
+    var it = undoStack.pop(), el = document.getElementById("undoBar");
+    if (el) el.classList.remove("on");
+    if (!it) return;
+    if (it.kind === "budget") {
+      myState = migrate(JSON.parse(it.data)); myState._ver = Date.now();
+      if (view.who === "me") state = myState;
+      resetUndoBase(); save(); render(); toast("Отменено");
+    } else if (it.revert) Promise.resolve(it.revert()).then(function () { render(); toast("Отменено"); }).catch(function (e) { toast("Не получилось отменить: " + e.message); });
+  }
+  function changed(noRender, label) {
     if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
+    if (undoBase && myState && undoBase !== snapMine()) pushUndo({ kind: "budget", data: undoBase, label: label || "Сохранено" });
+    resetUndoBase();
     state._ver = (state._ver || 0) + 1;
     save();
     if (!noRender) render();
@@ -161,7 +189,11 @@
   function years() { return Object.keys(state.years).sort(); }
   function activeYears() { return years().filter(function (y) { return !state.years[y].archived; }); }
   function toast(msg) {
+    // сразу после изменения сообщение идёт в полоску «Отменить», без второго уведомления
+    var ub = document.getElementById("undoBar");
+    if (ub && ub.classList.contains("on") && Date.now() - (pushUndo.at || 0) < 400 && !/^Отменено/.test(msg)) { ub.querySelector("span").textContent = msg; return; }
     var t = document.getElementById("toast");
+    toast.last = { msg: msg, at: Date.now() };
     t.textContent = msg; t.classList.add("on");
     clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove("on"); }, 2600);
   }
@@ -1059,7 +1091,7 @@
     var out = [];
     if (both || true) {
       var avg = tot("total") / 12, heavy = mine.months.map(function (_, i) { return { i: i, v: sum("total", i) }; }).filter(function (x) { return x.v > avg * 1.3; });
-      if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Месяцы, к которым стоит подготовиться" + (both ? " вдвоём" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
+      if (heavy.length) out.push({ k: "", ic: "▲", h: "Месяцы с расходами выше обычного" + (both ? " на двоих" : "") + ": " + heavy.map(function (x) { return E.MONTHS[x.i]; }).join(", "), p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%. Откладывать на них лучше заранее, вместе." });
     }
     if (ex.length && tot("total")) out.push({ k: "", ic: "⇄", h: "Общие траты — " + Math.round(sharedTot / months / (tot("total") / 12) * 100) + "% " + (both ? "ваших" : "") + " расходов", p: both ? "Остальное — личное у каждой. Чем выше доля, тем важнее, чтобы общие траты были в личных планах — для этого есть «Общие → личный план»." : "Доля от твоих расходов. С данными партнёра посчитаю на двоих." });
     var grow = cats2.filter(function (c) { return prevCat[c] && byCat[c] / months * 12 > prevCat[c] * 1.25 && byCat[c] > 20000; }).slice(0, 3);
@@ -1175,8 +1207,8 @@
       ["tolog", "⇄", "Общие → личный план", "Заметные общие траты, которых нет в личной таблице: внести одной кнопкой или отметить, что уже есть."],
       ["year", "▦", "Год", "Вся таблица: категории × недели. Здесь же создаётся план на следующий год."],
       ["recurring", "↻", "Регулярные траты", "Аренда, подписки, зарплата — один раз задаёшь, дальше они сами в плане."],
-      ["analysis", "◔", "Анализ", "Как растёт капитал, на что идут деньги и как этот год выглядит рядом с прошлым."],
-      ["insights", "✦", "Выводы", "Что получается хорошо и где есть резерв: сбережения, рост капитала, статьи, которые стоит пересмотреть."],
+      ["analysis", "◔", "Анализ", "Доходы, расходы и капитал по месяцам, сравнение с прошлым годом."],
+      ["insights", "✦", "Выводы", "Короткие наблюдения по году: сбережения, капитал, статьи, которые заметно изменились."],
       ["settings", "⚙", "Настройки", "Категории, счета, курс, доступ партнёра, импорт таблицы и бэкап."],
     ];
     var html = "<div class='page-head'><div><h1>Как это работает</h1><div class='sub'>Короткая инструкция и словарь. Знакомство можно пройти ещё раз.</div></div>" +
@@ -1204,7 +1236,7 @@
       ["Каждую неделю", [["recon", "✓", "Сверка", "остатки на счетах и расхождение с планом"]]],
       ["План", [["year", "▦", "Год", "весь план по неделям в одной таблице"], ["recurring", "↻", "Регулярные траты", "аренда, подписки, зарплата"]]],
       ["Вместе", [["us", "♡", "Мы", "общий капитал, доходы и расходы вдвоём"], ["tolog", "⇄", "Общие → личный план", "общие траты, которых нет в твоём плане"]]],
-      ["Обзор", [["analysis", "◔", "Анализ", "как растёт капитал и на что идут деньги"], ["insights", "✦", "Выводы", "что получается хорошо и где есть резерв"]]],
+      ["Обзор", [["analysis", "◔", "Анализ", "доходы, расходы и капитал по месяцам"], ["insights", "✦", "Выводы", "короткие наблюдения по году"]]],
       ["", [["settings", "⚙", "Настройки", "категории, счета, курс, доступ, данные"], ["help", "?", "Как это работает", "инструкция и словарь"]]],
     ];
     modal("<div class='m-body'><h2>Меню</h2>" + groups.map(function (g) {
@@ -1523,7 +1555,8 @@
       if (Object.keys(nr).length) yr.recon[w] = nr; else delete yr.recon[w];
       if (Object.keys(ns).length) yr.savRecon[w] = ns; else delete yr.savRecon[w];
       ui.recWeek = { year: y, week: w };
-      changed(); toast("Сверка сохранена");
+      maybeWeeklyBackup("после сверки за " + shortWeek(y, w));
+      changed(false, "Сверка сохранена"); toast("Сверка сохранена");
     };
     var cl = $main.querySelector("#recClear");
     if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
@@ -1644,6 +1677,25 @@
     };
   }
 
+  function sharedCats() {
+    var custom = (sh && sh.space.settings.customCats) || [];
+    return S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; }));
+  }
+  function catPicker(current, onPick) {
+    var list = sharedCats();
+    modal("<div class='m-body'><h2>Категория</h2><div class='chips cat-grid'>" + list.map(function (c) { return "<button class='chip" + (c === current ? " on" : "") + "' data-pc='" + esc(c) + "'>" + esc(c) + "</button>"; }).join("") +
+      "<button class='chip add' data-pc-new='1'>+ своя категория</button></div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button></div>", function (m) {
+      m.querySelector("[data-act=x]").onclick = closeModal;
+      m.querySelectorAll("[data-pc]").forEach(function (b) { b.onclick = function () { closeModal(); onPick(b.dataset.pc); }; });
+      m.querySelector("[data-pc-new]").onclick = function () {
+        var n = (prompt("Название новой категории общих трат (например, «Животные»)") || "").trim();
+        if (!n) return;
+        sh.space.settings.customCats = (sh.space.settings.customCats || []).concat([n]);
+        Store.saveSpaceSettings(sh.space.id, sh.space.settings).catch(function () {});
+        closeModal(); onPick(n);
+      };
+    });
+  }
   routes.shared = function () {
     if (!sh) return sharedSetup();
     var st = ui.shared, set = myState.settings, learned = sh.learned;
@@ -1673,24 +1725,24 @@
     var filtered = exps.filter(function (e) {
       if (e.date.slice(0, 4) !== st.year) return false;
       if (st.month !== "all" && Number(e.date.slice(5, 7)) !== Number(st.month)) return false;
-      if (st.kind !== "all" && e.kind !== st.kind) return false;
+      if (st.kind === "transfer" ? (e.kind !== "refund" && e.kind !== "settlement") : (st.kind !== "all" && e.kind !== st.kind)) return false;
       if (st.cat !== "all" && (e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned)) !== st.cat) return false;
       return true;
     }).slice().reverse();
     html += "<div class='section'><div class='row' style='margin-bottom:10px'><h2 style='margin:0'>Лента</h2><span class='spacer'></span>" +
       "<select id='fY'>" + ylist.map(function (y) { return "<option" + (y === st.year ? " selected" : "") + ">" + y + "</option>"; }).join("") + "</select>" +
       "<select id='fM'>" + mlist.map(function (m) { return "<option value='" + m + "'" + (m === st.month ? " selected" : "") + ">" + (m === "all" ? "все месяцы" : E.MONTHS[Number(m) - 1]) + "</option>"; }).join("") + "</select>" +
-      "<select id='fC'><option value='all'>все категории</option>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
-      "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["refund", "возвраты долга"], ["settlement", "расчёты"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div>";
+      "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
+      "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["transfer", "переводы между вами"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div>";
     html += "<div class='tbl-wrap'><table class='t feed'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Твоя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
     filtered.slice(0, st.limit).forEach(function (e) {
       var k = e.kind, catSel;
-      if (k === "settlement") catSel = "<span class='badge'>расчёт</span>";
-      else if (k === "refund") catSel = "<span class='badge ok'>возврат долга</span> <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='expense'>это трата</button>";
+      if (k === "settlement") catSel = "<span class='badge'>перевод между вами</span>";
+      else if (k === "refund") catSel = "<span class='badge'>перевод между вами</span> <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='expense'>это трата</button>";
       else {
         var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
-        catSel = "<select data-cat='" + esc(e.id) + "'>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === cc ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
-          " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это возврат долга — в расходы не пойдёт'>↩</button>";
+        catSel = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button>" +
+          " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт'>↩</button>";
       }
       var c$ = e.currency === "EUR" ? "€" : e.currency;
       html += "<tr><td class='small'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + "</td><td class='open' data-open='" + esc(e.id) + "' title='Открыть'>" + esc(e.desc) + (e.method === "cash" ? " <span class='badge'>нал</span>" : "") + (e.note ? " <span class='muted small'>· " + esc(e.note) + "</span>" : "") + "</td><td>" + catSel + "</td>" +
@@ -1731,19 +1783,37 @@
     $main.querySelectorAll("[data-open]").forEach(function (el) {
       el.onclick = function () { var e = exps.find(function (x) { return x.id === el.dataset.open; }); if (e) expenseSheet(e); };
     });
-    $main.querySelectorAll("[data-cat]").forEach(function (s2) {
-      s2.onchange = function () {
-        var e = exps.find(function (x) { return x.id === s2.dataset.cat; });
-        e.cat = s2.value; learned[S.norm(e.desc)] = s2.value; saveLearned();
-        Store.updateShared(e.id, { category: s2.value }).then(function () { toast("Категория сохранена — похожие описания будут так же"); render(); })
-          .catch(function (err) { toast("Ошибка: " + err.message); });
+    // категория: меняем сразу на экране, сохраняем в фоне, можно отменить
+    $main.querySelectorAll("[data-cat]").forEach(function (btn) {
+      btn.onclick = function () {
+        var e = exps.find(function (x) { return x.id === btn.dataset.cat; }), prev = e.cat, prevLearned = learned[S.norm(e.desc)];
+        catPicker(S.catOf(e, learned), function (c) {
+          if (c === S.catOf(e, learned)) return;
+          e.cat = c; learned[S.norm(e.desc)] = c; saveLearned(); btn.textContent = c;
+          Store.updateShared(e.id, { category: c }).catch(function (err) { toast("Не сохранилось: " + err.message + ". Проверь связь"); });
+          pushUndo({ label: "«" + e.desc + "» → " + c + ". Похожие траты буду относить сюда же", revert: function () {
+            e.cat = prev; if (prevLearned) learned[S.norm(e.desc)] = prevLearned; else delete learned[S.norm(e.desc)]; saveLearned();
+            return Store.updateShared(e.id, { category: prev || null });
+          } });
+        });
       };
     });
     $main.querySelectorAll("[data-kind]").forEach(function (b) {
-      b.onclick = function () { Store.updateShared(b.dataset.kind, { kind: b.dataset.to }).then(function () { return reloadShared(); }); };
+      b.onclick = function () {
+        var e = exps.find(function (x) { return x.id === b.dataset.kind; }), prev = e.kind, to = b.dataset.to;
+        e.kind = to; render();
+        Store.updateShared(e.id, { kind: to }).catch(function (err) { toast("Не сохранилось: " + err.message); });
+        pushUndo({ label: to === "refund" ? "«" + e.desc + "» — перевод между вами, в расходы не идёт" : "«" + e.desc + "» снова трата", revert: function () { e.kind = prev; return Store.updateShared(e.id, { kind: prev }); } });
+      };
     });
     $main.querySelectorAll("[data-delx]").forEach(function (b) {
-      b.onclick = function () { if (!confirm("Удалить трату у вас обеих? Баланс пересчитается.")) return; Store.deleteShared(b.dataset.delx).then(function () { return reloadShared("Удалено"); }); };
+      b.onclick = function () {
+        if (!confirm("Удалить трату у вас обеих? Баланс пересчитается.")) return;
+        var row = (sh.rows || []).find(function (r) { return r.id === b.dataset.delx; });
+        Store.deleteShared(b.dataset.delx).then(function () { return reloadShared(); }).then(function () {
+          if (row) pushUndo({ label: "Трата удалена", revert: function () { return Store.insertShared([row]).then(loadShared); } });
+        });
+      };
     });
     var pp = $main.querySelector("#prepPartner");
     if (pp) {
@@ -1829,7 +1899,7 @@
           "<input id='exCost' inputmode='decimal' placeholder='0,00' value='" + (d.cost ? esc(String(d.cost / 100).replace(".", ",")) : "") + "'></label>" +
           "<div class='center'><button class='btn split-pill' data-act='split'>" + esc(summary()) + "</button></div>" +
           "<div class='sheet-meta'><label class='f'>Дата<input type='date' id='exDate' value='" + esc(d.date) + "'></label>" +
-          "<label class='f'>Категория<select id='exCat'>" + S.SHARED_CATS.map(function (c) { return "<option" + (c === d.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select></label>" +
+          "<label class='f'>Категория<select id='exCat'>" + sharedCats().map(function (c) { return "<option" + (c === d.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select></label>" +
           "<label class='f'>Способ<select id='exMethod'><option value='card'" + (d.method !== "cash" ? " selected" : "") + ">карта</option><option value='cash'" + (d.method === "cash" ? " selected" : "") + ">наличные</option></select></label>" +
           "<label class='f' style='grid-column:1/-1'>Заметка<input id='exNote' value='" + esc(d.note) + "' placeholder='необязательно'></label></div>" +
           (existing ? "<div class='row' style='margin-top:14px'><label class='row small'><input type='checkbox' id='exRefund'" + (d.kind === "refund" ? " checked" : "") + "> это возврат долга — в расходы не пойдёт</label><span class='spacer'></span><button class='btn ghost danger' data-act='delete'>Удалить</button></div>" : "") +
@@ -1919,7 +1989,11 @@
       };
       if (q("[data-act=delete]")) q("[data-act=delete]").onclick = function () {
         if (!confirm("Удалить «" + existing.desc + "» у обоих?")) return;
-        closeModal(); Store.deleteShared(existing.id).then(loadShared).then(function () { render(); toast("Удалено"); });
+        var row = (sh.rows || []).find(function (r) { return r.id === existing.id; });
+        closeModal(); Store.deleteShared(existing.id).then(loadShared).then(function () {
+          render();
+          if (row) pushUndo({ label: "Трата «" + existing.desc + "» удалена", revert: function () { return Store.insertShared([row]).then(loadShared); } });
+        });
       };
       if (q("[data-act=save]")) q("[data-act=save]").onclick = function () {
         if (!readMain(m)) return;
@@ -2065,7 +2139,7 @@
     // 2. тяжёлые месяцы
     var avg = t.total / 12;
     var heavy = mon.months.filter(function (m) { return m.total > avg * 1.3; });
-    if (heavy.length) out.push({ k: "warn", ic: "▲", h: "Месяцы, к которым стоит подготовиться: " + heavy.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "),
+    if (heavy.length) out.push({ k: "", ic: "▲", h: "Месяцы с расходами выше обычного: " + heavy.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "),
       p: "Расходы выше среднего (" + eur(rnd(avg), { dec: 0 }) + "/мес) больше чем на 30%: " + heavy.map(function (m) { return E.MONTHS_SHORT[m.month - 1] + " " + eur(rnd(m.total), { dec: 0 }); }).join(" · ") + ". Деньги на них лучше откладывать заранее." });
     // 3. праздники семьи
     var fam = state.categories.find(function (c) { return /праздники и подарки семьи/i.test(c.name); });
@@ -2111,21 +2185,21 @@
     var bal = sh && !RO() ? S.balance(sh.expenses).EUR || 0 : 0;
     if (Math.abs(bal) > 50000) out.push({ k: "", ic: "€", h: (bal > 0 ? partnerName() + " должна тебе " : "Ты должна " + partnerName() + " ") + eur(Math.abs(bal), { dec: 0 }), p: "Большой долг удобнее закрывать регулярно — кнопка «Рассчитаться» на экране «Общие»." });
     // хорошее: доля сбережений, статьи, которые подешевели, лёгкие месяцы
-    if (t.income > 0 && t.rate !== null && t.rate >= 0.1) out.push({ k: "good", ic: "↑", h: "Откладываешь " + Math.round(t.rate * 100) + "% доходов", p: "За " + curY + " доходы больше расходов на " + eur(rnd(t.net), { dec: 0 }) + ". Хороший ориентир — от 10–20%." });
+    if (t.income > 0 && t.rate !== null && t.rate >= 0.1) out.push({ k: "good", ic: "↑", h: "Доля сбережений — " + Math.round(t.rate * 100) + "%", p: "За " + curY + " доходы больше расходов на " + eur(rnd(t.net), { dec: 0 }) + ". Обычно советуют откладывать 10–20% доходов." });
     if (state.years[prevY]) {
       var a2 = E.categoryTotals(state, curY), b2 = E.categoryTotals(state, prevY);
       var down = state.categories.filter(function (c) { return c.block !== "income" && c.block !== "savings"; })
         .map(function (c) { return { c: c, d: (b2[c.id] || 0) - (a2[c.id] || 0), a: a2[c.id] || 0, b: b2[c.id] || 0 }; })
         .filter(function (x) { return x.d > 20000 && x.b > 0; }).sort(function (x, y) { return y.d - x.d; }).slice(0, 3);
-      if (down.length) out.push({ k: "good", ic: "↘", h: "Тратишь меньше, чем в " + prevY, p: down.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
+      if (down.length) out.push({ k: "good", ic: "↘", h: "Что уменьшилось по сравнению с " + prevY, p: down.map(function (x) { return x.c.name + ": " + eur(rnd(x.b), { dec: 0 }) + " → " + eur(rnd(x.a), { dec: 0 }); }).join(" · ") });
     }
     var light = mon.months.filter(function (m) { return m.total > 0 && m.total < avg * 0.8; });
-    if (light.length) out.push({ k: "good", ic: "◌", h: "Лёгкие месяцы: " + light.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "), p: "Расходы на 20% ниже среднего — в эти месяцы проще откладывать." });
+    if (light.length) out.push({ k: "good", ic: "◌", h: "Месяцы с расходами ниже обычного: " + light.map(function (m) { return E.MONTHS[m.month - 1]; }).join(", "), p: "Минимум на 20% меньше среднего — в такие месяцы удобно откладывать." });
     // 7. капитал
     if (t.dcap) out.push({ k: t.dcap > 0 ? "good" : "warn", ic: "◆", h: "Капитал за " + curY + ": " + eur(rnd(t.dcap), { dec: 0, plus: true }), p: "На конец года " + eur(rnd(t.cap), { dec: 0 }) + "." });
 
     out.sort(function (a, b) { var o = { good: 0, "": 1, warn: 2 }; return o[a.k] - o[b.k]; });
-    var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>Сначала то, что получается хорошо, потом — где есть резерв. Считаются сами из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div><div class='grid2'>";
+    var html = "<div class='page-head'><div><h1>Выводы " + curY + "</h1><div class='sub'>Короткие наблюдения по году. Считаются сами — из плана, сверок и общих трат.</div></div>" + yearChips(curY, false) + "</div><div class='grid2'>";
     html += out.map(function (o) { return "<div class='card insight " + o.k + "'><div class='ic'>" + o.ic + "</div><div><b>" + esc(o.h) + "</b><p>" + esc(o.p) + "</p></div></div>"; }).join("");
     html += "</div>";
     if (ay.length) {
@@ -2205,6 +2279,8 @@
     html += "</tbody></table></div><form id='addCat' class='row' style='margin-top:8px'><input type='text' name='name' placeholder='Новая категория' required><select name='block'>" +
       E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'>" + esc(x.name) + "</option>"; }).join("") + "</select><select name='cur'><option>EUR</option><option>RUB</option></select><button class='btn' type='submit'>+ категория</button></form></div>";
 
+    html += "<div class='section card'><h2>Резервные копии</h2><p class='muted' style='margin-top:-4px'>Копия бюджета сохраняется сама — после сверки, раз в неделю, и перед заменой бюджета. Хранятся последние 12. Общие траты в копию не входят: они хранятся отдельно, у вас обеих.</p>" +
+      "<div id='snapList' class='small muted'>Загружаю…</div><div class='row' style='margin-top:10px'><button class='btn' id='snapNow'>Сделать копию сейчас</button></div></div>";
     var rm = state.settings.reminder;
     html += "<div class='section card'><h2>Напоминание о сверке</h2><p class='muted' style='margin-top:-4px'>" + (rm && rm.off ? "Выключено." : rm ? "Настроено: " + (rm.day === "MO" ? "по понедельникам" : "по воскресеньям") + " в " + esc(rm.time) + ". Если удалила событие из календаря — добавь заново." :
       "Событие в календаре каждую неделю, со ссылкой на сверку.") + "</p><button class='btn' id='remBtn'>" + (rm ? "Изменить" : "Настроить") + "</button></div>";
@@ -2288,6 +2364,27 @@
     $main.querySelector("#wipe").onclick = function () { if (!confirm("Стереть мой бюджет и начать с пустого года? Общие траты не тронутся.")) return; replaceMine(blank()); };
     $main.querySelector("#xlsx").onchange = function (e) { var f = e.target.files[0]; if (f) importXlsxFile(f); };
     $main.querySelector("#remBtn").onclick = reminderModal;
+    function drawSnaps() {
+      var box = $main.querySelector("#snapList"); if (!box) return;
+      Store.listSnapshots().then(function (l) {
+        if (!box.isConnected) return;
+        box.className = "";
+        box.innerHTML = l.length ? "<ul class='snap-list'>" + l.map(function (x) {
+          return "<li><span><b>" + esc(new Date(x.created_at).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })) + "</b><small>" + esc(x.reason || "") + (x.local ? " · на этом устройстве" : "") + "</small></span>" +
+            "<button class='btn sm' data-snapdl='" + x.id + "'>Скачать</button><button class='btn sm' data-snapre='" + x.id + "'>Восстановить</button></li>";
+        }).join("") + "</ul>" : "<p class='small muted'>Копий пока нет — первая появится после ближайшей сверки.</p>";
+        box.querySelectorAll("[data-snapdl]").forEach(function (b) { b.onclick = function () { Store.getSnapshot(b.dataset.snapdl).then(function (d) { download("easy-budget-copy-" + E.todayISO() + ".json", JSON.stringify(d), "application/json"); }); }; });
+        box.querySelectorAll("[data-snapre]").forEach(function (b) {
+          b.onclick = function () {
+            var x = l.find(function (q) { return String(q.id) === b.dataset.snapre; });
+            if (!confirm("Вернуть бюджет к копии от " + new Date(x.created_at).toLocaleString("ru-RU") + "? Текущее состояние сначала сохранится отдельной копией — к нему можно будет вернуться.")) return;
+            Store.getSnapshot(x.id).then(function (d) { if (!d) { toast("Копия не нашлась"); return; } replaceMine(d); toast("Бюджет восстановлен из копии"); });
+          };
+        });
+      }).catch(function () { box.textContent = "Не получилось загрузить список копий."; });
+    }
+    drawSnaps();
+    $main.querySelector("#snapNow").onclick = function () { backupNow("вручную").then(function () { changed(true); toast("Копия сохранена"); drawSnaps(); }); };
     // оглавление: настройки длинные
     var heads = $main.querySelectorAll("h2"), toc = "";
     heads.forEach(function (h, i) { h.id = "set-" + i; h.style.scrollMarginTop = "16px"; toc += "<button type='button' class='chip' data-goto='set-" + i + "'>" + esc(h.textContent.replace(/\s*\(.*$/, "")) + "</button>"; });
@@ -2311,7 +2408,20 @@
     };
   };
 
+  // резервная копия: после сверки — не чаще раза в неделю; перед заменой бюджета — всегда
+  function backupNow(reason) {
+    if (!myState || RO()) return Promise.resolve();
+    var data = JSON.parse(JSON.stringify(myState)); delete data._ver;
+    myState.settings.lastBackupAt = new Date().toISOString();
+    return Store.saveSnapshot(data, reason).catch(function () {});
+  }
+  function maybeWeeklyBackup(reason) {
+    var last = myState.settings.lastBackupAt ? new Date(myState.settings.lastBackupAt).getTime() : 0;
+    if (Date.now() - last > 6 * 864e5) return backupNow(reason);
+    return Promise.resolve();
+  }
   function replaceMine(data) {
+    backupNow("перед заменой бюджета");
     myState = migrate(JSON.parse(JSON.stringify(data)));
     state = myState; view = { who: "me", level: "full", name: "", summary: null };
     var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week; ui.gridYear = null;
@@ -2537,7 +2647,7 @@
   }
 
   function boot() {
-    state = myState; view = { who: "me", level: "full", name: "", summary: null };
+    state = myState; view = { who: "me", level: "full", name: "", summary: null }; resetUndoBase();
     var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week;
     render();
   }
