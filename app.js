@@ -8,7 +8,7 @@
   var view = { who: "me", level: "full", name: "", summary: null };
   var people = [];       // чьи бюджеты я могу смотреть
   var sh = null;         // общее пространство: {space, people, meId, partnerId, rows, expenses, learned}
-  var ui = { year: null, week: 0, recWeek: null, shared: { year: null, month: "all", cat: "all", kind: "all", limit: 80 } };
+  var ui = { year: null, week: 0, recWeek: null, shared: { year: null, month: "all", cat: "all", kind: "all", limit: 20, q: "" } };
 
   function RO() { return view.who !== "me"; }
 
@@ -527,7 +527,7 @@
     // быстрые действия
     if (!ro) html += "<div class='quick-row'>" +
       "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>внести в личный план</small></span></button>" +
-      "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить с " + esc(sh ? partnerName() : "партнёром") + "</small></span></button>" +
+      "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить на двоих</small></span></button>" +
       "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>" + (cashEurTotal() !== null ? E.eur(cashEurTotal(), { dec: 0 }) + " в кошельке и конвертах" : "кошелёк и конверты") + "</small></span></button>" +
       "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
 
@@ -1715,7 +1715,7 @@
         " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить её таблицу</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>" : "";
 
     var html = "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + ". Вносите обе, с любого устройства. Возврат долга и «Рассчитаться» меняют только баланс между вами — в расходы не попадают, иначе покупка посчиталась бы дважды.</div></div>" +
-      "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div></div>" + invite;
+      "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a><label class='btn'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label><button class='btn' id='shExport'>Скачать CSV</button></div></div>" + invite;
     html += "<div class='grid2'><div class='kpi'><div class='kpi-label'>Баланс</div>" + balHtml + "<div class='row' style='margin-top:10px'><button class='btn primary sm' id='settle'>Рассчитаться</button></div></div>";
     html += "<div class='card add-card'><h2>Новая трата</h2><p class='muted small' style='margin-top:-6px'>Как в Splitwise: описание, сумма, кто платил и как делим — поровну, точными суммами, процентами, долями или с поправкой.</p>" +
       "<button class='btn primary' id='addExpBtn'>+ Добавить трату</button></div></div>" +
@@ -1727,14 +1727,20 @@
       if (st.month !== "all" && Number(e.date.slice(5, 7)) !== Number(st.month)) return false;
       if (st.kind === "transfer" ? (e.kind !== "refund" && e.kind !== "settlement") : (st.kind !== "all" && e.kind !== st.kind)) return false;
       if (st.cat !== "all" && (e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned)) !== st.cat) return false;
+      if (st.q) {
+        var q = st.q.toLowerCase().replace(",", "."), hay = ((e.desc || "") + " " + (e.note || "") + " " + (e.cost / 100).toFixed(2) + " " + (e.share / 100).toFixed(2)).toLowerCase();
+        if (q.split(/\s+/).some(function (w) { return w && hay.indexOf(w) < 0; })) return false;
+      }
       return true;
     }).slice().reverse();
     html += "<div class='section'><div class='row' style='margin-bottom:10px'><h2 style='margin:0'>Лента</h2><span class='spacer'></span>" +
+      "<input type='search' id='fQ' class='sh-search' placeholder='Поиск: описание, заметка, сумма' value='" + esc(st.q || "") + "' aria-label='Поиск по общим тратам'>" +
       "<select id='fY'>" + ylist.map(function (y) { return "<option" + (y === st.year ? " selected" : "") + ">" + y + "</option>"; }).join("") + "</select>" +
       "<select id='fM'>" + mlist.map(function (m) { return "<option value='" + m + "'" + (m === st.month ? " selected" : "") + ">" + (m === "all" ? "все месяцы" : E.MONTHS[Number(m) - 1]) + "</option>"; }).join("") + "</select>" +
       "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
       "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["transfer", "переводы между вами"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div>";
-    html += "<div class='tbl-wrap'><table class='t feed'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Твоя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
+    html += "<div class='small muted' style='margin:-2px 0 8px'>" + (filtered.length ? "Найдено " + filtered.length + (filtered.length > st.limit ? " · показаны последние " + st.limit : "") : "") + "</div>";
+    html += "<div class='tbl-wrap tbl-scroll'><table class='t feed'><thead><tr><th>Дата</th><th>Описание</th><th>Категория / тип</th><th class='n'>Сумма</th><th class='n'>Твоя доля</th><th>Платил(а)</th><th></th></tr></thead><tbody>";
     filtered.slice(0, st.limit).forEach(function (e) {
       var k = e.kind, catSel;
       if (k === "settlement") catSel = "<span class='badge'>перевод между вами</span>";
@@ -1751,33 +1757,47 @@
         "<td class='n'><button class='btn sm ghost' data-open='" + esc(e.id) + "' aria-label='Изменить'>✎</button></td></tr>";
     });
     if (!filtered.length) html += "<tr><td colspan='7' class='muted'>Ничего не найдено.</td></tr>";
-    html += "</tbody></table></div>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё (" + (filtered.length - st.limit) + ")</button></div>" : "") + "</div>";
+    html += "</tbody></table></div>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё " + Math.min(50, filtered.length - st.limit) + "</button><span class='small muted'>осталось " + (filtered.length - st.limit) + "</span></div>" : "") + "</div>";
 
     var ms = S.monthlyShares(calc, set, st.year);
     var catsUsed = S.SHARED_CATS.filter(function (c) { return ms.byCat[c] && ms.byCat[c].some(function (v) { return Math.abs(v) >= 50; }); });
-    html += "<div class='section'><h2>Твоя доля по категориям, € · " + st.year + "</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Категория</th>" +
+    html += "<details class='section sh-more'><summary><h2>Твоя доля по категориям, € · " + st.year + "</h2><span class='small muted'>таблица по месяцам</span></summary><div class='tbl-wrap tbl-scroll'><table class='t'><thead><tr><th>Категория</th>" +
       E.MONTHS_SHORT.map(function (m) { return "<th class='n'>" + m + "</th>"; }).join("") + "<th class='n'>Год</th></tr></thead><tbody>";
     var colTot = new Array(12).fill(0);
     catsUsed.forEach(function (c) {
       var arr = ms.byCat[c], t = 0;
       html += "<tr><td>" + esc(c) + "</td>" + arr.map(function (v, i) { t += v; colTot[i] += v; return "<td class='n'>" + (Math.abs(v) >= 50 ? E.fmt(rnd(v)) : "") + "</td>"; }).join("") + "<td class='n'><b>" + E.fmt(rnd(t)) + "</b></td></tr>";
     });
-    html += "<tr class='total'><td>Итого</td>" + colTot.map(function (v) { return "<td class='n'>" + E.fmt(rnd(v)) + "</td>"; }).join("") + "<td class='n'>" + E.fmt(rnd(colTot.reduce(function (a, b) { return a + b; }, 0))) + "</td></tr></tbody></table></div></div>";
+    html += "<tr class='total'><td>Итого</td>" + colTot.map(function (v) { return "<td class='n'>" + E.fmt(rnd(v)) + "</td>"; }).join("") + "<td class='n'>" + E.fmt(rnd(colTot.reduce(function (a, b) { return a + b; }, 0))) + "</td></tr></tbody></table></div></details>";
 
     if (myState.years[st.year]) {
       var cov = S.coverage(myState, calc, st.year);
-      html += "<div class='section'><h2>Общие и личный план: еда и развлечения</h2><p class='small muted' style='margin-top:-6px'>Еда = продукты + кафе + доставка из общих трат. «Вне общего счёта» — сколько из личных сумм на продукты и развлечения ушло мимо общих трат.</p>" +
-        "<div class='tbl-wrap'><table class='t'><thead><tr><th></th>" + E.MONTHS_SHORT.map(function (m) { return "<th class='n'>" + m + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      html += "<details class='section sh-more'><summary><h2>Общие и личный план: еда и развлечения</h2><span class='small muted'>сравнение по месяцам</span></summary><p class='small muted' style='margin-top:-6px'>Еда = продукты + кафе + доставка из общих трат. «Вне общего счёта» — сколько из личных сумм на продукты и развлечения ушло мимо общих трат.</p>" +
+        "<div class='tbl-wrap tbl-scroll'><table class='t'><thead><tr><th></th>" + E.MONTHS_SHORT.map(function (m) { return "<th class='n'>" + m + "</th>"; }).join("") + "</tr></thead><tbody>" +
         covRow("Общие: еда", cov, "sharedFood") + covRow("Общие: развлечения", cov, "sharedFun") + covRow("Личный план: продукты + развлечения", cov, "personal") +
         "<tr><td>Вне общего счёта</td>" + cov.map(function (c) { return "<td class='n " + (c.personal && c.outside < 0 ? "neg" : "") + "'>" + (c.personal || c.shared ? E.fmt(rnd(c.outside)) : "") + "</td>"; }).join("") + "</tr>" +
-        "<tr class='total'><td>Покрытие</td>" + cov.map(function (c) { return "<td class='n'>" + (c.coverage === null ? "" : Math.round(c.coverage * 100) + "%") + "</td>"; }).join("") + "</tr></tbody></table></div></div>";
+        "<tr class='total'><td>Покрытие</td>" + cov.map(function (c) { return "<td class='n'>" + (c.coverage === null ? "" : Math.round(c.coverage * 100) + "%") + "</td>"; }).join("") + "</tr></tbody></table></div></details>";
     }
     $main.innerHTML = html;
 
     function reloadShared(msg) { return loadShared().then(function () { render(); if (msg) toast(msg); }).catch(function (err) { toast("Ошибка: " + err.message); }); }
-    function bindF(id, key) { $main.querySelector(id).onchange = function (e) { st[key] = e.target.value; st.limit = 80; render(); }; }
+    function bindF(id, key) { $main.querySelector(id).onchange = function (e) { st[key] = e.target.value; st.limit = 20; render(); }; }
+    var fq = $main.querySelector("#fQ"), fqT = null;
+    fq.oninput = function () { clearTimeout(fqT); fqT = setTimeout(function () { st.q = fq.value.trim(); st.limit = 20; var y0 = window.scrollY; render(); window.scrollTo(0, y0); var n = $main.querySelector("#fQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
+    $main.querySelector("#shExport").onclick = function () {
+      var other = partner, rows = [["Дата", "Описание", "Категория", "Тип", "Сумма", "Валюта", "Платил(а)", "Доля " + meName, "Доля " + other, "Способ", "Заметка"]];
+      exps.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).forEach(function (e) {
+        var type = e.kind === "settlement" || e.kind === "refund" ? "перевод между вами" : e.kind === "batch" ? "сводная" : "трата";
+        rows.push([e.date, e.desc || "", type === "трата" || type === "сводная" ? (e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned)) : "", type,
+          (e.cost / 100).toFixed(2).replace(".", ","), e.currency || "EUR", e.paidByMe ? meName : other,
+          e.kind === "settlement" ? "" : (e.share / 100).toFixed(2).replace(".", ","), e.kind === "settlement" ? "" : ((e.cost - e.share) / 100).toFixed(2).replace(".", ","),
+          e.method === "cash" ? "наличные" : "карта", e.note || ""]);
+      });
+      download("obshchie-traty-" + E.todayISO() + ".csv", "\ufeff" + rows.map(function (r) { return r.map(function (x) { x = String(x); return /[;"\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(";"); }).join("\n"), "text/csv");
+      toast("Скачано: " + (rows.length - 1) + " записей");
+    };
     bindF("#fY", "year"); bindF("#fM", "month"); bindF("#fC", "cat"); bindF("#fK", "kind");
-    var more = $main.querySelector("#more"); if (more) more.onclick = function () { st.limit += 200; render(); };
+    var more = $main.querySelector("#more"); if (more) more.onclick = function () { var y0 = window.scrollY; st.limit += 50; render(); window.scrollTo(0, y0); };
     $main.querySelector("#addExpBtn").onclick = function () { expenseSheet(null); };
     $main.querySelector("#fab").onclick = function () { expenseSheet(null); };
     $main.querySelectorAll("[data-open]").forEach(function (el) {
