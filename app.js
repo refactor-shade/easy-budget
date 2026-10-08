@@ -14,6 +14,21 @@
 
   // ---------- сохранение ----------
   var saveTimer = null, saving = false, pending = false;
+  // «Обновить»: свежие данные, а если на сайте новая версия — перезагрузка
+  function refreshAll() {
+    if (pending || saving) { toast("Подожди секунду — сохраняю изменения"); return; }
+    setSync("обновляю…", "busy");
+    fetch("index.html?nc=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/app\.js\?v=(\d+)/), curSrc = Array.prototype.map.call(document.scripts, function (x) { return x.src; }).find(function (x) { return /app\.js/.test(x); }) || "", cm = curSrc.match(/v=(\d+)/);
+      if (m && cm && m[1] !== cm[1]) { location.reload(); return; }
+      return Promise.all([Store.loadMyBudget(), loadShared().catch(function () {}), loadPeople()]).then(function (x) {
+        var b = x[0];
+        if (b && !pending && !saving) { myState = migrate(b.data); if (view.who === "me") state = myState; resetUndoBase(); }
+        render();
+        setSync("обновлено " + new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) + " ↻", "ok");
+      });
+    }).catch(function () { setSync("нет связи ↻", "warn"); });
+  }
   function setSync(text, cls) {
     var el = document.getElementById("sync");
     if (el) { el.textContent = text; el.className = "sync " + (cls || ""); }
@@ -30,7 +45,7 @@
     var snapshot = myState;
     Store.saveMyBudget(snapshot).then(function () {
       saving = false;
-      setSync(Store.mode === "cloud" ? "сохранено в облаке" : "сохранено в браузере", "ok");
+      setSync(Store.mode === "cloud" ? "сохранено ↻" : "сохранено в браузере", "ok");
       if (pending) flush();
     }).catch(function (err) {
       saving = false;
@@ -175,7 +190,8 @@
       html += "<button class='chip" + (view.who === p.userId ? " on" : "") + "' data-who='" + esc(p.userId) + "'" + (p.theirLevel === "hidden" ? " title='закрыла доступ'" : "") + ">" +
         esc(p.name) + (p.theirLevel === "totals" ? " · итоги" : p.theirLevel === "hidden" ? " · скрыто" : "") + "</button>";
     });
-    bar.innerHTML = (people.length ? html : "") + "<span class='spacer'></span><span id='sync' class='sync'>" + (Store.mode === "cloud" ? "облако" : "этот браузер") + "</span>";
+    bar.innerHTML = (people.length ? html : "") + "<span class='spacer'></span><button type='button' id='sync' class='sync' title='Обновить: подтянуть свежие данные и новую версию'>" + (Store.mode === "cloud" ? "обновить ↻" : "этот браузер") + "</button>";
+    bar.querySelector("#sync").onclick = refreshAll;
     bar.querySelectorAll("[data-who]").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
   }
 
@@ -184,6 +200,17 @@
   function eur(c, o) { return E.eur(c, o); }
   function rnd(c) { return c === null || c === undefined ? null : Math.round(c / 100) * 100; }
   function sign(c) { return c > 0 ? "pos" : c < 0 ? "neg" : ""; }
+  // В расходах минус можно не ставить: 50 → −50. «+50» — оставить плюсом (вернули деньги).
+  function signFor(catId, expr) {
+    var v = String(expr || "").trim(), c = state.categories.find(function (x) { return x.id === catId; });
+    if (!v || !c || c.block === "income") return v;
+    if (/^\+/.test(v)) return v.replace(/^\+\s*/, "");
+    if (/^[-=]/.test(v)) return v;
+    var n; try { n = E.exprCents(v); } catch (e) { return v; }
+    if (n === null || n <= 0) return v;
+    return /[+\-*\/]/.test(v) ? "-(" + v + ")" : "-" + v;
+  }
+  function absIfPlain(expr) { var v = String(expr || "").trim(); return /^-\d+([.,]\d+)?$/.test(v) ? v.slice(1) : v; }
   function cats() { return state.categories.slice().sort(function (a, b) { return a.sort - b.sort; }); }
   function catName(id) { var c = state.categories.find(function (x) { return x.id === id; }); return c ? c.name : id; }
   function years() { return Object.keys(state.years).sort(); }
@@ -246,8 +273,8 @@
     modal("<form method='dialog' class='m-body' id='cellForm'><h2>" + esc(c.name) + "</h2><div class='sub'>" + E.weekTitle(Number(year), w) +
       " · " + wk.wim + "-я неделя месяца</div>" +
       (recCell ? "<div class='hint small'>Регулярная трата: <b>" + E.fmt(recCell.cents, { cur: cur(c) }) + "</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>" : "") +
-      "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула (минус — расход): <input type='text' name='expr' autofocus value='" +
-      esc(entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")) + "' placeholder='-35-20' inputmode='decimal'></label>" +
+      "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула" + (c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги") + "<input type='text' name='expr' autofocus value='" +
+      esc(c.block === "income" ? (entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")) : absIfPlain(entry ? entry.expr : (cell ? (cell.cents / 100).toString() : ""))) + "' placeholder='35+20' inputmode='decimal'></label>" +
       "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='" + esc(entry ? entry.note : "") + "' placeholder='что это было'></label></div>" +
       "<div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>" +
       (cell && cell.cents < 0 && c.block !== "savings" ? "<div class='row' style='margin:0 22px 12px'><button class='btn sm' data-act='move'>Не потратила — перенести или убрать</button></div>" : "") +
@@ -256,13 +283,14 @@
     function (m) {
       var inp = m.querySelector("[name=expr]"), pv = m.querySelector("#cellPreview");
       function preview() {
-        try { var v = E.exprCents(inp.value); pv.textContent = v === null ? "" : "= " + E.fmt(v, { cur: cur(c) }); pv.className = "small muted"; }
+        try { var v = E.exprCents(signFor(catId, inp.value)); pv.textContent = v === null ? "" : "= " + E.fmt(v, { cur: cur(c) }); pv.className = "small muted"; }
         catch (err) { pv.textContent = "Ошибка в формуле: " + err.message; pv.className = "small neg"; }
       }
       inp.addEventListener("input", preview); preview();
       function doSave() {
-        try { E.exprCents(inp.value); } catch (err) { return; }
-        E.setEntry(state, year, catId, String(w), inp.value, m.querySelector("[name=note]").value);
+        var val = signFor(catId, inp.value);
+        try { E.exprCents(val); } catch (err) { return; }
+        E.setEntry(state, year, catId, String(w), val, m.querySelector("[name=note]").value);
         closeModal(); changed();
       }
       m.querySelector("#cellForm").addEventListener("submit", function (e) { e.preventDefault(); doSave(); });
@@ -362,7 +390,7 @@
     if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
     o = o || {};
     var date = o.date || E.todayISO();
-    modal("<form class='m-body' id='spForm'><h2>Внести трату</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к плану недели, в которую попадает дата, — прошлой или будущей.</p>" +
+    modal("<form class='m-body' id='spForm'><h2>Трата вне плана</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
       "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
       "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
       "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
@@ -514,19 +542,23 @@
       "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
       "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-    // хорошие новости: только правдивое, до трёх
-    var wins = [], ytd = r.cap[w] - (r.startCap || 0), toEnd = r.cap[59] - r.cap[w];
-    if (ytd >= 10000) wins.push({ v: eur(rnd(ytd), { dec: 0, plus: true }), t: "капитал с начала года" });
-    if (toEnd >= 10000 && w < 59) wins.push({ v: eur(rnd(toEnd), { dec: 0, plus: true }), t: "накопишь до конца года — капитал будет " + eur(rnd(r.cap[59]), { dec: 0 }) });
-    if (mon.saved >= 5000) wins.push({ v: eur(rnd(mon.saved), { dec: 0 }), t: "отложишь в накопления в " + E.MONTHS[wk.month - 1].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те") });
+    // коротко о деньгах: факты как есть — и плюсы, и минусы
+    var facts = [], ytd = r.cap[w] - (r.startCap || 0), toEnd = r.cap[59] - r.cap[w];
+    var sgnI = function (v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; };
+    if (Math.abs(ytd) >= 1000) facts.push({ k: sgnI(ytd), v: eur(rnd(ytd), { dec: 0, plus: true }), t: "капитал с начала года" });
+    if (w < 59 && Math.abs(toEnd) >= 1000) facts.push({ k: sgnI(toEnd), v: eur(rnd(toEnd), { dec: 0, plus: true }), t: "до конца года по плану — капитал будет " + eur(rnd(r.cap[59]), { dec: 0 }) });
+    var monLoc = E.MONTHS[wk.month - 1].replace(/ь$/, "е").replace(/й$/, "е").replace(/т$/, "те");
+    facts.push(mon.saved >= 1000 ? { k: "flat", v: eur(rnd(mon.saved), { dec: 0 }), t: "в накопления в " + monLoc } : { k: "flat", v: "0 €", t: "в накопления в " + monLoc + " по плану" });
     var fwH = finishedWeek(), frH = fwH ? E.compute(state, fwH.year) : null;
-    if (fwH && frH.diff[fwH.week] !== null && frH.diff[fwH.week] >= 1000) wins.push({ v: eur(rnd(frH.diff[fwH.week]), { dec: 0, plus: true }), t: "к плану по сверке за " + shortWeek(fwH.year, fwH.week) });
-    if (fwH) { var streak = 0; for (var si = fwH.week; si >= 0 && frH.fact[si] !== null; si--) streak++; if (streak >= 3) wins.push({ v: streak + " " + (streak % 10 >= 2 && streak % 10 <= 4 && (streak % 100 < 10 || streak % 100 >= 20) ? "недели" : "недель"), t: "сверок подряд без пропусков" }); }
-    if (wins.length && !ro) html += "<div class='wins'>" + wins.slice(0, 3).map(function (x) { return "<div class='win'><span class='win-ic' aria-hidden='true'>↑</span><span><b>" + x.v + "</b> " + esc(x.t) + "</span></div>"; }).join("") + "</div>";
+    if (fwH && frH.diff[fwH.week] !== null) facts.push({ k: sgnI(frH.diff[fwH.week]), v: eur(rnd(frH.diff[fwH.week]), { dec: 0, plus: true }), t: "к плану по сверке за " + shortWeek(fwH.year, fwH.week) });
+    else if (fwH) { var missed = 0; for (var mi = fwH.week; mi > fwH.week - 4 && mi >= 0; mi--) if (frH.fact[mi] === null) missed++; if (missed) facts.push({ k: "flat", v: missed + " из 4", t: "последних недель без сверки" }); }
+    if (facts.length && !ro) html += "<div class='facts'><div class='facts-h small muted'>Коротко</div>" + facts.slice(0, 4).map(function (x) {
+      return "<div class='fact " + x.k + "'><span class='fact-ic' aria-hidden='true'>" + (x.k === "up" ? "↑" : x.k === "down" ? "↓" : "·") + "</span><span><b>" + x.v + "</b> " + esc(x.t) + "</span></div>";
+    }).join("") + "</div>";
 
     // быстрые действия
     if (!ro) html += "<div class='quick-row'>" +
-      "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>внести в личный план</small></span></button>" +
+      "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата вне плана</b><small>нашла в выписке — внести</small></span></button>" +
       "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить на двоих</small></span></button>" +
       "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>внести трату наличными</small></span></button>" +
       "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
@@ -1295,8 +1327,8 @@
       (items ? "<ul class='plan-list'>" + items + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") + "</div>";
 
     // быстрое добавление
-    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Внести трату</h2><p class='small muted' style='margin-top:-6px'>Крупная трата из выписки? Внеси её — сумма прибавится к плану нужной недели.</p>" +
-      "<button class='btn primary' data-act='spend'>+ Внести трату</button></div>");
+    html += "<div>" + (RO() ? "" : "<div class='card'><h2>Трата вне плана</h2><p class='small muted' style='margin-top:-6px'>Нашла в выписке то, чего не было в плане? Внеси — сумма встанет в нужную неделю.</p>" +
+      "<button class='btn primary' data-act='spend'>+ Внести</button></div>");
 
     html += "<div class='card'><h2>" + E.MONTHS[wk.month - 1][0].toUpperCase() + E.MONTHS[wk.month - 1].slice(1) + " целиком</h2><table class='t'>" +
       "<tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
@@ -1423,13 +1455,15 @@
     var entry = (state.years[y].entries[catId] || {})[w];
     var cell = E.compute(state, y).cells[catId][w];
     var old = td.innerHTML;
-    td.innerHTML = "<input type='text' inputmode='decimal' value='" + esc(entry ? entry.expr : cell ? cell.cents / 100 : "") + "'>";
+    var catObj = state.categories.find(function (x) { return x.id === catId; }) || {}, isExp = catObj.block !== "income";
+    var shown = entry ? entry.expr : cell ? String(cell.cents / 100) : "";
+    td.innerHTML = "<input type='text' inputmode='decimal' value='" + esc(isExp ? absIfPlain(shown) : shown) + "' aria-label='Сумма; в расходах минус ставить не нужно'>";
     var inp = td.querySelector("input"), done = false;
     inp.focus(); inp.select();
     function finish(saveIt) {
       if (done) return; done = true;
       if (!saveIt) { td.innerHTML = old; return; }
-      var v = inp.value.trim();
+      var v = signFor(catId, inp.value.trim());
       var prev = entry ? entry.expr : cell ? String(cell.cents / 100) : "";
       if (v === prev) { td.innerHTML = old; return; }
       try { E.exprCents(v); } catch (err) { toast("Ошибка в формуле: " + err.message); td.innerHTML = old; return; }
@@ -1497,7 +1531,7 @@
 
     html += "<div><div class='card' id='recResult'></div>" +
       unspentCard(y, w) +
-      "<div class='card'><h2>Нашла трату в выписке?</h2><p class='small muted' style='margin-top:-6px'>Внеси её — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести трату</button></div></div></div>";
+      "<div class='card'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Внеси — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести</button></div></div></div>";
 
     // история сверок
     var hist = [];
@@ -1611,7 +1645,7 @@
     if (!list.length) html += "<tr><td colspan='6' class='muted'>Регулярных трат пока нет — добавь первую ниже: например, аренду.</td></tr>";
     html += "</tbody></table></div>";
     html += "<div class='card section'><h2>Добавить регулярную трату</h2><p class='small muted' style='margin-top:-6px'>«Недели месяца» — когда списывается: <b>1</b> — первая неделя, <b>2,4</b> — вторая и четвёртая, <b>все</b> — каждую неделю (например, продукты).</p><form id='addRule' class='form-grid'><label class='f'>Категория<select name='cat'>" + catOptions() + "</select></label>" +
-      "<label class='f'>Сумма (минус — расход)<input type='text' name='expr' placeholder='-150' required inputmode='decimal'></label>" +
+      "<label class='f'>Сумма<input type='text' name='expr' placeholder='150' required inputmode='decimal'></label>" +
       "<label class='f'>Недели месяца<input type='text' name='weeks' placeholder='все · 1 · 2,4 · 5' required></label>" +
       "<label class='f'>Действует<select name='from'>" + monthOpts(y + "-01-01") + "</select></label><button class='btn primary' type='submit'>Добавить</button></form></div>";
     $main.innerHTML = html;
@@ -1629,9 +1663,10 @@
     $main.querySelector("#addRule").onsubmit = function (e) {
       e.preventDefault();
       var f = e.target, c;
-      try { c = E.exprCents(f.expr.value); } catch (err) { toast("Ошибка: " + err.message); return; }
+      var exprV = signFor(f.cat.value, f.expr.value);
+      try { c = E.exprCents(exprV); } catch (err) { toast("Ошибка: " + err.message); return; }
       if (!/^(все|\s*[1-5](\s*,\s*[1-5])*)$/i.test(f.weeks.value.trim())) { toast("Недели месяца: «все» или цифры от 1 до 5 через запятую, например 2,4"); return; }
-      yr.recurring.push({ id: E.uid("r"), catId: f.cat.value, expr: f.expr.value.trim(), cents: c, weeks: f.weeks.value.trim().toLowerCase(), from: f.from.value, to: null });
+      yr.recurring.push({ id: E.uid("r"), catId: f.cat.value, expr: exprV.trim(), cents: c, weeks: f.weeks.value.trim().toLowerCase(), from: f.from.value, to: null });
       changed(); toast("Регулярная трата «" + catName(f.cat.value) + "» добавлена");
     };
     $main.querySelectorAll("[data-del]").forEach(function (b) {
@@ -1648,7 +1683,7 @@
           "<p class='small muted'>Недели до выбранного месяца сохранят старую сумму.</p></div><div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
           m.querySelector("[data-act=cancel]").onclick = closeModal;
           m.querySelector("[data-act=ok]").onclick = function () {
-            var ex = m.querySelector("#ruE").value, c;
+            var ex = signFor(ru.catId, m.querySelector("#ruE").value), c;
             try { c = E.exprCents(ex); } catch (err) { toast("Ошибка: " + err.message); return; }
             E.changeRuleFrom(state, y, ru.id, { expr: ex.trim(), cents: c, weeks: m.querySelector("#ruW").value.trim().toLowerCase() }, m.querySelector("#ruF").value);
             closeModal(); changed(); toast("Сохранено");
