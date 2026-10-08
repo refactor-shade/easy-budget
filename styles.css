@@ -751,3 +751,19 @@ button.sync { display: inline-flex; align-items: center; gap: 6px; }
 .pend { color: #a87a1f; font-weight: 600; }
 .push-box { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); }
 .install-steps { padding-left: 20px; margin: 8px 0 12px; line-height: 1.7; }
+/* ---------- выводы: бутерброд ---------- */
+.insight.improve .ic { background: var(--warn-soft); color: #a87a1f; }
+.insight.next { border-color: var(--accent); background: var(--accent-soft); }
+.insight.next .ic { background: var(--accent); color: var(--accent-ink); }
+.insight .btn.sm { margin-top: 10px; }
+.gloss-q { border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; font-size: 12px; line-height: 1; cursor: pointer; vertical-align: 1px; padding: 0; }
+.month-sum .ms-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
+.month-sum .ms-nums div { display: flex; flex-direction: column; }
+.month-sum .ms-nums b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.month-sum ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.month-sum li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
+.month-sum li .mk { font-weight: 700; }
+.month-sum li.good .mk { color: var(--accent); }
+.month-sum li.improve .mk { color: #a87a1f; }
+.month-sum li.next .mk { color: var(--ink-2); }
+@media (max-width: 520px) { .month-sum .ms-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
