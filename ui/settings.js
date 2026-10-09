@@ -73,6 +73,7 @@ routes.settings = function () {
   html += "<div class='section card'><h2>Резервные копии</h2><p class='muted' style='margin-top:-4px'>Копия бюджета сохраняется сама — после сверки, раз в неделю, и перед заменой бюджета. Хранятся последние 12. Общие траты в копию не входят: они хранятся отдельно, у вас обеих.</p>" +
     "<div id='snapList' class='small muted'>Загружаю…</div><div class='row' style='margin-top:10px'><button class='btn' id='snapNow'>Сделать копию сейчас</button></div></div>";
   var rm = state.settings.reminder;
+  html += "<div class='section card'><h2>Google Таблица</h2><div id='gsBox' class='muted small'>" + (cloud ? "Проверяю…" : "Работает в облачной версии.") + "</div></div>";
   html += "<div class='section card'><h2>Напоминание о сверке</h2><p class='muted' style='margin-top:-4px'>" + (rm && rm.off ? "Выключено." : rm ? "Настроено: " + (rm.day === "MO" ? "по понедельникам" : "по воскресеньям") + " в " + esc(rm.time) + (rm.push ? " — уведомлением на телефон." : ". Если удалила событие из календаря — добавь заново.") :
     (Store.mode === "cloud" ? "Уведомление на телефон или событие в календаре каждую неделю, со ссылкой на сверку." : "Событие в календаре каждую неделю, со ссылкой на сверку.")) + "</p><button class='btn' id='remBtn'>" + (rm ? "Изменить" : "Настроить") + "</button></div>";
   // данные
@@ -156,6 +157,7 @@ routes.settings = function () {
   $main.querySelector("#wipe").onclick = function () { if (!confirm("Стереть мой бюджет и начать с пустого года? Общие траты не тронутся.")) return; replaceMine(blank()); };
   $main.querySelector("#xlsx").onchange = function (e) { var f = e.target.files[0]; if (f) importXlsxFile(f); };
   $main.querySelector("#remBtn").onclick = reminderModal;
+  if (cloud) drawSheetBox();
   function drawSnaps() {
     var box = $main.querySelector("#snapList"); if (!box) return;
     Store.listSnapshots().then(function (l) {
@@ -303,4 +305,63 @@ function monthTable(ms, t) {
     html += "<tr class='" + (d[2] ? "total" : "") + "'><td>" + d[0] + "</td>" + ms.map(function (m) { return cell(m[k]); }).join("") + cell(t[k]) + "</tr>";
   });
   return html + "</tbody></table></div></div>";
+}
+
+// ---------- Настройки → Google Таблица ----------
+function drawSheetBox() {
+  var box = $main.querySelector("#gsBox"); if (!box) return;
+  loadSheetLink().then(function (row) {
+    if (!box.isConnected) return;
+    if (!row) {
+      box.className = "";
+      box.innerHTML = "<p class='muted' style='margin-top:-4px'>Твоя Google Таблица будет сама подтягивать изменения из приложения — раз в час и по кнопке. Листы как в твоём Excel: «Мой_ГГГГ» с формулами, сверка по счетам, «Анализ», «Выводы», «Общие траты».</p>" +
+        "<button class='btn primary' id='gsOn'>Подключить Google Таблицу</button>";
+      box.querySelector("#gsOn").onclick = function () {
+        var b = this; b.disabled = true; b.textContent = "Готовлю…";
+        var model; try { model = sheetModel(); } catch (e) { toast("Не получилось собрать таблицу: " + e.message); b.disabled = false; return; }
+        Store.sheetConnect(model).then(function (token) { sheetLink = { token: token, updated_at: new Date().toISOString() }; sheetLastKey = sheetKey(); drawSheetBox(); sheetSteps(token); })
+          .catch(function (e) { toast("Не получилось: " + e.message); b.disabled = false; b.textContent = "Подключить Google Таблицу"; });
+      };
+      return;
+    }
+    var when = row.updated_at ? new Date(row.updated_at).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "—";
+    box.className = "";
+    box.innerHTML = "<p style='margin-top:-4px'><b>Подключено.</b> <span class='muted'>Данные для таблицы обновлены: " + esc(when) + ". Таблица забирает их раз в час или по кнопке «Easy Budget → Обновить сейчас».</span></p>" +
+      "<label class='f' style='max-width:520px;margin:0 0 10px'>Ссылка на таблицу — появится кнопка «Открыть в Google Таблице» на экране «Год»<input type='url' id='gsUrl' placeholder='https://docs.google.com/spreadsheets/…' value='" + esc(state.settings.sheetUrl || "") + "'></label>" +
+      "<div class='row'><button class='btn' id='gsSteps'>Как подключить таблицу</button><button class='btn' id='gsPush'>Отправить сейчас</button><button class='btn ghost' id='gsNew'>Новый ключ</button><button class='btn ghost danger' id='gsOff'>Отключить</button></div>";
+    box.querySelector("#gsSteps").onclick = function () { sheetSteps(row.token); };
+    box.querySelector("#gsUrl").onchange = function () {
+      var v = this.value.trim();
+      if (v && !/^https:\/\/docs\.google\.com\//.test(v)) { toast("Это не похоже на ссылку Google Таблицы"); return; }
+      state.settings.sheetUrl = v || undefined; changed(true); toast(v ? "Ссылка сохранена" : "Ссылка убрана");
+    };
+    box.querySelector("#gsPush").onclick = function () { scheduleSheetPush(true); toast("Отправила — в таблице нажми «Easy Budget → Обновить сейчас»"); setTimeout(drawSheetBox, 1500); };
+    box.querySelector("#gsNew").onclick = function () {
+      if (!confirm("Выпустить новый ключ? Старый перестанет работать — в таблице нужно будет вставить новый.")) return;
+      Store.sheetConnect(sheetModel()).then(function (token) { sheetLink = { token: token, updated_at: new Date().toISOString() }; drawSheetBox(); sheetSteps(token); });
+    };
+    box.querySelector("#gsOff").onclick = function () {
+      if (!confirm("Отключить Google Таблицу? Ключ перестанет работать, таблица больше не будет обновляться (листы в ней останутся).")) return;
+      Store.sheetDisconnect().then(function () { sheetLink = null; drawSheetBox(); toast("Отключено"); });
+    };
+  });
+}
+function sheetSteps(token) {
+  modal("<div class='m-body'><h2>Подключить Google Таблицу</h2><ol class='install-steps'>" +
+    "<li>Открой <a href='https://sheets.new' target='_blank' rel='noopener'>новую Google Таблицу</a> (или ту, где хочешь видеть бюджет).</li>" +
+    "<li>В ней: <b>Расширения → Apps Script</b>. Удали всё в редакторе, вставь код и нажми «Сохранить» (дискета). <button class='btn sm' id='gsCode'>Скопировать код</button></li>" +
+    "<li>Вернись в таблицу и обнови страницу — появится меню <b>Easy Budget</b>.</li>" +
+    "<li><b>Easy Budget → Подключить</b> и вставь ключ. <button class='btn sm' id='gsKey'>Скопировать ключ</button><br><small class='muted'>Google спросит разрешение: скрипту нужен доступ к этой таблице и к интернету, чтобы забирать данные.</small></li></ol>" +
+    "<p class='small muted'>Ключ — как пароль к копии бюджета: не пересылай его. Если он утёк — «Новый ключ», и старый перестанет работать.</p></div>" +
+    "<div class='m-foot'><span class='spacer'></span><button class='btn primary' data-act='ok'>Готово</button></div>", function (m) {
+    function copy(text, label) {
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast(label + " скопирован"); }, function () { window.prompt("Скопируй вручную:", text); });
+    }
+    m.querySelector("#gsKey").onclick = function () { copy(token, "Ключ"); };
+    // код загружаем заранее: копировать в буфер можно только сразу по нажатию
+    var code = null;
+    fetch("gsheet/EasyBudget.gs", { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) { code = t; }).catch(function () {});
+    m.querySelector("#gsCode").onclick = function () { if (code) copy(code, "Код"); else toast("Секунду — загружаю код, нажми ещё раз"); };
+    m.querySelector("[data-act=ok]").onclick = closeModal;
+  });
 }

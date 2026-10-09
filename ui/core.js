@@ -49,6 +49,7 @@ function flush() {
     saving = false;
     if (pending) return flush();
     showOutbox();
+    scheduleSheetPush();
   }).catch(function (err) {
     saving = false;
     if (err && err.code === "conflict") {
@@ -174,7 +175,7 @@ function loadShared() {
       if (!loadShared.subscribed) {
         loadShared.subscribed = true;
         var t = null;
-        Store.subscribeShared(sp.space.id, function () { clearTimeout(t); t = setTimeout(function () { loadShared().then(function () { if (/shared|insights/.test(location.hash)) render(); }); }, 400); });
+        Store.subscribeShared(sp.space.id, function () { clearTimeout(t); t = setTimeout(function () { loadShared().then(function () { if (/shared|insights/.test(location.hash)) render(); scheduleSheetPush(); }); }, 400); });
       }
     });
   });
@@ -593,4 +594,29 @@ function bindInsights(rootEl) {
 }
 function insightCtx() {
   return { today: E.todayISO(), shared: !RO() && sh ? sharedForCalc() : null, toLog: !RO() && sh ? toLogCount() : 0, partnerName: partnerName() };
+}
+
+// ---------- Google Таблица: после изменений книга уходит в облако, скрипт в таблице забирает её сам ----------
+var sheetLink = null, sheetPushT = null, sheetLastKey = null;
+function sheetModel() {
+  var exps = sh ? sh.expenses : [];
+  return window.BudgetSheet.workbook(myState, { expenses: exps, partnerName: sh && sh.partner ? sh.partner.name : "", learned: sh ? sh.learned : {}, shared: sh ? sharedForCalc() : null });
+}
+function sheetKey() { // меняется, только если поменялись данные (или наступил новый день — текущая неделя в таблице)
+  var str = JSON.stringify(myState) + "|" + (sh ? sh.rows.length + ":" + sh.rows.reduce(function (m, r) { var t = r.updated_at || r.created_at || ""; return t > m ? t : m; }, "") : "") + "|" + E.todayISO();
+  var h = 2166136261; for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16) + ":" + str.length;
+}
+function scheduleSheetPush(now) {
+  if (Store.mode !== "cloud" || !sheetLink || !myState || RO()) return;
+  clearTimeout(sheetPushT);
+  sheetPushT = setTimeout(function () {
+    var key = sheetKey();
+    if (key === sheetLastKey && !now) return;
+    var model; try { model = sheetModel(); } catch (e) { console.warn("sheet model", e); return; }
+    Store.sheetPush(model).then(function () { sheetLastKey = key; sheetLink.updated_at = new Date().toISOString(); }).catch(function () { /* нет связи — отправится после следующего сохранения */ });
+  }, now ? 0 : 15000);
+}
+function loadSheetLink() {
+  if (Store.mode !== "cloud") return Promise.resolve(null);
+  return Store.sheetStatus().then(function (row) { sheetLink = row; if (row) scheduleSheetPush(); return row; }).catch(function () { return null; });
 }

@@ -99,7 +99,8 @@ routes.year = function () {
     "<button class='seg-b" + (mode === "months" ? " on" : "") + "' data-mode='months'>Месяцы</button></div>";
   var html = "<div class='page-head'><div><h1>Год " + y + "</h1><div class='sub'>" + (mode === "months"
     ? "Строки — категории, столбцы — месяцы. Нажми на месяц, чтобы открыть его недели и поправить суммы."
-    : "Строки — категории, столбцы — недели. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную. Нажми на ячейку, чтобы изменить.") + "</div></div>" +
+    : "Строки — категории, столбцы — недели. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную. Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. Внизу — остатки по счетам, как в таблице.") +
+    (state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? " <a href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Открыть в Google Таблице ↗</a>" : "") + "</div></div>" +
     "<div class='row'>" + modeSw + yearChips(y, true, RO() ? "" : "<button class='chip' data-act='newyear'>+ " + (Number(years()[years().length - 1]) + 1) + "</button>") + "</div></div>";
   if (mode === "months") return yearByMonths(y, r, html);
 
@@ -147,6 +148,26 @@ routes.year = function () {
     body += "<tr class='tot'><td class='sticky'>Капитал €</td><td class='sticky2'>" + E.fmt(rnd(r.startCap)) + "</td>" + tds(r.cap.map(function (v, i) { return weeks[i].wim === 5 ? v : null; })) + "</tr>";
     body += "<tr class='minor'><td class='sticky'>изменение за неделю</td><td class='sticky2'></td>" + tds(r.dweek, function (v) { return v < 0 ? "neg" : ""; }, { fmt: function (v) { return E.fmt(rnd(v), { plus: true }); } }) + "</tr>";
     body += "<tr class='tot'><td class='sticky'>изменение за месяц</td><td class='sticky2'></td>" + tds(r.dmonth, function (v) { return v === null ? "" : v < 0 ? "bad" : "good"; }, { fmt: function (v) { return E.fmt(rnd(v), { plus: true }); } }) + "</tr>";
+    // СЧЕТА и СВЕРКА НАКОПЛЕНИЙ — как в таблице: остатки по неделям, правятся прямо в ячейке
+    var accs = state.accounts.slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); }).filter(function (a) { return !a.archived || Object.keys(yr.recon || {}).some(function (k) { return yr.recon[k][a.id]; }); });
+    body += "<tr class='blk'><td class='sticky'>Счета — остатки (сверка)</td><td class='sticky2'></td><td colspan='60'></td></tr>";
+    accs.forEach(function (a) {
+      body += "<tr class='acc'><td class='sticky' title='" + esc(a.name) + "'>" + esc(a.name) + (a.kind === "info" ? " <span class='badge'>справка</span>" : "") + "</td><td class='sticky2'>" + (a.countsFrom ? "с " + a.countsFrom.slice(8, 10) + "." + a.countsFrom.slice(5, 7) : "") + "</td>";
+      weeks.forEach(function (wk) {
+        var e = ((yr.recon || {})[wk.idx] || {})[a.id], on = E.accountActive(a, wk);
+        body += "<td class='v manual " + (wk.wim === 1 ? "mstart " : "") + (wk.idx === nowIdx ? "now " : "") + (on ? "" : "off ") + "' data-acc='" + a.id + "' data-w='" + wk.idx + "' title='" + esc(e && e.expr && /[+\-*\/]/.test(String(e.expr).replace(/^-/, "")) ? "=" + e.expr : "") + "'>" + (e && e.cents !== null && e.cents !== undefined ? E.fmt(e.cents, { dec: 0 }) : "") + "</td>";
+      });
+      body += "</tr>";
+    });
+    body += "<tr class='blk'><td class='sticky'>Сверка накоплений</td><td class='sticky2'>остаток целиком</td><td colspan='60'></td></tr>";
+    E.CAPITAL_ROWS.forEach(function (cr) {
+      body += "<tr class='minor'><td class='sticky'>" + cr.name + "</td><td class='sticky2'></td>";
+      weeks.forEach(function (wk) {
+        var v = ((yr.savRecon || {})[wk.idx] || {})[cr.key];
+        body += "<td class='v manual " + (wk.wim === 1 ? "mstart " : "") + (wk.idx === nowIdx ? "now " : "") + "' data-sr='" + cr.key + "' data-w='" + wk.idx + "'>" + (v === undefined || v === null ? "" : E.fmt(v, { dec: 0 })) + "</td>";
+      });
+      body += "</tr>";
+    });
   } else {
     body += "<tr class='tot sep'><td class='sticky'>Капитал на конец месяца</td><td class='sticky2'></td>" +
       tds(weeks.map(function (wk) { return wk.wim === 5 ? r.capMonth[wk.month - 1] : null; })) + "</tr>";
@@ -170,10 +191,76 @@ routes.year = function () {
     if (!td) return;
     if (td.dataset.recon !== undefined && !RO()) { ui.recWeek = { year: y, week: Number(td.dataset.recon) }; location.hash = "#recon"; return; }
     if (td.dataset.rules && !RO()) { ui.recYear = y; location.hash = "#recurring"; return; }
-    if (ro || td.dataset.c === undefined || td.querySelector("input")) return;
-    inlineEdit(td, y);
+    if (ro || td.querySelector("input")) return;
+    if (td.dataset.c !== undefined) inlineEdit(td, y);
+    else if (td.dataset.acc !== undefined || td.dataset.sr !== undefined) inlineEditRecon(td, y);
   });
+  // переход клавишами: после сохранения открыть следующую ячейку
+  var fc = ui.gridFocus; ui.gridFocus = null;
+  if (fc && !ro) { var t = wrap.querySelector(fc); if (t) { if (t.dataset.c !== undefined) inlineEdit(t, y); else inlineEditRecon(t, y); } }
 };
+
+// соседняя редактируемая ячейка: Enter — вниз, Tab — вправо, Shift+Tab — влево, Shift+Enter — вверх
+function gridNext(td, key, shift) {
+  var w = Number(td.dataset.w), tr = td.parentElement, editable = function (x) { return x && (x.dataset.c !== undefined || x.dataset.acc !== undefined || x.dataset.sr !== undefined); };
+  if (key === "Tab") {
+    var sib = shift ? td.previousElementSibling : td.nextElementSibling;
+    return editable(sib) ? sib : null;
+  }
+  var row = shift ? tr.previousElementSibling : tr.nextElementSibling;
+  while (row) {
+    var cand = row.querySelector("td[data-w='" + w + "']");
+    if (editable(cand)) return cand;
+    row = shift ? row.previousElementSibling : row.nextElementSibling;
+  }
+  return null;
+}
+function cellSel(td) {
+  var a = td.dataset.c !== undefined ? "data-c='" + td.dataset.c + "'" : td.dataset.acc !== undefined ? "data-acc='" + td.dataset.acc + "'" : "data-sr='" + td.dataset.sr + "'";
+  return "td[" + a + "][data-w='" + td.dataset.w + "']";
+}
+// общая логика клавиш для ячейки; save() → true, если данные поменялись (тогда таблица перерисуется)
+function bindCellKeys(td, inp, y, finish) {
+  inp.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      var nx = gridNext(td, e.key, e.shiftKey);
+      if (nx) ui.gridFocus = cellSel(nx);
+      var changedIt = finish(true);
+      if (!changedIt && nx) { ui.gridFocus = null; if (nx.dataset.c !== undefined) inlineEdit(nx, y); else inlineEditRecon(nx, y); }
+    } else if (e.key === "Escape") { ui.gridFocus = null; finish(false); }
+  });
+}
+// остаток счёта или сверка накоплений прямо в таблице
+function inlineEditRecon(td, y) {
+  var yr = state.years[y], w = Number(td.dataset.w), isAcc = td.dataset.acc !== undefined, id = isAcc ? td.dataset.acc : td.dataset.sr;
+  var cur = isAcc ? ((yr.recon || {})[w] || {})[id] : ((yr.savRecon || {})[w] || {})[id];
+  var shown = isAcc ? (cur ? cur.expr || String(cur.cents / 100) : "") : (cur === undefined || cur === null ? "" : String(cur / 100));
+  var old = td.innerHTML;
+  td.innerHTML = "<input type='text' inputmode='decimal' value='" + esc(shown) + "' aria-label='Остаток на счёте'>";
+  var inp = td.querySelector("input"), done = false;
+  inp.focus(); inp.select();
+  function finish(saveIt) {
+    if (done) return false; done = true;
+    var v = inp.value.trim();
+    if (!saveIt || v === shown) { td.innerHTML = old; return false; }
+    var cents = null;
+    if (v !== "") { try { cents = E.exprCents(v); } catch (err) { toast("Ошибка в формуле: " + err.message); td.innerHTML = old; return false; } }
+    if (isAcc) {
+      yr.recon = yr.recon || {};
+      if (cents === null) { if (yr.recon[w]) { delete yr.recon[w][id]; if (!Object.keys(yr.recon[w]).length) delete yr.recon[w]; } }
+      else { yr.recon[w] = yr.recon[w] || {}; yr.recon[w][id] = { expr: v, cents: cents }; }
+    } else {
+      yr.savRecon = yr.savRecon || {};
+      if (cents === null) { if (yr.savRecon[w]) { delete yr.savRecon[w][id]; if (!Object.keys(yr.savRecon[w]).length) delete yr.savRecon[w]; } }
+      else { yr.savRecon[w] = yr.savRecon[w] || {}; yr.savRecon[w][id] = cents; }
+    }
+    changed(false, isAcc ? "Остаток сохранён" : "Сверка накоплений сохранена");
+    return true;
+  }
+  bindCellKeys(td, inp, y, finish);
+  inp.addEventListener("blur", function () { setTimeout(function () { finish(true); }, 0); });
+}
 
 function bindYearHead() {
   bindYearChips(function (yy) { ui.gridYear = yy; if (!state.years[yy].archived) ui.year = yy; render(); });
@@ -235,21 +322,19 @@ function inlineEdit(td, y) {
   var inp = td.querySelector("input"), done = false;
   inp.focus(); inp.select();
   function finish(saveIt) {
-    if (done) return; done = true;
-    if (!saveIt) { td.innerHTML = old; return; }
+    if (done) return false; done = true;
+    if (!saveIt) { td.innerHTML = old; return false; }
     var v = signFor(catId, inp.value.trim());
     var prev = entry ? entry.expr : cell ? String(cell.cents / 100) : "";
-    if (v === prev) { td.innerHTML = old; return; }
-    try { E.exprCents(v); } catch (err) { toast("Ошибка в формуле: " + err.message); td.innerHTML = old; return; }
-    if (v === "" && !entry) { td.innerHTML = old; return; }
+    if (v === prev || (isExp && absIfPlain(prev) === inp.value.trim())) { td.innerHTML = old; return false; }
+    try { E.exprCents(v); } catch (err) { toast("Ошибка в формуле: " + err.message); td.innerHTML = old; return false; }
+    if (v === "" && !entry) { td.innerHTML = old; return false; }
     E.setEntry(state, y, catId, String(w), v);
     changed();
+    return true;
   }
-  inp.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { e.preventDefault(); finish(true); }
-    else if (e.key === "Escape") { finish(false); }
-  });
-  inp.addEventListener("blur", function () { finish(true); });
+  bindCellKeys(td, inp, y, finish);
+  inp.addEventListener("blur", function () { setTimeout(function () { finish(true); }, 0); });
   inp.addEventListener("dblclick", function () { finish(false); editCell(y, catId, w); });
 }
 
