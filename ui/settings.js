@@ -328,7 +328,7 @@ function drawSheetBox() {
     var when = row.updated_at ? new Date(row.updated_at).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "—";
     box.className = "";
     box.innerHTML = "<p style='margin-top:-4px'><b>Подключено.</b> <span class='muted'>Данные для таблицы обновлены: " + esc(when) + ". Таблица забирает их раз в час или по кнопке «Easy Budget → Обновить сейчас».</span></p>" +
-      "<label class='f' style='max-width:520px;margin:0 0 10px'>Ссылка на таблицу — появится кнопка «Открыть в Google Таблице» на экране «Год»<input type='url' id='gsUrl' placeholder='https://docs.google.com/spreadsheets/…' value='" + esc(state.settings.sheetUrl || "") + "'></label>" +
+      (state.settings.sheetUrl ? "" : "<div class='hint small' style='margin:0 0 8px'>Последний шаг: открой свою таблицу, скопируй адрес из строки браузера и вставь ниже — тогда «Google Таблица ↗» в «Плане» будет открывать её. Сама таблица свой адрес приложению не сообщает.</div>") + "<label class='f' style='max-width:520px;margin:0 0 10px'>Адрес таблицы<input type='url' id='gsUrl' placeholder='https://docs.google.com/spreadsheets/…' value='" + esc(state.settings.sheetUrl || "") + "'></label>" +
       "<div class='row'><button class='btn' id='gsSteps'>Как подключить таблицу</button><button class='btn' id='gsPush'>Отправить сейчас</button><button class='btn ghost' id='gsNew'>Новый ключ</button><button class='btn ghost danger' id='gsOff'>Отключить</button></div>";
     box.querySelector("#gsSteps").onclick = function () { sheetSteps(row.token); };
     box.querySelector("#gsUrl").onchange = function () {
@@ -371,7 +371,7 @@ function sheetSteps(token) {
 
 // ===== Настройки: плитки, внутри — нужные разделы =====
 var SET_TILES = [
-  ["money", "Деньги", "счета, категории, курсы валют", ["Счета в обращении", "Категории", "Основное"], "<rect x='3' y='6' width='18' height='12' rx='2'/><circle cx='12' cy='12' r='2.5'/>"],
+  ["money", "Деньги", "счета, категории, курсы валют", ["Основное", "Счета в обращении"], "<rect x='3' y='6' width='18' height='12' rx='2'/><circle cx='12' cy='12' r='2.5'/>"],
   ["year", "План года", "старт года, остатки на 1 января", ["Старт года", "По месяцам"], "<rect x='3' y='4' width='18' height='17' rx='2'/><path d='M3 9h18M8 2v4M16 2v4'/>"],
   ["us", "Мы и доступ", "кто что видит, общие траты", ["Профиль"], "<circle cx='9' cy='8' r='3.2'/><circle cx='16.5' cy='9.5' r='2.6'/><path d='M3 19c.7-3.2 3.1-5 6-5s5.3 1.8 6 5'/>"],
   ["data", "Данные", "Google Таблица, резервная копия, импорт", ["Google Таблица", "Резервные копии", "Данные"], "<path d='M12 3v12M7 10l5 5 5-5M4 19h16'/>"],
@@ -403,20 +403,76 @@ function settingsHub() {
   blocks.forEach(function (b) { b.hidden = tile[3].indexOf(b.dataset.sec) < 0; });
   if (head) head.hidden = true;
   $main.insertAdjacentHTML("afterbegin", "<div class='set-bar'><button type='button' class='back-link linkish' id='setBack'>‹ Настройки</button></div><h1 class='set-h1'>" + tile[1] + "</h1>");
+  if (sec === "money") {
+    var open = ui.catOpen || (ui.catOpen = {});
+    var ch = "<div class='card section cat2'><h2>Категории</h2><p class='small muted' style='margin-top:-6px'>Нажми на категорию, чтобы изменить.</p>";
+    E.BLOCKS.forEach(function (b, bi) {
+      var list = cats().filter(function (c) { return c.block === b.id; }), isOpen = open[b.id] !== undefined ? open[b.id] : bi < 2;
+      ch += "<div class='c2-group'><button type='button' class='c2-gh' data-cg='" + b.id + "'><span>" + (isOpen ? "▾ " : "▸ ") + esc(b.name) + " · " + list.filter(function (c) { return !c.archived; }).length + "</span><span class='linkish' data-cadd='" + b.id + "'>+ категория</span></button>";
+      if (isOpen) ch += list.map(function (c) {
+        var badges = (c.mandatory ? "<span class='c2-b'>обязательная</span>" : "") + (window.BudgetInsights.isJoy(c) && c.block !== "income" && c.block !== "savings" ? "<span class='c2-b joy'>на радость</span>" : "") + (c.private ? "<span class='c2-b priv'>личная</span>" : "") + (c.archived ? "<span class='c2-b'>в архиве</span>" : "") + (c.currency === "RUB" ? "<span class='c2-b'>₽</span>" : "");
+        return "<button type='button' class='c2-row" + (c.archived ? " arch" : "") + "' data-cedit='" + c.id + "'><span class='c2-n'>" + esc(c.name) + "</span>" + badges + "<span class='arr'>›</span></button>";
+      }).join("");
+      ch += "</div>";
+    });
+    ch += "</div>";
+    $main.insertAdjacentHTML("beforeend", ch);
+    $main.querySelectorAll("[data-cg]").forEach(function (b) { b.onclick = function (e) { if (e.target.closest("[data-cadd]")) return; var id = b.dataset.cg, bi = E.BLOCKS.findIndex(function (x) { return x.id === id; }); open[id] = !(open[id] !== undefined ? open[id] : bi < 2); render(); }; });
+    $main.querySelectorAll("[data-cadd]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); var bl = b.dataset.cadd; textModal("Новая категория", "", function (n) { if (!n) return; var inBlock = state.categories.filter(function (c) { return c.block === bl; }); state.categories.push({ id: E.uid("c"), name: n, block: bl, currency: "EUR", mandatory: false, link: null, sort: inBlock.length ? Math.max.apply(null, inBlock.map(function (c) { return c.sort; })) + 0.01 : 999, archived: false }); open[bl] = true; changed(); toast("Категория добавлена"); }, "например, Животные"); }; });
+    $main.querySelectorAll("[data-cedit]").forEach(function (b) { b.onclick = function () { catEditSheet(b.dataset.cedit); }; });
+  }
   if (sec === "us" && sh && !RO()) {
     var hidden = sh.space.settings.hiddenCats || [], custom = sh.space.settings.customCats || [];
     var all = S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; }));
-    $main.insertAdjacentHTML("beforeend", "<div class='card section sc-card'><h2>Категории общих трат</h2><p class='small muted' style='margin-top:-6px'>Общие для вас обеих: изменения видят и ты, и " + esc(partnerName()) + ". Скрытая категория не показывается при вводе, старые траты в ней остаются.</p>" +
-      "<ul class='sc-list'>" + all.map(function (c) {
-        var isHidden = hidden.indexOf(c) >= 0, isCustom = S.SHARED_CATS.indexOf(c) < 0;
-        return "<li class='" + (isHidden ? "off" : "") + "'>" + catIcon(c) + "<span class='sc-n'>" + esc(c) + "</span>" +
-          (isCustom ? "<button type='button' class='linkish' data-scren='" + esc(c) + "'>переименовать</button>" : "") +
-          "<button type='button' class='btn sm' data-schide='" + esc(c) + "'>" + (isHidden ? "Показать" : "Скрыть") + "</button></li>";
-      }).join("") + "</ul><button type='button' class='btn' id='scAdd'>+ Новая категория</button></div>");
+    $main.insertAdjacentHTML("beforeend", "<div class='card section sc-card'><h2>Категории общих трат</h2><p class='small muted' style='margin-top:-6px'>Общие для вас обеих: изменения видят и ты, и " + esc(partnerName()) + ". Скрытая категория не показывается при вводе, старые траты в ней остаются. «Как делите» подставится сам при вводе одной фразой.</p>" +
+      "<div class='sc-list'>" + all.map(function (c) {
+        var isHidden = hidden.indexOf(c) >= 0, sp = (sh.space.settings.catSplit || {})[c];
+        return "<button type='button' class='sc-row" + (isHidden ? " off" : "") + "' data-scedit='" + esc(c) + "'>" + catIcon(c) + "<span class='sc-n'>" + esc(catLabel(c)) + "</span>" +
+          (isHidden ? "<span class='c2-b'>скрыта</span>" : sp === "theirs" ? "<span class='c2-b priv'>в основном " + esc(partnerName()) + "</span>" : sp === "mine" ? "<span class='c2-b priv'>в основном я</span>" : "<span class='c2-b'>½</span>") + "<span class='arr'>›</span></button>";
+      }).join("") + "</div><button type='button' class='btn' id='scAdd'>+ Новая категория</button></div>");
     var saveSp = function () { Store.saveSpaceSettings(sh.space.id, sh.space.settings).catch(function (e) { toast("Не сохранилось: " + e.message); }); render(); };
-    $main.querySelectorAll("[data-schide]").forEach(function (b) { b.onclick = function () { var c = b.dataset.schide, h = sh.space.settings.hiddenCats || []; sh.space.settings.hiddenCats = h.indexOf(c) >= 0 ? h.filter(function (x) { return x !== c; }) : h.concat([c]); saveSp(); }; });
-    $main.querySelectorAll("[data-scren]").forEach(function (b) { b.onclick = function () { var c = b.dataset.scren, n = (prompt("Новое название", c) || "").trim(); if (!n || n === c) return; sh.space.settings.customCats = (sh.space.settings.customCats || []).map(function (x) { return x === c ? n : x; }); saveSp(); }; });
-    $main.querySelector("#scAdd").onclick = function () { var n = (prompt("Название новой категории (например, «Животные»)") || "").trim(); if (!n) return; if (all.indexOf(n) >= 0) { toast("Такая уже есть"); return; } sh.space.settings.customCats = (sh.space.settings.customCats || []).concat([n]); saveSp(); };
+    $main.querySelectorAll("[data-scedit]").forEach(function (b) {
+      b.onclick = function () {
+        var c = b.dataset.scedit, isCustom = S.SHARED_CATS.indexOf(c) < 0, set2 = sh.space.settings, sp = (set2.catSplit || {})[c] || "equal", hid = (set2.hiddenCats || []).indexOf(c) >= 0;
+        modal("<form class='m-body' id='scF'><h2>Категория общих трат</h2><label class='f' style='margin-top:10px'>Название<input name='n' value='" + esc(catLabel(c)) + "' required></label>" + (catLabel(c) !== c ? "<p class='small muted' style='margin:4px 0 0'>Было: " + esc(c) + "</p>" : "") +
+          "<div class='small muted' style='margin-top:12px'>Как делите по умолчанию</div><div class='tg-row' style='margin-top:6px'>" + [["equal", "пополам"], ["theirs", "в основном " + esc(partnerName())], ["mine", "в основном я"]].map(function (o) { return "<button type='button' class='tg" + (sp === o[0] ? " on" : "") + "' data-sp='" + o[0] + "'>" + (sp === o[0] ? "✓ " : "") + o[1] + "</button>"; }).join("") + "</div><button type='submit' hidden></button></form>" +
+          "<div class='m-foot'><button class='btn ghost' data-act='hide'>" + (hid ? "Показать при вводе" : "Скрыть") + "</button><span class='spacer'></span><button class='btn primary' data-act='ok'>Готово</button></div>", function (m) {
+          var f = m.querySelector("#scF"), chosen = sp;
+          m.querySelectorAll("[data-sp]").forEach(function (t) { t.onclick = function () { chosen = t.dataset.sp; m.querySelectorAll("[data-sp]").forEach(function (u) { var on = u.dataset.sp === chosen; u.classList.toggle("on", on); u.textContent = (on ? "✓ " : "") + u.textContent.replace(/^✓ /, ""); }); }; });
+          var ok = function (e) {
+            if (e) e.preventDefault();
+            var n = f.n.value.trim();
+            if (n && n !== catLabel(c)) { if (isCustom) set2.customCats = (set2.customCats || []).map(function (x) { return x === c ? n : x; }); else { set2.catNames = set2.catNames || {}; if (n === c) delete set2.catNames[c]; else set2.catNames[c] = n; } }
+            set2.catSplit = set2.catSplit || {}; var key = isCustom && n ? n : c; if (chosen === "equal") delete set2.catSplit[key]; else set2.catSplit[key] = chosen;
+            closeModal(); saveSp(); toast("Сохранено");
+          };
+          f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok;
+          m.querySelector("[data-act=hide]").onclick = function () { var h = set2.hiddenCats || []; set2.hiddenCats = hid ? h.filter(function (x) { return x !== c; }) : h.concat([c]); closeModal(); saveSp(); };
+        });
+      };
+    });
+    $main.querySelector("#scAdd").onclick = function () { textModal("Новая категория общих трат", "", function (n) { if (!n) return; if (all.indexOf(n) >= 0) { toast("Такая уже есть"); return; } sh.space.settings.customCats = (sh.space.settings.customCats || []).concat([n]); saveSp(); }, "например, «Животные»"); };
   }
   $main.querySelector("#setBack").onclick = function () { ui.setSec = null; render(); window.scrollTo(0, 0); };
+}
+
+// правка категории в панели: название, группа, валюта, отметки, порядок, архив
+function catEditSheet(id) {
+  var c = state.categories.find(function (x) { return x.id === id; }); if (!c) return;
+  var isSpend = c.block !== "income" && c.block !== "savings";
+  var tg = function (f, label, on) { return "<button type='button' class='tg" + (on ? " on" : "") + "' data-tg='" + f + "'>" + (on ? "✓ " : "") + label + "</button>"; };
+  modal("<form class='m-body' id='ceF'><h2>Категория</h2><label class='f' style='margin-top:10px'>Название<input name='n' value='" + esc(c.name) + "' required></label>" +
+    "<div class='form-grid' style='margin-top:10px'><label class='f'>Группа<select name='b'>" + E.BLOCKS.map(function (x) { return "<option value='" + x.id + "'" + (x.id === c.block ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</select></label>" +
+    "<label class='f'>Валюта<select name='cur'><option" + (c.currency !== "RUB" ? " selected" : "") + ">EUR</option><option" + (c.currency === "RUB" ? " selected" : "") + ">RUB</option></select></label></div>" +
+    (c.block === "savings" ? "<label class='f' style='margin-top:10px'>Счёт в капитале<select name='lk'><option value=''>—</option>" + E.CAPITAL_ROWS.filter(function (x) { return x.key !== "card_rub"; }).map(function (x) { return "<option value='" + x.key + "'" + (c.link === x.key ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("") + "</select></label>" : "") +
+    "<div class='tg-row'>" + (isSpend ? tg("joy", "на радость", window.BudgetInsights.isJoy(c)) : "") + tg("mandatory", "налоги и обязательные", !!c.mandatory) + tg("private", "личная — партнёр не видит", !!c.private) + "</div>" +
+    "<div class='row small' style='margin-top:10px'><button type='button' class='btn sm' data-mv='-1'>↑ выше</button><button type='button' class='btn sm' data-mv='1'>↓ ниже</button></div><button type='submit' hidden></button></form>" +
+    "<div class='m-foot'><button class='btn ghost danger' data-act='arch'>" + (c.archived ? "Вернуть из архива" : "В архив") + "</button><span class='spacer'></span><button class='btn primary' data-act='ok'>Готово</button></div>", function (m) {
+    var f = m.querySelector("#ceF"), flags = { joy: window.BudgetInsights.isJoy(c), mandatory: !!c.mandatory, private: !!c.private };
+    m.querySelectorAll("[data-tg]").forEach(function (b) { b.onclick = function () { var k = b.dataset.tg; flags[k] = !flags[k]; b.classList.toggle("on", flags[k]); b.textContent = (flags[k] ? "✓ " : "") + b.textContent.replace(/^✓ /, ""); }; });
+    m.querySelectorAll("[data-mv]").forEach(function (b) { b.onclick = function () { var same = cats().filter(function (x) { return x.block === c.block; }), i = same.indexOf(c), j = i + Number(b.dataset.mv); if (j < 0 || j >= same.length) return; var t = same[j].sort; same[j].sort = c.sort; c.sort = t; changed(true); toast(Number(b.dataset.mv) < 0 ? "Выше" : "Ниже"); }; });
+    var ok = function (e) { if (e) e.preventDefault(); var n = f.n.value.trim(); if (n) c.name = n; c.block = f.b.value; c.currency = f.cur.value; if (isSpend) c.joy = flags.joy; c.mandatory = flags.mandatory; c.private = flags.private; if (f.lk) c.link = f.lk.value || null; closeModal(); changed(); toast("Сохранено"); };
+    f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok;
+    m.querySelector("[data-act=arch]").onclick = function () { c.archived = !c.archived; closeModal(); changed(); toast(c.archived ? "В архиве" : "Вернула"); };
+  });
 }

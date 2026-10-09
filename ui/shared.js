@@ -138,8 +138,23 @@ routes.tolog = function () {
   set.sharedLog = set.sharedLog || {}; set.sharedMap = set.sharedMap || {};
   var list = S.toLog(state, calc, o), gaps = S.coverageGaps(state, calc, o);
   var fresh = list.filter(function (x) { return !x.maybe; }), maybe = list.filter(function (x) { return x.maybe; });
-  var html = "<div class='page-head'><div><h1>Общие → личный план</h1><div class='sub'>Заметные общие траты (твоя доля от " + E.eur(o.min, { dec: 0 }) + "), которых, похоже, нет в личном плане. Еда и развлечения сверяются отдельно — по месяцу целиком.</div></div>" +
-    "<div class='row'><label class='small muted'>с <input type='date' id='lgSince' value='" + o.since + "'></label><label class='small muted'>от <input id='lgMin' inputmode='decimal' value='" + o.min / 100 + "' style='width:64px'> €</label></div></div>";
+  // по категориям за месяц: твоя доля общих рядом с суммой в личном плане
+  var ty = E.todayISO().slice(0, 4), tm = ui.tologM !== undefined ? ui.tologM : Number(E.todayISO().slice(5, 7)) - 1;
+  var msh = S.monthlyShares(calc, set, ty), rr = state.years[ty] ? E.compute(state, ty) : null;
+  var catRows = Object.keys(msh.byCat).map(function (c) {
+    var share = msh.byCat[c][tm] || 0, pid = set.sharedMap[c] || S.guessPersonalCat(state, c) || (S.FOOD.indexOf(c) >= 0 && set.coverage && set.coverage.food ? set.coverage.food[0] : null), plan = 0;
+    if (rr && pid && rr.cells[pid]) for (var w2 = tm * 5; w2 < tm * 5 + 5; w2++) { var x2 = rr.cells[pid][w2]; if (x2) plan -= x2.cents; }
+    return { c: c, share: share, plan: plan, pid: pid };
+  }).filter(function (x) { return x.share >= 1000; }).sort(function (a2, b2) { return b2.share - a2.share; });
+  var html = "<div class='tl-head'><h1>Общие траты и твой план</h1><div class='tl-month'><button type='button' class='round-btn' data-tm='-1' aria-label='Предыдущий месяц'>‹</button><b>" + E.MONTHS[tm][0].toUpperCase() + E.MONTHS[tm].slice(1) + " " + ty + "</b><button type='button' class='round-btn' data-tm='1' aria-label='Следующий месяц'>›</button></div>" +
+    "<p class='small muted'>Твоя доля общих трат рядом с суммой в личном плане. Ничего не вносится само — только если нажмёшь.</p></div>";
+  html += "<div class='card tl-cats'>" + (catRows.length ? catRows.map(function (x) {
+    var ok = x.plan > 0 && x.share <= x.plan, none = !x.plan;
+    return "<div class='tl-row" + (none ? " none" : "") + "'><div class='tl-top'><b>" + esc(catLabel(x.c)) + "</b>" + (ok ? "<span class='pos'>✓</span>" : none ? "<span class='warn'>нет в плане</span>" : "<span class='warn'>выше плана</span>") + "</div>" +
+      (x.plan ? "<div class='tl-track'><i style='width:" + Math.min(100, Math.round(x.share / x.plan * 100)) + "%'></i></div>" : "") +
+      "<div class='small muted'>общие " + E.eur(rnd(x.share), { dec: 0 }) + (x.plan ? " из плана " + E.eur(rnd(x.plan), { dec: 0 }) + (x.pid ? " · «" + esc(catName(x.pid)) + "»" : "") : x.pid ? " · в «" + esc(catName(x.pid)) + "» на этот месяц 0 €" : " · категория личного плана не выбрана") + "</div></div>";
+  }).join("") : "<p class='muted' style='margin:0'>В этом месяце заметных общих трат пока нет.</p>") + "</div>";
+  html += "<details class='tl-opts small'><summary>Какие траты проверять</summary><div class='row' style='margin-top:8px'><label class='small muted'>с <input type='date' id='lgSince' value='" + o.since + "'></label><label class='small muted'>доля от <input id='lgMin' inputmode='decimal' value='" + o.min / 100 + "' style='width:64px'> €</label></div></details>";
   function row(x) {
     var e = x.e;
     return "<li class='lg' data-id='" + esc(e.id) + "'><div class='lg-main'><b>" + esc(e.desc) + "</b><span class='small muted'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + " · " + esc(x.sharedCat) + " · всего " + E.fmt(e.cost, { cur: e.currency === "EUR" ? "€" : e.currency, dec: 0 }) +
@@ -154,11 +169,12 @@ routes.tolog = function () {
     return "<li class='lg' data-gap='" + g.key + "'><div class='lg-main'><b>" + E.MONTHS[g.month - 1][0].toUpperCase() + E.MONTHS[g.month - 1].slice(1) + " " + g.year + "</b><span class='small muted'>общие " + E.eur(rnd(g.shared), { dec: 0 }) + " (твоя доля) при личном плане " + E.eur(rnd(g.personal), { dec: 0 }) + "</span></div>" +
       "<div class='lg-val neg'>+" + E.eur(rnd(g.gap), { dec: 0 }) + "</div><div class='lg-act'><button class='btn sm primary' data-ga='add'>Добавить разницу в план</button><button class='btn sm ghost' data-ga='skip'>Не нужно</button></div></li>";
   }).join("") + "</ul></div>";
-  if (fresh.length) html += "<div class='card'><h2>Не нашла в личном плане · " + fresh.length + "</h2><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
+  if (fresh.length) html += "<div class='card'><h2>Нет в личном плане · " + fresh.length + "</h2><p class='small muted' style='margin-top:-6px'>Выбери категорию и нажми «Внести» — или «Уже есть», если учла по-другому.</p><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
   if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b> <span class='small muted'>в нужной категории в тот месяц есть сумма не меньше</span></summary>" +
     "<div class='row' style='margin:10px 0'><button class='btn sm' id='allHad'>Да, всё это уже учтено</button></div><ul class='lg-list'>" + maybe.map(row).join("") + "</ul></details>";
   $main.innerHTML = html;
   uc.bind();
+  $main.querySelectorAll("[data-tm]").forEach(function (b) { b.onclick = function () { var v = (ui.tologM !== undefined ? ui.tologM : Number(E.todayISO().slice(5, 7)) - 1) + Number(b.dataset.tm); ui.tologM = Math.max(0, Math.min(11, v)); render(); }; });
   $main.querySelector("#lgSince").onchange = function (e) { set.sharedLogSince = e.target.value; changed(); };
   $main.querySelector("#lgMin").onchange = function (e) { var v = Number(String(e.target.value).replace(",", ".")); if (v > 0) { set.sharedLogMin = Math.round(v * 100); changed(); } };
   $main.querySelectorAll("li[data-id]").forEach(function (li) {
@@ -238,63 +254,77 @@ routes.us = function () {
   var sum = function (k, m) { var a = mine.months[m][k] || 0, b = both ? (theirs.months[m][k] || 0) : 0; return a + b; };
   var tot = function (k) { return (mine.total[k] || 0) + (both ? (theirs.total[k] || 0) : 0); };
   var capMe = mine.months[nowM].cap, capThem = both ? theirs.months[nowM].cap : null;
-  var html = "<div class='page-head'><div><h1>Мы · " + y + "</h1><div class='sub'>" + esc(meName) + " и " + esc(pName) + ": общий капитал, доходы и расходы вдвоём, на что уходят общие деньги.</div></div>" +
-    "<div class='chips'>" + ys.map(function (x) { return "<button class='chip" + (x === y ? " on" : "") + "' data-uy='" + x + "'>" + x + "</button>"; }).join("") + "</div></div>";
-  if (!both) html += "<div class='hint' style='margin:0 0 16px'>" + (ui.us ? esc(pName) + " пока не открыла свой бюджет" + (ui.us.data ? " за " + y : "") + ". В её «Настройках → Кто что видит» можно открыть полностью или только итоги — тогда здесь появятся цифры на двоих." :
-    "Здесь появятся цифры на двоих, когда партнёр войдёт в приложение и откроет доступ к своему бюджету.") + " Пока — только твои цифры и общие траты.</div>";
-
-  // KPI
-  html += "<div class='kpis'>" +
-    kpi(both ? "Капитал вместе" : "Капитал", capMe === null ? "—" : eur(rnd(capMe + (capThem || 0)), { dec: 0 }), "на конец " + E.MONTHS_GEN[nowM] + (both && capThem !== null ? " · " + esc(meName) + " " + eur(rnd(capMe), { dec: 0 }) + " · " + esc(pName) + " " + eur(rnd(capThem), { dec: 0 }) : "")) +
-    kpi("Доходы за год", eur(rnd(tot("income")), { dec: 0 }), both ? "вместе" : "твои") +
-    kpi("Расходы за год", eur(rnd(tot("total")), { dec: 0 }), "на жизнь " + eur(rnd(tot("living") / 12), { dec: 0 }) + " в месяц") +
-    kpi("Сберегаем", tot("income") ? pct((tot("income") - tot("total")) / tot("income")) : "—", "доходы минус расходы, от доходов") + "</div>";
-
-  // капитал по месяцам
-  var capVals = mine.months.map(function (m, i) { return { me: m.cap, them: both ? theirs.months[i].cap : null }; });
-  html += "<div class='grid2'><div class='card'><h2>" + (both ? "Капитал вместе" : "Капитал") + "</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам",
-    fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
-    series: [{ name: meName, color: "var(--series-1)", values: capVals.map(function (c) { return c.me === null ? 0 : c.me / 100; }) }].concat(both ? [{ name: pName, color: "var(--series-2)", values: capVals.map(function (c) { return c.them === null ? 0 : c.them / 100; }) }] : []) }) + "</div>";
-  html += "<div class='card'><h2>Доходы и расходы" + (both ? " вдвоём" : "") + "</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам",
-    fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
-    series: [{ name: "доходы", color: "var(--series-3)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
-
-  // общие траты: категории и кто платит
+  var html = "<div class='page-head'><div class='chips'>" + ys.map(function (x) { return "<button class='chip" + (x === y ? " on" : "") + "' data-uy='" + x + "'>" + x + "</button>"; }).join("") + "</div></div>";
+  if (!both) html += "<div class='hint' style='margin:0 0 14px'>" + (ui.us ? esc(pName) + " пока не открыла свой бюджет" + (ui.us.data ? " за " + y : "") + ". В её «Настройках → Мы и доступ» можно открыть итоги или весь бюджет." :
+    "Цифры на двоих появятся, когда партнёр войдёт в приложение и откроет доступ к своему бюджету.") + " Пока — твои цифры и общие траты.</div>";
+  var months = nowM + 1;
+  // 1. капитал вместе
+  var capAll = (capMe || 0) + (capThem || 0), pMe = both && capAll > 0 ? Math.max(0, Math.min(100, Math.round((capMe || 0) / capAll * 100))) : 100;
+  html += "<div class='card ut-cap'><div class='small muted'>" + (both ? "Капитал вместе" : "Капитал") + "<button type='button' class='q-btn' data-explain='cap' aria-label='Что такое капитал'>?</button></div>" +
+    "<div class='ut-sum'>" + (capMe === null ? "—" : eur(rnd(capAll), { dec: 0 })) + "</div>" +
+    (both ? "<div class='ut-bar'><i style='width:" + pMe + "%'></i><i style='width:" + (100 - pMe) + "%'></i></div><div class='ut-leg'><span><b class='d1'>●</b> " + esc(meName) + " " + eur(rnd(capMe || 0), { dec: 0 }) + "</span><span><b class='d2'>●</b> " + esc(pName) + " " + eur(rnd(capThem || 0), { dec: 0 }) + "</span></div>" : "") +
+    "<div class='small muted' style='margin-top:6px'>на конец " + E.MONTHS_GEN[nowM] + "</div></div>";
+  // 2. сколько тратим вдвоём
   var ex = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === y; }) : [];
   var prevEx = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === String(Number(y) - 1); }) : [];
   var toE = function (e) { return S.toEur(e.cost, e.currency, e.date, state.settings); };
   var byCat = {}, prevCat = {}, paidMe = 0, paidThem = 0, sharedTot = 0;
   ex.forEach(function (e) { var v = toE(e), c = S.catOf(e, sh.learned); byCat[c] = (byCat[c] || 0) + v; sharedTot += v; if (e.paidByMe) paidMe += v; else paidThem += v; });
   prevEx.forEach(function (e) { var c = S.catOf(e, sh.learned); prevCat[c] = (prevCat[c] || 0) + toE(e); });
-  var cats2 = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
+  var livMe = (mine.total.living || 0) / 12, livThem = both ? (theirs.total.living || 0) / 12 : null;
+  html += "<div class='card ut-spend'><h2>Сколько тратим вдвоём · в месяц</h2>" +
+    "<div class='kv'><span>Личное " + esc(nameGen(meName)) + " <small>на жизнь, без налогов</small></span><b>" + eur(rnd(livMe), { dec: 0 }) + "</b></div>" +
+    "<div class='kv'><span>Личное " + esc(nameGen(pName)) + " <small>на жизнь, без налогов</small></span><b>" + (both ? eur(rnd(livThem), { dec: 0 }) : "—") + "</b></div>" +
+    "<div class='kv ut-total'><span>Итого вдвоём</span><b>" + (both ? eur(rnd(livMe + livThem), { dec: 0 }) : "—") + "</b></div>" +
+    "<div class='kv ut-sub'><span>из них общие траты целиком</span><span>" + eur(rnd(sharedTot / months), { dec: 0 }) + "</span></div>" +
+    "<p class='small muted' style='margin:6px 0 0'>Каждая вносит в личный план свою долю общих трат, поэтому общие уже внутри личного. Переводы между вами не считаются.</p></div>";
+  // 3. кто платил
   if (ex.length) {
-    var months = nowM + 1;
-    html += "<div class='section grid2'><div class='card'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>Всего " + eur(rnd(sharedTot), { dec: 0 }) + " за " + y + " — в среднем " + eur(rnd(sharedTot / months), { dec: 0 }) + " в месяц на двоих.</p><ul class='bar-list'>" +
-      cats2.slice(0, 8).map(function (c) {
-        var v = byCat[c], pc = Math.round(v / sharedTot * 100), pv = prevCat[c];
-        return "<li><span class='bl-name'>" + esc(c) + "</span><span class='bl-bar'><i style='width:" + Math.max(2, pc) + "%'></i></span><span class='bl-val'>" + eur(rnd(v), { dec: 0 }) + "<small>" + pc + "%" + (pv ? " · " + (v / months * 12 > pv * 1.15 ? "↑" : v / months * 12 < pv * 0.85 ? "↓" : "≈") + " к " + (Number(y) - 1) : "") + "</small></span></li>";
-      }).join("") + "</ul></div>";
     var shMe = paidMe / (paidMe + paidThem || 1);
-    html += "<div class='card'><h2>Кто платит за общее</h2><div class='split-bar'><i style='width:" + Math.round(shMe * 100) + "%'></i></div>" +
-      "<div class='row small' style='margin-top:6px'><span><b>" + esc(meName) + "</b> " + eur(rnd(paidMe), { dec: 0 }) + " · " + Math.round(shMe * 100) + "%</span><span class='spacer'></span><span><b>" + esc(pName) + "</b> " + eur(rnd(paidThem), { dec: 0 }) + " · " + Math.round((1 - shMe) * 100) + "%</span></div>" +
-      "<p class='small muted'>Это кто оплачивал, а не чья доля больше: доли делятся при вводе траты, а разницу показывает баланс в «Общих».</p></div></div>";
+    html += "<div class='card'><div class='small muted'>Кто платил за общее · " + y + "</div><div class='ut-bar' style='margin-top:8px'><i style='width:" + Math.round(shMe * 100) + "%'></i><i style='width:" + (100 - Math.round(shMe * 100)) + "%'></i></div>" +
+      "<div class='ut-leg'><span>" + esc(meName) + " " + Math.round(shMe * 100) + "% · " + eur(rnd(paidMe), { dec: 0 }) + "</span><span>" + esc(pName) + " " + (100 - Math.round(shMe * 100)) + "% · " + eur(rnd(paidThem), { dec: 0 }) + "</span></div>" +
+      "<p class='small muted' style='margin:6px 0 0'>Это кто оплачивал, а не чья доля больше — разницу закрывает «Рассчитаться».</p></div>";
   }
-
-  // выводы про нас — бутерброд только по общим критериям (одинаково у обеих, со своей стороны)
+  // 4. выводы про нас
   if (sh) {
     var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount() });
     if (both) {
       var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
-      var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + " (по плану и сверкам)." };
+      var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + "." };
       if (dcap >= 0) tres.good = [cc].concat(tres.good).slice(0, 3); else tres.improve = [cc].concat(tres.improve).slice(0, 3);
     }
     html += "<div class='section'><h2 style='margin-bottom:0'>Выводы про нас</h2></div>" + sandwichHtml(tres);
   }
+  // 5. на что уходят общие деньги
+  var cats2 = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
+  if (ex.length) {
+    var mx = byCat[cats2[0]] || 1;
+    html += "<div class='card section'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>" + y + ", целиком · в среднем " + eur(rnd(sharedTot / months), { dec: 0 }) + " в месяц</p><div class='ut-bars'>" +
+      cats2.slice(0, 8).map(function (c) {
+        var v = byCat[c], pv = prevCat[c], tr = pv ? (v / months * 12 > pv * 1.15 ? " ↑" : v / months * 12 < pv * 0.85 ? " ↓" : "") : "";
+        return "<div class='ub-row'><span class='ub-n'>" + catIcon(c) + "<span>" + esc(catLabel(c)) + "</span></span><span class='ub-track'><i style='width:" + Math.max(3, Math.round(v / mx * 100)) + "%'></i></span><b>" + eur(rnd(v), { dec: 0 }) + "<small>" + tr + "</small></b></div>";
+      }).join("") + "</div></div>";
+  }
+  // 6. твоя доля по категориям
+  var msh = S.monthlyShares(sharedForCalc(), state.settings, y), shareRows = Object.keys(msh.byCat).map(function (c) { return { c: c, v: msh.byCat[c].reduce(function (a, b) { return a + b; }, 0) }; }).filter(function (x) { return Math.abs(x.v) >= 100; }).sort(function (a, b) { return b.v - a.v; });
+  if (shareRows.length) html += "<div class='card section'><h2>Твоя доля по категориям</h2><p class='small muted' style='margin-top:-6px'>" + y + " · то, что приходится на тебя из общих трат</p>" +
+    shareRows.slice(0, 8).map(function (x) { return "<div class='kv'><span>" + esc(catLabel(x.c)) + "</span><b>" + eur(rnd(x.v), { dec: 0 }) + "</b></div>"; }).join("") + "</div>";
+  // 7. коммуналка
+  var uc = utilitiesCard(); html += uc.html;
+  // 8. графики
+  var capVals = mine.months.map(function (m, i) { return { me: m.cap, them: both ? theirs.months[i].cap : null }; });
+  html += "<div class='grid2 section'><div class='card'><h2>" + (both ? "Капитал вместе" : "Капитал") + " по месяцам</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам",
+    fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+    series: [{ name: meName, color: "var(--series-1)", values: capVals.map(function (c) { return c.me === null ? 0 : c.me / 100; }) }].concat(both ? [{ name: pName, color: "var(--series-2)", values: capVals.map(function (c) { return c.them === null ? 0 : c.them / 100; }) }] : []) }) + "</div>";
+  html += "<div class='card'><h2>Доходы и расходы" + (both ? " вдвоём" : "") + "</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам",
+    fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+    series: [{ name: "доходы", color: "var(--series-3)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
   if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть её бюджет целиком</button></div>";
   $main.innerHTML = html;
   $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });
   var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
-  bindInsights($main);
+  bindInsights($main); uc.bind();
+  $main.querySelectorAll(".ut-cap [data-explain]").forEach(function (q) { q.onclick = function () { explain(q.dataset.explain); }; });
 };
 
 
@@ -361,13 +391,15 @@ function sharedSetup() {
   };
 }
 
+// своё название для встроенной категории общих трат (данные не переписываются)
+function catLabel(c) { var m = sh && sh.space.settings.catNames; return (m && m[c]) || c; }
 function sharedCats() {
   var custom = (sh && sh.space.settings.customCats) || [], hidden = (sh && sh.space.settings.hiddenCats) || [];
   return S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; })).filter(function (c) { return hidden.indexOf(c) < 0; });
 }
 function catPicker(current, onPick) {
   var list = sharedCats();
-  modal("<div class='m-body'><h2>Категория</h2><div class='chips cat-grid'>" + list.map(function (c) { return "<button class='chip" + (c === current ? " on" : "") + "' data-pc='" + esc(c) + "'>" + esc(c) + "</button>"; }).join("") +
+  modal("<div class='m-body'><h2>Категория</h2><div class='chips cat-grid'>" + list.map(function (c) { return "<button class='chip" + (c === current ? " on" : "") + "' data-pc='" + esc(c) + "'>" + esc(catLabel(c)) + "</button>"; }).join("") +
     "<button class='chip add' data-pc-new='1'>+ своя категория</button></div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button></div>", function (m) {
     m.querySelector("[data-act=x]").onclick = closeModal;
     m.querySelectorAll("[data-pc]").forEach(function (b) { b.onclick = function () { closeModal(); onPick(b.dataset.pc); }; });
@@ -426,12 +458,13 @@ routes.shared = function () {
     }
     return true;
   }).slice().reverse();
+  if (!RO()) html += "<div class='us-add-row'><button type='button' class='btn primary' id='usAdd'>+ Общая трата</button></div>";
   html += "<div class='section us-feed'><div class='row' style='margin-bottom:10px'>" +
     "<input type='search' id='fQ' class='sh-search' placeholder='Поиск: описание, заметка, сумма' value='" + esc(st.q || "") + "' aria-label='Поиск по общим тратам'>" +
     "<button type='button' class='btn sh-ftoggle" + (st.fopen ? " on" : "") + "' id='fToggle' aria-expanded='" + (st.fopen ? "true" : "false") + "'>Фильтры" + (nF ? " · " + nF : "") + "</button>" +
     "<div class='sh-filters" + (st.fopen ? " open" : "") + "'><select id='fY'>" + ylist.map(function (y) { return "<option" + (y === st.year ? " selected" : "") + ">" + y + "</option>"; }).join("") + "</select>" +
     "<select id='fM'>" + mlist.map(function (m) { return "<option value='" + m + "'" + (m === st.month ? " selected" : "") + ">" + (m === "all" ? "все месяцы" : E.MONTHS[Number(m) - 1]) + "</option>"; }).join("") + "</select>" +
-    "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option" + (c === st.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>" +
+    "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option value='" + esc(c) + "'" + (c === st.cat ? " selected" : "") + ">" + esc(catLabel(c)) + "</option>"; }).join("") + "</select>" +
     "<select id='fK'>" + [["all", "все типы"], ["expense", "траты"], ["batch", "сводные"], ["transfer", "переводы между вами"]].map(function (k) { return "<option value='" + k[0] + "'" + (k[0] === st.kind ? " selected" : "") + ">" + k[1] + "</option>"; }).join("") + "</select></div></div>";
   html += "<div class='small muted' style='margin:-2px 0 8px'>" + (filtered.length ? "Найдено " + filtered.length + (filtered.length > st.limit ? " · показаны последние " + st.limit : "") : "") + "</div>";
   // лента как в Splitwise: по месяцам, кто платил, кто кому должен — цветом
@@ -464,7 +497,7 @@ routes.shared = function () {
   var colTot = new Array(12).fill(0);
   catsUsed.forEach(function (c) {
     var arr = ms.byCat[c], t = 0;
-    html += "<tr><td>" + esc(c) + "</td>" + arr.map(function (v, i) { t += v; colTot[i] += v; return "<td class='n'>" + (Math.abs(v) >= 50 ? E.fmt(rnd(v)) : "") + "</td>"; }).join("") + "<td class='n'><b>" + E.fmt(rnd(t)) + "</b></td></tr>";
+    html += "<tr><td>" + esc(catLabel(c)) + "</td>" + arr.map(function (v, i) { t += v; colTot[i] += v; return "<td class='n'>" + (Math.abs(v) >= 50 ? E.fmt(rnd(v)) : "") + "</td>"; }).join("") + "<td class='n'><b>" + E.fmt(rnd(t)) + "</b></td></tr>";
   });
   html += "<tr class='total'><td>Итого</td>" + colTot.map(function (v) { return "<td class='n'>" + E.fmt(rnd(v)) + "</td>"; }).join("") + "<td class='n'>" + E.fmt(rnd(colTot.reduce(function (a, b) { return a + b; }, 0))) + "</td></tr></tbody></table></div></details>";
 
@@ -504,6 +537,7 @@ routes.shared = function () {
   bindF("#fY", "year"); bindF("#fM", "month"); bindF("#fC", "cat"); bindF("#fK", "kind");
   var more = $main.querySelector("#more"); if (more) more.onclick = function () { var y0 = window.scrollY; st.limit += 50; render(); window.scrollTo(0, y0); };
   window.sharedAdd = function () { expenseSheet(null); };
+  var ua = $main.querySelector("#usAdd"); if (ua) ua.onclick = function () { plusSheet("shared"); };
   $main.querySelectorAll("[data-open]").forEach(function (el) {
     el.onclick = function () { var e = exps.find(function (x) { return x.id === el.dataset.open; }); if (e) expenseSheet(e); };
   });
@@ -588,15 +622,15 @@ routes.shared = function () {
   };
 };
 // ---------- ввод общей траты как в Splitwise ----------
-function expenseSheet(existing) {
+function expenseSheet(existing, pre) {
   var partner = sh.partner ? sh.partner.name : "Партнёр", meName = sh.me.name;
   var d = existing ? {
     desc: existing.desc, cost: existing.cost, currency: existing.currency, cat: existing.cat || (existing.kind === "batch" ? "Сводные суммы" : S.catOf(existing, sh.learned)),
     date: existing.date, method: existing.method || "card", note: existing.note || "", paidByMe: existing.paidByMe, kind: existing.kind,
     mode: existing.split ? existing.split.mode : (existing.share * 2 === existing.cost || Math.abs(existing.share * 2 - existing.cost) <= 1 ? "equal" : "exact"),
     values: existing.split ? existing.split.values : { me: existing.share, partner: existing.cost - existing.share },
-  } : { desc: "", cost: 0, currency: "EUR", cat: "Продукты", date: E.todayISO(), method: "card", note: "", paidByMe: true, kind: "expense", mode: "equal", values: {} };
-  var catTouched = !!existing, pane = "main";
+  } : Object.assign({ desc: "", cost: 0, currency: "EUR", cat: "Продукты", date: E.todayISO(), method: "card", note: "", paidByMe: true, kind: "expense", mode: "equal", values: {} }, pre || {});
+  var catTouched = !!existing || !!(pre && pre.cat), pane = "main";
   function money(c) { return E.fmt(c, { cur: d.currency === "EUR" ? "€" : d.currency, dec: 2 }); }
   function split() {
     if (d.mode === "full") return { me: d.paidByMe ? 0 : d.cost, partner: d.paidByMe ? d.cost : 0, error: null };
@@ -623,7 +657,7 @@ function expenseSheet(existing) {
         "<input id='exCost' inputmode='decimal' placeholder='0,00' value='" + (d.cost ? esc(String(d.cost / 100).replace(".", ",")) : "") + "'></label>" +
         "<div class='center'><button class='btn split-pill' data-act='split'>" + esc(summary()) + "</button></div>" +
         "<div class='sheet-meta'><label class='f'>Дата<input type='date' id='exDate' value='" + esc(d.date) + "'></label>" +
-        "<label class='f'>Категория<select id='exCat'>" + sharedCats().map(function (c) { return "<option" + (c === d.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select></label>" +
+        "<label class='f'>Категория<select id='exCat'>" + sharedCats().map(function (c) { return "<option value='" + esc(c) + "'" + (c === d.cat ? " selected" : "") + ">" + esc(catLabel(c)) + "</option>"; }).join("") + "</select></label>" +
         "<label class='f'>Способ<select id='exMethod'><option value='card'" + (d.method !== "cash" ? " selected" : "") + ">карта</option><option value='cash'" + (d.method === "cash" ? " selected" : "") + ">наличные</option></select></label>" +
         "<label class='f' style='grid-column:1/-1'>Заметка<input id='exNote' value='" + esc(d.note) + "' placeholder='необязательно'></label></div>" +
         (existing ? "<div class='row' style='margin-top:14px'><label class='row small'><input type='checkbox' id='exRefund'" + (d.kind === "refund" ? " checked" : "") + "> это возврат долга — в расходы не пойдёт</label><span class='spacer'></span><button class='btn ghost danger' data-act='delete'>Удалить</button></div>" : "") +

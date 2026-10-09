@@ -24,7 +24,8 @@ function refreshAll() {
       var b = x[0];
       if (b && !pending && !saving) { myState = migrate(b.data); if (view.who === "me") state = myState; resetUndoBase(); }
       render();
-      setSync("обновлено " + new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) + " ↻", "ok");
+      ui.syncAt = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      setSync("обновлено " + ui.syncAt + " ↻", "ok");
     });
   }).catch(function () { setSync("нет связи ↻", "warn"); });
 }
@@ -116,10 +117,11 @@ function pushUndo(item) {
   // уведомление, показанное только что (до сохранения), переезжает в полоску
   var label = item.label || "Изменено";
   if ((label === "Сохранено") && toast.last && Date.now() - toast.last.at < 400) { label = toast.last.msg; document.getElementById("toast").classList.remove("on"); }
-  el.innerHTML = "<span>" + esc(label) + "</span><button type='button'>↶ Отменить</button>";
-  el.querySelector("button").onclick = doUndo;
+  el.innerHTML = "<span>" + esc(label) + "</span><button type='button' class='ub-undo'>Отменить</button><button type='button' class='ub-x' aria-label='Скрыть'>×</button>";
+  el.querySelector(".ub-undo").onclick = doUndo;
+  el.querySelector(".ub-x").onclick = function () { el.classList.remove("on"); };
   pushUndo.at = Date.now();
-  el.classList.add("on"); clearTimeout(undoTimer); undoTimer = setTimeout(function () { el.classList.remove("on"); }, 8000);
+  el.classList.add("on"); clearTimeout(undoTimer); undoTimer = setTimeout(function () { el.classList.remove("on"); }, 7000);
 }
 function doUndo() {
   var it = undoStack.pop(), el = document.getElementById("undoBar");
@@ -237,7 +239,8 @@ function profileBar() {
 
 // ---------- разделы: группы, вкладки внутри раздела ----------
 var GROUPS = {
-  home: ["home", "cash", "recon"],
+  home: ["home", "cash"],
+  recon: ["recon"],
   plan: ["year", "recurring", "week"],
   us: ["shared", "us", "tolog"],
   analysis: ["insights", "months", "analysis"],
@@ -359,6 +362,14 @@ function isNow(year, w) { var wk = E.weekOfDate(E.todayISO()); return wk && Stri
 
 // ---------- модалка ----------
 var $modal = document.getElementById("modal");
+// маленькое окно с одним полем вместо системного prompt()
+function textModal(title, value, onOk, placeholder) {
+  modal("<form class='m-body' id='tmF'><h2>" + esc(title) + "</h2><label class='f' style='margin-top:12px'><input name='v' value='" + esc(value || "") + "' placeholder='" + esc(placeholder || "") + "' required></label><button type='submit' hidden></button></form>" +
+    "<div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
+    var f = m.querySelector("#tmF"), ok = function (e) { if (e) e.preventDefault(); var v = f.v.value.trim(); closeModal(); onOk(v); };
+    f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok; m.querySelector("[data-act=x]").onclick = closeModal;
+  });
+}
 function modal(html, onReady) {
   $modal.className = "modal";
   $modal.innerHTML = html;
@@ -500,15 +511,15 @@ function spendModal(o) {
   if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
   o = o || {};
   var date = o.date || E.todayISO();
-  var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = incCat || defaultCat();
+  var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = o.cat || incCat || defaultCat();
   var chipCats = o.income ? cats().filter(function (c) { return c.block === "income" && !c.archived; }).slice(0, 6) : recentCats();
   modal("<form class='m-body' id='spForm'><h2>" + (o.income ? "Внести доход" : "Внести трату") + "</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
     "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
     "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
     "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
-    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + chipCats.map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
-    "<select name='cat' aria-label='Все категории'" + (o.income && chipCats.length === cats().filter(function (c) { return c.block === "income" && !c.archived; }).length ? " hidden" : "") + ">" + catOptions(dc, o.income ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select></div>" +
-    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' placeholder='" + (o.income ? "например, бонус за квартал" : "например, шопинг") + "'></label></div>" +
+    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + chipCats.map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") +
+    "<label class='chip chip-sel" + (chipCats.some(function (c) { return c.id === dc; }) ? "" : " on") + "'><span class='cs-t'>" + (chipCats.some(function (c) { return c.id === dc; }) ? "другая ▾" : esc(catName(dc)) + " ▾") + "</span><select name='cat' aria-label='Все категории'>" + catOptions(dc, o.income ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select></label></div></div>" +
+    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='" + esc(o.note || "") + "' placeholder='" + (o.income ? "например, бонус за квартал" : "например, шопинг") + "'></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
     "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
     var f = m.querySelector("#spForm"), hint = m.querySelector("#spWeek");
@@ -526,7 +537,11 @@ function spendModal(o) {
       hint.innerHTML = t.err ? esc(t.err) : "Попадёт в неделю <b>" + esc(E.weekTitle(Number(t.year), t.week)) + "</b>" + (isNow(t.year, t.week) ? " · текущая" : weekDone(t.year, t.week) ? " · прошедшая" : " · будущая");
     }
     f.d.addEventListener("input", upd); upd();
-    function syncChips() { m.querySelectorAll("[data-cc]").forEach(function (b) { b.classList.toggle("on", b.dataset.cc === f.cat.value); }); }
+    function syncChips() {
+      var inChips = false;
+      m.querySelectorAll("[data-cc]").forEach(function (b) { var on = b.dataset.cc === f.cat.value; b.classList.toggle("on", on); if (on) inChips = true; });
+      var cs = m.querySelector(".chip-sel"); if (cs) { cs.classList.toggle("on", !inChips); cs.querySelector(".cs-t").textContent = inChips ? "другая ▾" : catName(f.cat.value) + " ▾"; }
+    }
     m.querySelectorAll("[data-cc]").forEach(function (b) { b.onclick = function () { f.cat.value = b.dataset.cc; syncChips(); }; });
     f.cat.addEventListener("change", syncChips);
     m.querySelectorAll("[data-dd]").forEach(function (b) { b.onclick = function () { f.d.value = E.addDays(E.todayISO(), Number(b.dataset.dd)); upd(); }; });

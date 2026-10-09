@@ -59,6 +59,8 @@ function partnerStems() {
   var lat = "abvgdezijklmnoprstufhc", cyr = "абвгдезийклмнопрстуфхц", tr = function (s, a, b) { return s.split("").map(function (ch) { var i = a.indexOf(ch); return i >= 0 ? b[i] : ch; }).join(""); };
   return [n.slice(0, 3), tr(n, lat, cyr).slice(0, 3), tr(n, cyr, lat).slice(0, 3)];
 }
+// доля «на мне»: пополам · всё на партнёре · всё на мне
+function plusMine(md) { var c = md.cents || 0; return md.mode === "theirs" ? 0 : md.mode === "mine" ? c : md.mode === "full" ? (md.paidByMe ? 0 : c) : Math.round(c / 2); }
 function nameDat(n) { n = String(n || ""); return /[ая]$/i.test(n) ? n.slice(0, -1) + "е" : n; }
 // ---------- панель ----------
 var plusUi = { tab: "spend", text: "", over: {} };
@@ -91,12 +93,21 @@ function drawPlus(m) {
     "<input id='plusQ' class='plus-q' autocomplete='off' placeholder='например: " + esc(ex) + "' value='" + esc(plusUi.text) + "'>" +
     "<div class='plus-chips' id='plusChips'></div><div id='plusWhere'></div>" +
     "<button type='button' class='btn primary plus-go' id='plusGo'>Записать</button>" +
+    (tab !== "cash" ? "<button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button>" : "") +
     (tab === "cash" ? "<a class='plus-more' href='#cash'>История и карманы ›</a>" : "");
   var q = body.querySelector("#plusQ"), tmr = null;
   q.oninput = function () { clearTimeout(tmr); tmr = setTimeout(function () { plusUi.text = q.value; plusUi.over = {}; drawParsed(m); }, 200); };
   q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); plusUi.text = q.value; drawParsed(m); plusSave(m); } };
   body.querySelector("#plusGo").onclick = function () { plusUi.text = q.value; drawParsed(m); plusSave(m); };
   var pm = body.querySelector(".plus-more"); if (pm) pm.onclick = closeModal;
+  var pf = body.querySelector("#plusForm");
+  if (pf) pf.onclick = function () {
+    plusUi.text = q.value; var md = plusModel(); closeModal();
+    setTimeout(function () {
+      if (tab === "shared") expenseSheet(null, { desc: md.desc ? md.desc.charAt(0).toUpperCase() + md.desc.slice(1) : "", cost: md.cents || 0, cat: md.cat, date: md.date, paidByMe: md.paidByMe, mode: md.mode === "full" ? "full" : "equal" });
+      else spendModal({ income: tab === "income", date: md.date, cat: md.cat, amount: md.cents ? String(md.cents / 100).replace(".", ",") : "", note: md.note || "" });
+    }, 40);
+  };
   drawParsed(m);
   setTimeout(function () { q.focus(); }, 60);
 }
@@ -120,9 +131,10 @@ function plusModel() {
       desc.push(w);
     });
     md.paidByMe = o.paidByMe !== undefined ? o.paidByMe : !payP;
-    md.mode = o.mode || (full ? "full" : "equal");
     md.desc = desc.join(" ");
     md.cat = o.cat || (md.desc ? S.catOf({ desc: md.desc }, sh.learned) : "Продукты");
+    var defSplit = (sh.space.settings.catSplit || {})[md.cat];
+    md.mode = o.mode || (full ? "full" : defSplit === "theirs" ? "theirs" : defSplit === "mine" ? "mine" : "equal");
   } else if (tab === "cash") {
     var c = cashState(), pockets = c.pockets.filter(function (x) { return !x.archived; });
     md.cash = plusUi.text.trim() ? K.parse(plusUi.text, pockets, c.defaultPocket) : null;
@@ -145,6 +157,8 @@ function drawParsed(m) {
     html += plusChip(md.cents ? (md.tab === "income" ? "+" : "−") + E.fmt(md.cents, { cur: "€" }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
     html += plusChip(esc(catName(md.cat)) + " ▾", "", "<select data-o='cat'>" + catOptions(md.cat, md.tab === "income" ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select>");
     html += dateChip;
+    var rep = plusUi.over.rep || "no";
+    html += plusChip({ no: "не повторять", month: "каждый месяц", week: "каждую неделю" }[rep] + " ▾", rep === "no" ? "soft" : "", "<select data-o='rep'><option value='no'" + (rep === "no" ? " selected" : "") + ">не повторять</option><option value='month'" + (rep === "month" ? " selected" : "") + ">каждый месяц — станет регулярной</option><option value='week'" + (rep === "week" ? " selected" : "") + ">каждую неделю — станет регулярной</option></select>");
     var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
     if (!wk || !state.years[ys] || state.years[ys].archived) wh = "<div class='pw-err'>Плана на " + (ys || "эту дату") + " нет — создай его в «Плане».</div>";
     else if (md.cents) {
@@ -155,12 +169,13 @@ function drawParsed(m) {
   } else if (md.tab === "shared") {
     var pName = sh.partner ? sh.partner.name : "партнёр";
     html += plusChip(md.cents ? "−" + E.fmt(md.cents, { cur: "€" }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
-    html += plusChip(esc(md.cat) + " ▾", "", "<select data-o='cat'>" + sharedCats().map(function (c) { return "<option" + (c === md.cat ? " selected" : "") + ">" + esc(c) + "</option>"; }).join("") + "</select>");
+    html += plusChip(esc(catLabel(md.cat)) + " ▾", "", "<select data-o='cat'>" + sharedCats().map(function (c) { return "<option value='" + esc(c) + "'" + (c === md.cat ? " selected" : "") + ">" + esc(catLabel(c)) + "</option>"; }).join("") + "</select>");
     html += plusChip("платила " + (md.paidByMe ? "ты" : esc(pName)) + " ▾", "", "<select data-o='paidByMe'><option value='1'" + (md.paidByMe ? " selected" : "") + ">платила ты</option><option value='0'" + (md.paidByMe ? "" : " selected") + ">платила " + esc(pName) + "</option></select>");
-    html += plusChip((md.mode === "full" ? "всё на " + (md.paidByMe ? esc(nameDat(pName)) : "тебе") : "пополам") + " ▾", "", "<select data-o='mode'><option value='equal'" + (md.mode === "equal" ? " selected" : "") + ">пополам</option><option value='full'" + (md.mode === "full" ? " selected" : "") + ">всё на " + (md.paidByMe ? esc(nameDat(pName)) : "тебе") + "</option></select>");
+    var modeLbl = { equal: "пополам", full: "всё на " + (md.paidByMe ? esc(nameDat(pName)) : "тебе"), theirs: "всё на " + esc(nameDat(pName)), mine: "всё на тебе" }[md.mode] || "пополам";
+    html += plusChip(modeLbl + " ▾", "", "<select data-o='mode'><option value='equal'" + (md.mode === "equal" ? " selected" : "") + ">пополам</option><option value='theirs'" + (md.mode === "theirs" ? " selected" : "") + ">всё на " + esc(nameDat(pName)) + "</option><option value='mine'" + (md.mode === "mine" ? " selected" : "") + ">всё на тебе</option></select>");
     html += dateChip;
     if (md.cents) {
-      var mine = md.mode === "full" ? (md.paidByMe ? 0 : md.cents) : Math.round(md.cents / 2), net = md.paidByMe ? md.cents - mine : -mine;
+      var mine = plusMine(md), net = md.paidByMe ? md.cents - mine : -mine;
       var bal = (S.balance(sh.expenses).EUR || 0), after = bal + net;
       var bt = function (b) { return Math.abs(b) < 1 ? "вы в расчёте" : b > 0 ? esc(pName) + " должна тебе " + E.fmt(b, { cur: "€", dec: 2 }) : "ты должна " + E.fmt(-b, { cur: "€", dec: 2 }); };
       wh = "<div class='pw-row'><span>Мы · «" + esc(md.desc || "без описания") + "»</span><b class='" + (net >= 0 ? "pos" : "warn") + "'>" + (net >= 0 ? esc(pName) + " должна " + E.fmt(net, { cur: "€", dec: 2 }) : "ты должна " + E.fmt(-net, { cur: "€", dec: 2 })) + "</b></div>" +
@@ -199,15 +214,20 @@ function plusSave(m) {
   if (md.tab === "spend" || md.tab === "income") {
     var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
     if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет"); return; }
-    addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note);
+    var rep = plusUi.over.rep || "no";
+    if (rep !== "no") {
+      var yr = state.years[ys], v = md.tab === "income" ? md.cents : -md.cents;
+      yr.recurring = yr.recurring || [];
+      yr.recurring.push({ id: E.uid("r"), catId: md.cat, expr: String(v / 100), cents: v, weeks: rep === "week" ? "все" : String(wk.wim), from: md.date, to: null });
+    } else addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note);
     state.settings.lastCat = md.cat;
     state.settings.recentCats = [md.cat].concat((state.settings.recentCats || []).filter(function (x) { return x !== md.cat; })).slice(0, 6);
     if (md.word && plusUi.over.cat) { state.settings.phraseCats = state.settings.phraseCats || {}; state.settings.phraseCats[phStem(md.word)] = md.cat; }
-    closeModal(); toast((md.tab === "income" ? "Доход " : "") + E.fmt(md.cents, { cur: "€" }) + " → «" + catName(md.cat) + "», " + shortWeek(ys, wk.idx)); changed();
+    closeModal(); toast((md.tab === "income" ? "Доход " : "") + E.fmt(md.cents, { cur: "€" }) + " → «" + catName(md.cat) + "», " + (rep === "month" ? "каждый месяц с " + shortWeek(ys, wk.idx) : rep === "week" ? "каждую неделю с " + shortWeek(ys, wk.idx) : shortWeek(ys, wk.idx))); changed();
   } else if (md.tab === "shared") {
     if (!md.desc) { toast("Добавь, что это было: например «ужин»"); return; }
-    var mine = md.mode === "full" ? (md.paidByMe ? 0 : md.cents) : Math.round(md.cents / 2);
-    var ex = S.makeExpense({ date: md.date, desc: md.desc.charAt(0).toUpperCase() + md.desc.slice(1), cost: md.cents, currency: "EUR", paidByMe: md.paidByMe, myShare: mine, cat: md.cat, method: "card", note: "", kind: "expense", split: { mode: md.mode, values: {} } });
+    var mine = plusMine(md);
+    var ex = S.makeExpense({ date: md.date, desc: md.desc.charAt(0).toUpperCase() + md.desc.slice(1), cost: md.cents, currency: "EUR", paidByMe: md.paidByMe, myShare: mine, cat: md.cat, method: "card", note: "", kind: "expense", split: md.mode === "equal" || md.mode === "full" ? { mode: md.mode, values: {} } : { mode: "exact", values: { me: mine, partner: md.cents - mine } } });
     sh.learned[S.norm(ex.desc)] = md.cat; saveLearned();
     var btn = m.querySelector("#plusGo"); btn.disabled = true;
     Store.insertShared([SU.toRow(ex, sh.meId, sh.partnerId, sh.space.id)]).then(function () { closeModal(); return loadShared(); })

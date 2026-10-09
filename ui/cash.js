@@ -138,9 +138,11 @@ routes.cash = function () {
     b.onclick = function () {
       var id = b.dataset.recount, now = bal[id] || 0;
       modal("<div class='m-body'><h2>Сколько в «" + esc(pocketName(id)) + "» на самом деле?</h2><p class='small muted' style='margin:2px 0 0'>По учёту — " + E.fmt(now, { cur: pocketCur(id) }) + ". Впиши, сколько насчитала, и баланс выровняется.</p>" +
-        "<div class='form-grid' style='margin-top:12px'><label class='f'>Сейчас<input id='rcV' inputmode='decimal' autofocus value='" + String(now / 100).replace(".", ",") + "'></label></div></div>" +
+        "<div class='form-grid' style='margin-top:12px'><label class='f'>Сейчас<input id='rcV' inputmode='decimal' autofocus value='" + String(now / 100).replace(".", ",") + "'></label></div><div class='kv rc-diff'><span>Разница</span><b id='rcD'>0</b></div><p class='small muted' style='margin:4px 0 0'>Запишется как «пересчёт», без категории. Не нужно вспоминать каждую мелочь :)</p></div>" +
         "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
         m.querySelector("[data-act=cancel]").onclick = closeModal;
+        var inp = m.querySelector("#rcV"), dEl = m.querySelector("#rcD"), upd = function () { var v; try { v = E.exprCents(inp.value); } catch (e) { v = null; } dEl.textContent = v === null ? "—" : E.fmt(v - now, { cur: pocketCur(id), plus: true }); };
+        inp.addEventListener("input", upd); upd();
         m.querySelector("[data-act=ok]").onclick = function () {
           var v; try { v = E.exprCents(m.querySelector("#rcV").value); } catch (err) { toast(err.message); return; }
           if (v === null) return;
@@ -172,12 +174,20 @@ routes.cash = function () {
     };
   });
   $main.querySelector("#addPocket").onclick = function () {
-    var nm = prompt("Название (например, «Конверт на отпуск»)"); if (!nm || !nm.trim()) return;
-    var v = prompt("Сколько в нём сейчас, €", "0"), cents = 0;
-    try { cents = E.exprCents(v || "0") || 0; } catch (err) { toast(err.message); return; }
-    c.pockets.push({ id: E.uid("p"), name: nm.trim(), cur: "EUR", start: 0, sort: c.pockets.length + 1 });
-    if (cents) c.tx.push({ id: E.uid("t"), ts: Date.now(), date: E.todayISO(), kind: "adjust", to: c.pockets[c.pockets.length - 1].id, cents: cents, note: "начальный остаток" });
-    changed();
+    modal("<form class='m-body' id='pkF'><h2>Новый карман</h2><div class='form-grid' style='margin-top:12px'><label class='f'>Название<input name='n' placeholder='например, Конверт на отпуск' required></label>" +
+      "<label class='f'>Сколько в нём сейчас<input name='v' inputmode='decimal' placeholder='0'></label><label class='f'>Валюта<select name='c'><option>EUR</option><option>USD</option><option>RUB</option></select></label></div><button type='submit' hidden></button></form>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
+      var f = m.querySelector("#pkF");
+      var ok = function (e) {
+        if (e) e.preventDefault();
+        var nm = f.n.value.trim(); if (!nm) { f.n.focus(); return; }
+        var cents = 0; try { cents = E.exprCents(f.v.value || "0") || 0; } catch (err) { toast(err.message); return; }
+        c.pockets.push({ id: E.uid("p"), name: nm, cur: f.c.value, start: 0, sort: c.pockets.length + 1 });
+        if (cents) c.tx.push({ id: E.uid("t"), ts: Date.now(), date: E.todayISO(), kind: "adjust", to: c.pockets[c.pockets.length - 1].id, cents: cents, note: "начальный остаток" });
+        closeModal(); changed(); toast("Карман «" + nm + "» добавлен");
+      };
+      f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok; m.querySelector("[data-act=x]").onclick = closeModal;
+    });
   };
   $main.querySelector("#cashAdd").onclick = function () { plusSheet("cash"); };
   $main.querySelector("#cashMove").onclick = function () { plusSheet("cash"); setTimeout(function () { var q = document.getElementById("plusQ"); if (q) { q.value = "переложила  из " + (pockets[1] ? pockets[1].name.toLowerCase() : "конверта") + " в " + pockets[0].name.toLowerCase(); q.setSelectionRange(11, 11); q.dispatchEvent(new Event("input")); } }, 120); };

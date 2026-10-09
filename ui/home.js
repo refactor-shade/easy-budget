@@ -79,8 +79,8 @@ routes.home = function () {
   }
   var qb = function (key, label) { return "<button type='button' class='q-btn' data-explain='" + key + "' aria-label='" + label + "'>?</button>"; };
 
-  var html = "<div class='home'>";
-  html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + "</div>" +
+  var html = "<div class='home" + (ui.homeSeen ? " static" : "") + "'>"; ui.homeSeen = true;
+  html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + (ui.syncAt ? " · обновлено в " + ui.syncAt : "") + "</div>" +
     "<div class='home-act'><button type='button' class='icon-btn sync' data-sync id='homeSync' aria-label='Обновить'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M20 11a8 8 0 1 0-2.3 5.7'/><path d='M20 4v7h-7'/></svg><i class='sync-dot' aria-hidden='true'></i></button>" +
     "<a class='icon-btn' href='#settings' aria-label='Настройки'><svg width='19' height='19' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg></a></div></div>" +
     "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1></header>";
@@ -110,7 +110,9 @@ routes.home = function () {
   if (cs && cs.pockets && cs.pockets.length) {
     var cb = K.balances(cs, cashLines()), cps = cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
     html += "<a class='card a-cash' href='#cash'><span class='cc-tx'><span class='cc-row'><b>Наличка</b><b>" + eur(cashEurTotal(), { dec: 0 }) + "</b></span>" +
-      "<span class='small muted'>" + cps.slice(0, 3).map(function (p) { return esc(p.name) + " " + E.fmt(cb[p.id] || 0, { cur: pocketCur(p.id), dec: 0 }); }).join(" · ") + (cps.length > 3 ? " · ещё " + (cps.length - 3) : "") + "</span></span><span class='arr'>›</span></a>";
+      "<span class='small muted cc-line'>" + cps.slice(0, 3).map(function (p) { return esc(p.name) + " " + E.fmt(cb[p.id] || 0, { cur: pocketCur(p.id), dec: 0 }); }).join(" · ") + (cps.length > 3 ? " · ещё " + (cps.length - 3) : "") + "</span>" +
+      "<span class='cc-tiles'>" + cps.slice(0, 4).map(function (p) { return "<span class='cc-tile'><small>" + esc(p.name) + "</small><b>" + E.fmt(cb[p.id] || 0, { cur: pocketCur(p.id), dec: 0 }) + "</b></span>"; }).join("") + "</span>" +
+      "<span class='cc-more'>История и карманы ›</span></span><span class='arr'>›</span></a>";
   }
 
   // неделя

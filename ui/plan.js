@@ -282,7 +282,7 @@ function yearByMonths(y, r, html) {
   var nowM = (function () { var t = E.weekOfDate(E.todayISO()); return t && String(t.year) === String(y) ? Math.floor(t.idx / 5) : -1; })();
   var mon = E.monthly(state, y).months;
   function mth(m) { return (m === nowM ? " now" : ""); }
-  var head = "<tr><th class='sticky'>" + y + "</th>" + E.MONTHS_SHORT.map(function (n, m) { return "<th class='mhead" + mth(m) + "' data-m='" + m + "'>" + n + "</th>"; }).join("") + "<th>Год</th></tr>";
+  var head = "<tr><th class='sticky'><span class='gm-arrows'><button type='button' class='gm-a' data-gs='-1' aria-label='Раньше'>‹</button><button type='button' class='gm-a' data-gs='1' aria-label='Позже'>›</button></span></th>" + E.MONTHS_SHORT.map(function (n, m) { return "<th class='mhead" + mth(m) + "' data-m='" + m + "'>" + n + "</th>"; }).join("") + "<th>Год</th></tr>";
   var body = "", openB = ui.planOpen || (ui.planOpen = { income: true, base: true });
   E.BLOCKS.forEach(function (b) {
     var list = cats().filter(function (c) { return c.block === b.id && r.cells[c.id].some(Boolean); });
@@ -310,7 +310,9 @@ function yearByMonths(y, r, html) {
       "<td class='v ro'>" + (key === "cap" ? "" : "<b>" + E.fmt(rnd(t)) + "</b>") + "</td></tr>";
   }
   body += totRow("Доходы", "income", "tot sep") + totRow("Расходы", "total");
-  var foot = "<tr><td class='sticky'>В обращении</td>" + mon.map(function (row, m) { var v = r.base[m * 5 + 4]; return "<td class='v ro" + mth(m) + "'>" + (v === null || v === undefined ? "" : E.fmt(rnd(v))) + "</td>"; }).join("") + "<td></td></tr>" +
+  var lastFact = function (m) { for (var w3 = m * 5 + 4; w3 >= m * 5; w3--) if (r.fact[w3] !== null && r.fact[w3] !== undefined) return r.fact[w3]; return null; };
+  body += "<tr class='tot'><td class='sticky'>По сверке</td>" + mon.map(function (row, m) { var v = lastFact(m); return "<td class='v ro" + mth(m) + "'>" + (v === null ? "" : E.fmt(rnd(v))) + "</td>"; }).join("") + "<td></td></tr>";
+  var foot = "<tr><td class='sticky'>В обращении <button type='button' class='q-btn qd' data-explain='obr' aria-label='Что такое «в обращении»'>?</button></td>" + mon.map(function (row, m) { var v = r.base[m * 5 + 4]; return "<td class='v ro" + mth(m) + "'>" + (v === null || v === undefined ? "" : E.fmt(rnd(v))) + "</td>"; }).join("") + "<td></td></tr>" +
     "<tr><td class='sticky'>Капитал</td>" + mon.map(function (row, m) { return "<td class='v ro" + mth(m) + "'>" + (row.cap === null ? "" : E.fmt(rnd(row.cap))) + "</td>"; }).join("") + "<td></td></tr>";
   html += "<div class='grid-wrap' id='gridWrap'><table class='g g-months'><thead>" + head + "</thead><tbody>" + body + "</tbody><tfoot class='plan-foot'>" + foot + "</tfoot></table></div>";
   $main.innerHTML = html;
@@ -321,6 +323,9 @@ function yearByMonths(y, r, html) {
     if (th) wrap.scrollLeft = Math.max(0, th.getBoundingClientRect().left - wrap.getBoundingClientRect().left - pin - th.offsetWidth);
   });
   wrap.addEventListener("click", function (e) {
+    var gs = e.target.closest("[data-gs]");
+    if (gs) { var th1 = wrap.querySelector("thead th.mhead"); wrap.scrollBy({ left: Number(gs.dataset.gs) * 3 * (th1 ? th1.offsetWidth : 70), behavior: "smooth" }); return; }
+    var qx = e.target.closest("[data-explain]"); if (qx) { explain(qx.dataset.explain); return; }
     var tg = e.target.closest("[data-blk]");
     if (tg) { ui.planOpen[tg.dataset.blk] = !ui.planOpen[tg.dataset.blk]; render(); return; }
     var el = e.target.closest("[data-m]");
@@ -406,23 +411,30 @@ routes.recon = function () {
       "' placeholder='" + esc(E.fmt(rnd(r.rows[cr.key][w]))) + "'></label>";
   });
   html += "</form></details>";
-  if (hasRec) html += "<div class='rc-after'><div class='card'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Внеси — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести</button></div>" + unspentCard(y, w) + "</div>";
-
-  // история сверок — по кнопке
+  var side = "";
+  // календарь недель: на компьютере всегда справа, на телефоне — по «История сверок»
+  side += "<div class='card rc-card rc-calcard'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>неделя — нажми</span></div>" + reconCalendar(y, false, w) + "</div>";
+  if (hasRec) {
+    side += "<div class='card rc-help'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Напиши одной фразой — попадёт в эту неделю, расхождение пересчитается.</p>" +
+      "<form id='recPhrase' class='rc-phrase' autocomplete='off'><input name='q' placeholder='например: аптека 45'><button class='btn primary' type='submit'>Внести</button></form><button type='button' class='linkish small' id='recAdd'>заполнить по полям</button></div>";
+    side += unspentCard(y, w);
+    var reps = RO() ? [] : E.findRepeats(state, y);
+    if (reps.length) side += "<div class='card rc-help'><h2>Нашла " + reps.length + " " + (reps.length % 10 === 1 && reps.length % 100 !== 11 ? "повторяющуюся трату" : reps.length % 10 >= 2 && reps.length % 10 <= 4 && (reps.length % 100 < 10 || reps.length % 100 >= 20) ? "повторяющиеся траты" : "повторяющихся трат") + "</h2><p class='small muted' style='margin-top:-6px'>Если сделать их регулярными, план следующего года заполнится сам.</p><a class='btn' href='#recurring'>Посмотреть в «Регулярных» ›</a></div>";
+  }
   var hist = [];
   activeYears().forEach(function (yy) {
     var rr = E.compute(state, yy);
     rr.fact.forEach(function (f, i) { if (f !== null) hist.push({ y: yy, i: i, f: f, o: rr.obr[i], d: rr.diff[i], wk: rr.weeks[i] }); });
   });
   hist = hist.reverse().slice(0, 12);
-  if (ui.recHist) html += "<div class='section' id='recHist'><div class='card rc-card'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>нажми на неделю, чтобы открыть</span></div>" + reconCalendar(y, false, w) + "</div>" +
-    "<h2 style='margin-top:18px'>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Расхождение</th></tr></thead><tbody>" +
+  side += "<div class='rc-histwrap'><h2>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Разница</th></tr></thead><tbody>" +
     (hist.length ? hist.map(function (h) {
-      return "<tr data-go='" + h.y + ":" + h.i + "' style='cursor:pointer'><td>" + esc(E.weekTitle(Number(h.y), h.i)) + "</td><td class='n'>" + eur(rnd(h.o), { dec: 0 }) + "</td><td class='n'>" + eur(rnd(h.f), { dec: 0 }) +
+      return "<tr data-go='" + h.y + ":" + h.i + "' style='cursor:pointer'><td>" + esc(shortWeek(h.y, h.i)) + "</td><td class='n'>" + eur(rnd(h.o), { dec: 0 }) + "</td><td class='n'>" + eur(rnd(h.f), { dec: 0 }) +
         "</td><td class='n " + (h.d < state.settings.diffAlert ? "neg" : "") + "'>" + eur(rnd(h.d), { dec: 0, plus: true }) + "</td></tr>";
     }).join("") : "<tr><td colspan='4' class='muted'>Сверок пока нет.</td></tr>") + "</tbody></table></div></div>";
   html += (hasRec ? "<button class='linkish rc-clear' id='recClear'>Очистить неделю</button>" : "") +
     "<div class='rc-bar'><div id='recResult'></div><button class='btn primary rc-save' id='recSave'>Сохранить</button></div>";
+  html = "<div class='rcx-wrap'><div class='rcx-main'>" + html + "</div><aside class='rcx-side" + (ui.recHist ? " open" : "") + "' id='recHist'>" + side + "</aside></div>";
   $main.innerHTML = html;
 
   function liveResult() {
@@ -442,11 +454,26 @@ routes.recon = function () {
   }
   $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
   $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
-  if (ui.recHist) bindRecCal(y);
+  bindRecCal(y);
+  var rph = $main.querySelector("#recPhrase");
+  if (rph) rph.onsubmit = function (e) {
+    e.preventDefault();
+    var t = rph.q.value.trim(); if (!t) return;
+    var ph = phParse(t), ci = phCat(ph.words, false);
+    if (!ph.cents) { toast("Не вижу сумму — допиши число"); return; }
+    var cat = ci ? ci.id : defaultCat(), note = ph.words.filter(function (x, i) { return !ci || i !== ci.used; }).join(" ");
+    var d = ph.date && E.weekOfDate(ph.date) && E.weekOfDate(ph.date).idx === w ? ph.date : wk.from, wk2 = E.weekOfDate(d);
+    addToCell(String(wk2.year), cat, wk2.idx, String(ph.cents / 100), note);
+    ui.recWeek = { year: y, week: w };
+    toast(E.fmt(ph.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(String(wk2.year), wk2.idx)); changed();
+  };
   liveResult();
   $main.querySelectorAll("#recResult [data-explain]").forEach(function () {});
   $main.querySelector("#recResult").addEventListener("click", function (e) { var q = e.target.closest("[data-explain]"); if (q) explain(q.dataset.explain); });
-  $main.querySelector("#recHistBtn").onclick = function () { ui.recHist = !ui.recHist; render(); if (ui.recHist) setTimeout(function () { var h = document.getElementById("recHist"); if (h) h.scrollIntoView({ behavior: "smooth" }); }, 50); };
+  $main.querySelector("#recHistBtn").onclick = function () {
+    if (window.matchMedia("(min-width: 821px)").matches) { var hw = $main.querySelector(".rc-histwrap"); if (hw) hw.scrollIntoView({ behavior: "smooth" }); return; }
+    ui.recHist = !ui.recHist; render(); if (ui.recHist) setTimeout(function () { var h = document.getElementById("recHist"); if (h) h.scrollIntoView({ behavior: "smooth" }); }, 50);
+  };
   bindYearChips(function (yy) { ui.recWeek = { year: yy, week: yy === sel.year ? w : 0 }; render(); });
   $main.querySelector("#recW").onchange = function (e) { ui.recWeek = { year: y, week: Number(e.target.value) }; render(); };
   $main.querySelector("#recSave").onclick = function () {
