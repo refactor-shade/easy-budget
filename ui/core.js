@@ -83,8 +83,19 @@ window.addEventListener("beforeunload", function (e) { if (pending || saving) { 
 // вернулась к вкладке — проверить, не изменили ли бюджет с другого устройства
 document.addEventListener("visibilitychange", function () {
   if (document.visibilityState !== "visible" || Store.mode !== "cloud" || pending || saving || !myState) return;
+  if (checkAppUpdate()) return;
   Store.remoteVersion().then(function (v) { if (v && v !== Store.localVersion()) reloadMine(); }).catch(function () {});
 });
+// вернулась к приложению, а на сайте новая версия — тихо перезагрузиться (не чаще раза в 10 минут и только без несохранённого)
+function checkAppUpdate() {
+  if (Date.now() - (checkAppUpdate.at || 0) < 6e5) return false;
+  checkAppUpdate.at = Date.now();
+  fetch("index.html?nc=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) {
+    var m = t.match(/app\.js\?v=(\d+)/), cur = Array.prototype.map.call(document.scripts, function (x) { return x.src; }).find(function (x) { return /app\.js/.test(x); }) || "", cm = cur.match(/v=(\d+)/);
+    if (m && cm && m[1] !== cm[1] && !pending && !saving && !document.querySelector("dialog[open], .g input")) location.reload();
+  }).catch(function () {});
+  return false;
+}
 function reloadMine() {
   return Store.loadMyBudget().then(function (b) {
     if (!b) return;
