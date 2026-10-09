@@ -1363,3 +1363,7 @@ body::before { height: calc(env(safe-area-inset-top) + 14px); background: linear
 @media (min-width: 821px) { .sheet-plus .m-body.plus { padding-bottom: 22px; } .sheet-plus .plus-form { margin-top: 12px; } }
 @media (max-width: 520px) { .rs-act-t { display: none; } }
 @media (max-width: 820px) { .ut-spend .kv > span small { display: block; margin-top: 1px; } }
+/* «Мы»: спокойный вход в «Общие траты и твой план», когда всё учтено */
+.us-plan.us-plan-ok { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.us-plan-ok > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.us-plan-ok .arr { color: var(--muted); font-size: 18px; flex: none; }
