@@ -125,3 +125,38 @@ routes.insights = function () {
   bindInsights($main);
   bindYearChips(function (yy) { ui.year = yy; render(); });
 };
+
+// ===== ИТОГИ МЕСЯЦЕВ: последний закрытый месяц подробно, остальные — строками =====
+function monthSummaryHtml(ms, open) {
+  var nb = ms.numbers, li = function (z, mk, h, p) { return "<li class='" + z + "'><span class='mk' aria-hidden='true'>" + mk + "</span><span><b>" + esc(h) + "</b>" + (p ? " " + esc(p) : "") + "</span></li>"; };
+  return "<div class='ms-nums4'><div><span>доходы</span><b class='pos'>" + eur(rnd(nb.income), { dec: 0 }) + "</b></div><div><span>расходы</span><b>" + eur(rnd(nb.total), { dec: 0 }) + "</b></div>" +
+    "<div><span>осталось</span><b class='" + sign(nb.net) + "'>" + eur(rnd(nb.net), { dec: 0, plus: true }) + "</b></div><div><span>капитал</span><b class='" + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "—" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</b></div></div>" +
+    "<ul class='ms-list'>" + ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "↗", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") + "</ul>";
+}
+routes.months = function () {
+  var INS = window.BudgetInsights, ys = years().filter(function (y) { return !state.years[y].archived || true; });
+  var y = ui.monthsYear && state.years[ui.monthsYear] ? ui.monthsYear : ui.year;
+  var t = E.todayISO(), curY = t.slice(0, 4), curM = Number(t.slice(5, 7)) - 1;
+  var lastM = String(y) === curY ? curM - 1 : String(y) < curY ? 11 : -1;
+  var html = "<div class='page-head'><div class='chips'>" + ys.map(function (yy) { return "<button class='chip" + (yy === y ? " on" : "") + "' data-year='" + yy + "'>" + yy + "</button>"; }).join("") + "</div></div>";
+  if (lastM < 0) { $main.innerHTML = html + "<p class='empty'>Здесь появятся итоги, когда закончится первый месяц " + esc(y) + " года.</p>"; bindYearChips(function (yy) { ui.monthsYear = yy; render(); }); return; }
+  var first = INS.month(state, y, lastM, insightCtx());
+  html += "<section class='card ms-open'><div class='row'><h2 style='margin:0'>" + E.MONTHS[lastM][0].toUpperCase() + E.MONTHS[lastM].slice(1) + "</h2><span class='spacer'></span></div>" + monthSummaryHtml(first) + "</section>";
+  if (lastM > 0) {
+    html += "<section class='card ms-rows'>";
+    for (var m = lastM - 1; m >= 0; m--) {
+      var nb = INS.month(state, y, m, insightCtx()).numbers;
+      html += "<button type='button' class='ms-row' data-mm='" + m + "'><span class='ms-tx'><b>" + E.MONTHS[m][0].toUpperCase() + E.MONTHS[m].slice(1) + "</b><small>расходы " + eur(rnd(nb.total), { dec: 0 }) + " · осталось " + eur(rnd(nb.net), { dec: 0, plus: true }) + "</small></span>" +
+        "<span class='ms-cap " + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</span><span class='arr'>›</span></button>";
+    }
+    html += "</section>";
+  }
+  $main.innerHTML = html;
+  bindYearChips(function (yy) { ui.monthsYear = yy; render(); });
+  $main.querySelectorAll("[data-mm]").forEach(function (b) {
+    b.onclick = function () {
+      var m = Number(b.dataset.mm), ms = INS.month(state, y, m, insightCtx());
+      modal("<div class='m-body month-sum'><h2>Итог месяца: " + E.MONTHS[m] + "</h2>" + monthSummaryHtml(ms) + "</div><div class='m-foot'><span class='spacer'></span><button class='btn primary' data-act='ok'>Понятно</button></div>", function (md) { md.querySelector("[data-act=ok]").onclick = closeModal; });
+    };
+  });
+};

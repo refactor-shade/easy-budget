@@ -7,6 +7,25 @@ function logOpts() {
   var since = set.sharedLogSince || (py + "-" + (pm < 10 ? "0" : "") + pm + "-01");
   return { since: since, min: set.sharedLogMin || 4000, handled: set.sharedLog || {}, map: set.sharedMap || {}, utilCat: set.utilCat || S.utilityCat(state) };
 }
+// значок категории в цветном кружке, как в Splitwise
+var CAT_IC = {
+  home: "<path d='M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z'/>", cart: "<path d='M3 4h2l2.4 11h11.2L21 7H6.2'/><circle cx='9' cy='20' r='1.3'/><circle cx='17' cy='20' r='1.3'/>",
+  cup: "<path d='M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z'/><path d='M17 10h2a2 2 0 0 1 0 4h-2'/>", plane: "<path d='M2 16l20-8-4 12-5-4-3 3v-5l9-7'/>",
+  gift: "<path d='M4 10h16v10H4zM3 7h18v3H3zM12 7v13M12 7c-2-4-6-3-5 0M12 7c2-4 6-3 5 0'/>", star: "<path d='m12 3 2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z'/>",
+  car: "<path d='M4 16V11l2-5h12l2 5v5M4 16h16M7 16v2M17 16v2'/>", heart: "<path d='M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z'/>",
+  doc: "<path d='M7 3h7l4 4v14H7zM14 3v4h4'/>", box: "<path d='M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'/>", shirt: "<path d='M8 4 4 7l2 3 2-1v11h8V9l2 1 2-3-4-3a4 4 0 0 1-8 0z'/>",
+  child: "<circle cx='12' cy='7' r='3'/><path d='M6 21v-3a6 6 0 0 1 12 0v3'/>", swap: "<path d='M4 8h14l-3-3M20 16H6l3 3'/>", dot: "<circle cx='12' cy='12' r='3'/>",
+};
+var CAT_STYLE = [
+  [/жиль|счет/i, "home", "#e3ecf7", "#2c5a8f"], [/продукт/i, "cart", "#e6f0ea", "#2f6f4f"], [/кафе|ресторан|доставк/i, "cup", "#f7ebe0", "#9a5520"],
+  [/путеш/i, "plane", "#e5eef3", "#2d6278"], [/подар|праздн/i, "gift", "#f6e7ee", "#94406a"], [/развлеч|событ/i, "star", "#efe9f7", "#5f4a96"],
+  [/такси|транспорт/i, "car", "#eef0e4", "#5b6526"], [/аптек|здоров|уход/i, "heart", "#f8e6e4", "#a3433a"], [/документ|налог/i, "doc", "#efede7", "#4d4c47"],
+  [/дом|быт|уборк/i, "box", "#f2ede2", "#7a5d2a"], [/одежд/i, "shirt", "#eaeef6", "#3f5788"], [/ребён|ребен|школ|няня/i, "child", "#f3e6f2", "#8a3f83"],
+];
+function catIcon(name) {
+  var st = name === "__transfer" ? ["", "swap", "#efede7", "#4d4c47"] : CAT_STYLE.find(function (x) { return x[0].test(name || ""); }) || ["", "dot", "#efede7", "#6f6e68"];
+  return "<span class='cat-ic' style='background:" + st[2] + ";color:" + st[3] + "' title='" + esc(name === "__transfer" ? "перевод" : name || "") + "'><svg width='17' height='17' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'>" + CAT_IC[st[1]] + "</svg></span>";
+}
 function toLogCount() {
   if (!sh || RO()) return 0;
   var o = logOpts(), c = sharedForCalc();
@@ -381,14 +400,16 @@ routes.shared = function () {
 
   // открыт профиль партнёра: лента всё равно с моей стороны — говорим об этом прямо
   var sideNote = RO() ? "<div class='hint small' style='margin:0 0 14px'>Лента показана с твоей стороны: зелёным — что должны тебе, оранжевым — что должна ты. У " + esc(view.name) + " в её профиле цвета наоборот.</div>" : "";
-  var html = sideNote + "<div class='page-head'><div><h1>Общие траты</h1><div class='sub'>" + esc(meName) + " и " + esc(partner) + " — вносите обе, с любого устройства. <button class='linkish' id='shWhy'>Как считается</button></div></div>" +
-    "<div class='row'><a class='btn' href='#tolog'>В личный план" + (toLogCount() ? " · " + toLogCount() : "") + "</a>" +
-    "<details class='menu-more'><summary class='btn' aria-label='Ещё: импорт и экспорт'>⋯</summary><div class='menu-pop'>" +
-    "<label class='menu-item'>Импорт CSV из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label><button class='menu-item' id='shExport'>Скачать CSV</button></div></details></div></div>" + invite;
-  html += "<div class='grid2'><div class='kpi'><div class='kpi-label'>Баланс</div>" + balHtml + "<div class='row' style='margin-top:10px'><button class='btn primary sm' id='settle'>Рассчитаться</button></div></div>";
-  html += "<div class='card add-card'><h2>Новая трата</h2><p class='muted small' style='margin-top:-6px'>Как в Splitwise: описание, сумма, кто платил и как делим — поровну, точными суммами, процентами, долями или с поправкой.</p>" +
-    "<button class='btn primary' id='addExpBtn'>+ Добавить трату</button></div></div>" +
-    "<button class='fab' id='fab' aria-label='Добавить трату'>+</button>";
+  var balK = Object.keys(bal).filter(function (k) { return Math.abs(bal[k]) >= 1; }), bv = balK.length ? bal[balK[0]] : 0, bc = balK.length && balK[0] !== "EUR" ? balK[0] : "€";
+  var html = sideNote + invite + "<div class='card us-bal'><div class='ub-tx'><div class='small muted'>" + (Math.abs(bv) < 1 ? "Вы в расчёте" : bv > 0 ? esc(partner) + " должна тебе" : "Ты должна " + esc(partner)) + "</div>" +
+    "<div class='ub-sum'>" + E.fmt(Math.abs(bv), { cur: bc, dec: 2 }) + "</div></div>" + (Math.abs(bv) >= 1 ? "<button class='btn primary' id='settle'>Рассчитаться</button>" : "") + "</div>";
+  // общие траты и личный план: текущий месяц
+  var nowM = Number(E.todayISO().slice(5, 7)) - 1, covM = myState.years[st.year] ? S.coverage(myState, calc, st.year)[nowM] : null, tl = toLogCount();
+  if (covM || tl) {
+    html += "<div class='us-plan'><b>Общие траты и твой план · " + E.MONTHS[nowM] + "</b>" +
+      (covM && covM.personal ? "<div class='up-row'><span>Еда и развлечения: общие " + E.fmt(rnd(covM.shared), { cur: "€" }) + " из плана " + E.fmt(rnd(covM.personal), { cur: "€" }) + "</span><span class='" + (covM.shared <= covM.personal ? "pos" : "warn") + "'>" + (covM.shared <= covM.personal ? "сходится" : "выше плана") + "</span></div>" : "") +
+      (tl ? "<div class='up-row'><span>Нет в личном плане: " + tl + " " + (tl % 10 === 1 && tl % 100 !== 11 ? "трата" : tl % 10 >= 2 && tl % 10 <= 4 && (tl % 100 < 10 || tl % 100 >= 20) ? "траты" : "трат") + "</span><a href='#tolog'>посмотреть ›</a></div>" : "<div class='up-row'><span>Всё есть в личном плане</span><a href='#tolog'>подробнее ›</a></div>") + "</div>";
+  }
 
   // сколько фильтров включено, кроме года (год виден всегда — в заголовке ленты)
   var nF = (st.month !== "all") + (st.cat !== "all") + (st.kind !== "all") + (st.year !== E.todayISO().slice(0, 4));
@@ -404,7 +425,7 @@ routes.shared = function () {
     }
     return true;
   }).slice().reverse();
-  html += "<div class='section'><div class='row' style='margin-bottom:10px'><h2 style='margin:0'>Лента</h2><span class='spacer'></span>" +
+  html += "<div class='section us-feed'><div class='row' style='margin-bottom:10px'>" +
     "<input type='search' id='fQ' class='sh-search' placeholder='Поиск: описание, заметка, сумма' value='" + esc(st.q || "") + "' aria-label='Поиск по общим тратам'>" +
     "<button type='button' class='btn sh-ftoggle" + (st.fopen ? " on" : "") + "' id='fToggle' aria-expanded='" + (st.fopen ? "true" : "false") + "'>Фильтры" + (nF ? " · " + nF : "") + "</button>" +
     "<div class='sh-filters" + (st.fopen ? " open" : "") + "'><select id='fY'>" + ylist.map(function (y) { return "<option" + (y === st.year ? " selected" : "") + ">" + y + "</option>"; }).join("") + "</select>" +
@@ -416,26 +437,24 @@ routes.shared = function () {
   var monthG = null, feedHtml = "";
   filtered.slice(0, st.limit).forEach(function (e) {
     var k = e.kind, c$ = e.currency === "EUR" ? "€" : e.currency, mKey = e.date.slice(0, 7);
-    if (mKey !== monthG) { monthG = mKey; var mi = Number(mKey.slice(5)) - 1; feedHtml += "<li class='fd-month'>" + E.MONTHS[mi][0].toUpperCase() + E.MONTHS[mi].slice(1) + " " + mKey.slice(0, 4) + "</li>"; }
-    var day = "<span class='fd-date'><small>" + E.MONTHS_SHORT[Number(e.date.slice(5, 7)) - 1] + "</small><b>" + Number(e.date.slice(8, 10)) + "</b></span>";
-    var right, sub, catHtml = "";
+    if (mKey !== monthG) { monthG = mKey; var mi = Number(mKey.slice(5)) - 1; feedHtml += "<li class='fr-month'>" + E.MONTHS[mi][0].toUpperCase() + E.MONTHS[mi].slice(1) + " " + mKey.slice(0, 4) + "</li>"; }
+    var dd = Number(e.date.slice(8, 10)) + " " + E.MONTHS_SHORT[Number(e.date.slice(5, 7)) - 1], amt, ic, sub;
     if (k === "settlement" || k === "refund") {
-      sub = (e.paidByMe ? "Ты → " + esc(partner) : esc(partner) + " → тебе") + " · перевод между вами" + (k === "refund" ? " <button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='expense'>это трата</button>" : "");
-      right = "<span class='fd-amt transfer'><small>перевод</small>" + E.fmt(e.cost, { cur: c$ }) + "</span>";
+      ic = catIcon("__transfer");
+      sub = dd + (k === "refund" ? " · возврат" : "") + " · перевод между вами";
+      amt = "<span class='fa transfer'>" + E.fmt(e.cost, { cur: c$ }) + "</span>";
     } else {
       var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
-      sub = (e.paidByMe ? "Ты заплатила " : esc(partner) + " заплатила ") + E.fmt(e.cost, { cur: c$ }) + (e.method === "cash" ? " · нал" : "");
-      catHtml = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button><button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт' aria-label='Это перевод между вами'>↩\uFE0E</button>";
-      right = Math.abs(e.net) < 1 ? "<span class='fd-amt even'><small>без долга</small>—</span>" :
-        e.net > 0 ? "<span class='fd-amt lent'><small>тебе должны</small>" + E.fmt(e.net, { cur: c$ }) + "</span>" :
-          "<span class='fd-amt owe'><small>ты должна</small>" + E.fmt(-e.net, { cur: c$ }) + "</span>";
+      ic = catIcon(cc);
+      sub = dd + " · " + (e.paidByMe ? "ты" : esc(partner)) + " · " + E.fmt(e.cost, { cur: c$ }) + (e.method === "cash" ? " · нал" : "");
+      amt = Math.abs(e.net) < 1 ? "<span class='fa even'>—</span>" : e.net > 0 ? "<span class='fa lent'>+" + E.fmt(e.net, { cur: c$ }) + "</span>" : "<span class='fa owe'>−" + E.fmt(-e.net, { cur: c$ }) + "</span>";
     }
-    feedHtml += "<li class='fd-row" + (k === "settlement" || k === "refund" ? " is-transfer" : "") + "'>" + day +
-      "<span class='fd-main'><button class='fd-desc' data-open='" + esc(e.id) + "'>" + esc(e.desc || "без описания") + "</button><small>" + sub + (e.note ? " · " + esc(e.note) : "") + (e.pending ? " · <span class='pend' title='Внесено без сети — отправлю, когда появится связь'>ждёт связи</span>" : "") + "</small>" + (catHtml ? "<span class='fd-cat'>" + catHtml + "</span>" : "") + "</span>" +
-      right + "</li>";
+    var title = (k === "settlement" || k === "refund") ? (e.paidByMe ? "Ты → " + esc(partner) : esc(partner) + " → тебе") : esc(e.desc || "без описания");
+    feedHtml += "<li class='fr' data-open='" + esc(e.id) + "'>" + ic + "<span class='fr-main'><span class='fr-t'>" + title + "</span><small>" + sub + (e.note ? " · " + esc(e.note) : "") +
+      (e.pending ? " · <span class='pend'>не отправлено</span>" : "") + "</small></span>" + amt + "</li>";
   });
   if (!filtered.length) feedHtml = "<li class='fd-empty muted'>Ничего не найдено.</li>";
-  html += "<ul class='feed2 tbl-scroll'>" + feedHtml + "</ul>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё " + Math.min(50, filtered.length - st.limit) + "</button><span class='small muted'>осталось " + (filtered.length - st.limit) + "</span></div>" : "") + "</div>";
+  html += "<ul class='feed3 card'>" + feedHtml + "</ul>" + (filtered.length > st.limit ? "<div class='row' style='margin-top:10px'><button class='btn' id='more'>Показать ещё " + Math.min(50, filtered.length - st.limit) + "</button><span class='small muted'>осталось " + (filtered.length - st.limit) + "</span></div>" : "") + "</div>";
 
   var ms = S.monthlyShares(calc, set, st.year);
   var catsUsed = S.SHARED_CATS.filter(function (c) { return ms.byCat[c] && ms.byCat[c].some(function (v) { return Math.abs(v) >= 50; }); });
@@ -456,6 +475,7 @@ routes.shared = function () {
       "<tr><td>Вне общего счёта</td>" + cov.map(function (c) { return "<td class='n " + (c.personal && c.outside < 0 ? "neg" : "") + "'>" + (c.personal || c.shared ? E.fmt(rnd(c.outside)) : "") + "</td>"; }).join("") + "</tr>" +
       "<tr class='total'><td>Покрытие</td>" + cov.map(function (c) { return "<td class='n'>" + (c.coverage === null ? "" : pct(c.coverage)) + "</td>"; }).join("") + "</tr></tbody></table></div></details>";
   }
+  html += "<div class='us-foot small'><button class='linkish' id='shWhy'>Как считаются общие траты</button> · <button class='linkish' id='shExport'>Скачать CSV</button> · <label class='linkish'>Импорт из Splitwise<input type='file' id='swFile' accept='.csv,text/csv' hidden></label></div>";
   $main.innerHTML = html;
 
   function reloadShared(msg) { return loadShared().then(function () { render(); if (msg) toast(msg); }).catch(function (err) { toast("Ошибка: " + err.message); }); }
@@ -482,8 +502,7 @@ routes.shared = function () {
   };
   bindF("#fY", "year"); bindF("#fM", "month"); bindF("#fC", "cat"); bindF("#fK", "kind");
   var more = $main.querySelector("#more"); if (more) more.onclick = function () { var y0 = window.scrollY; st.limit += 50; render(); window.scrollTo(0, y0); };
-  $main.querySelector("#addExpBtn").onclick = function () { expenseSheet(null); };
-  $main.querySelector("#fab").onclick = function () { expenseSheet(null); };
+  window.sharedAdd = function () { expenseSheet(null); };
   $main.querySelectorAll("[data-open]").forEach(function (el) {
     el.onclick = function () { var e = exps.find(function (x) { return x.id === el.dataset.open; }); if (e) expenseSheet(e); };
   });
@@ -524,7 +543,7 @@ routes.shared = function () {
     $main.querySelector("#prepFile").onchange = function (e) { preparePartnerBudget(sh.partner.email, partner, e.target.files[0]); e.target.value = ""; };
     Store.pendingFor(sh.partner.email).then(function (r) { if (r && pp.isConnected) pp.querySelector("span").textContent = "Обновить её таблицу · загружена " + new Date(r.created_at).toLocaleDateString("ru-RU"); });
   }
-  $main.querySelector("#settle").onclick = function () {
+  if ($main.querySelector("#settle")) $main.querySelector("#settle").onclick = function () {
     var v = bal.EUR || 0;
     modal("<div class='m-body'><h2>Рассчитаться</h2><p class='muted'>Перевод между вами меняет только баланс — в расходы он не попадает.</p><div class='form-grid'>" +
       "<label class='f'>Кто переводит<select id='stW'><option value='partner'" + (v > 0 ? " selected" : "") + ">" + esc(partner) + " → мне</option><option value='me'" + (v < 0 ? " selected" : "") + ">я → " + esc(partner) + "</option></select></label>" +

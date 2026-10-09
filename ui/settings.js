@@ -200,6 +200,7 @@ routes.settings = function () {
     if (pending || saving) { toast("Подожди, сохраняю…"); return; }
     Store.signOut().then(function () { location.hash = ""; location.reload(); });
   };
+  settingsHub();
 };
 
 // резервная копия: после сверки — не чаще раза в неделю; перед заменой бюджета — всегда
@@ -365,4 +366,42 @@ function sheetSteps(token) {
     m.querySelector("#gsCode").onclick = function () { if (code) copy(code, "Код"); else toast("Секунду — загружаю код, нажми ещё раз"); };
     m.querySelector("[data-act=ok]").onclick = closeModal;
   });
+}
+
+
+// ===== Настройки: плитки, внутри — нужные разделы =====
+var SET_TILES = [
+  ["money", "Деньги", "счета, категории, курсы валют", ["Счета в обращении", "Категории", "Основное"], "<rect x='3' y='6' width='18' height='12' rx='2'/><circle cx='12' cy='12' r='2.5'/>"],
+  ["year", "План года", "старт года, остатки на 1 января", ["Старт года", "По месяцам"], "<rect x='3' y='4' width='18' height='17' rx='2'/><path d='M3 9h18M8 2v4M16 2v4'/>"],
+  ["us", "Мы и доступ", "кто что видит, общие траты", ["Профиль"], "<circle cx='9' cy='8' r='3.2'/><circle cx='16.5' cy='9.5' r='2.6'/><path d='M3 19c.7-3.2 3.1-5 6-5s5.3 1.8 6 5'/>"],
+  ["data", "Данные", "Google Таблица, резервная копия, импорт", ["Google Таблица", "Резервные копии", "Данные"], "<path d='M12 3v12M7 10l5 5 5-5M4 19h16'/>"],
+  ["remind", "Напоминания", "сверка раз в неделю", ["Напоминание о сверке"], "<path d='M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4'/>"],
+];
+function settingsHub() {
+  var cloud = Store.mode === "cloud", u = Store.user() || {}, sec = ui.setSec;
+  var blocks = [];
+  $main.querySelectorAll("h2").forEach(function (h) {
+    var el = h.closest(".section, .card"); if (!el || el.closest("dialog")) return;
+    var t = h.textContent.trim(); el.dataset.sec = t; blocks.push(el);
+  });
+  var head = $main.querySelector(".page-head");
+  var tile = SET_TILES.find(function (x) { return x[0] === sec; });
+  if (!tile) {
+    blocks.forEach(function (b) { b.hidden = true; });
+    if (head) head.hidden = true;
+    var hub = "<div class='set-hub'><h1>Настройки</h1>" +
+      "<button type='button' class='card set-prof' data-st='us'><span class='sp-av'>" + esc((u.name || state.settings.myName || "Я").charAt(0)) + "</span><span class='sp-tx'><b>" + esc(u.name || state.settings.myName || "Профиль") + "</b><small>" + (cloud ? "профиль и вход · " + esc(u.email || "") : "данные только в этом браузере") + "</small></span><span class='arr'>›</span></button>" +
+      "<div class='set-tiles'>" + SET_TILES.map(function (x) {
+        return "<button type='button' class='card set-tile' data-st='" + x[0] + "'><span class='st-ic'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'>" + x[4] + "</svg></span><b>" + x[1] + "</b><small>" + x[2] + "</small></button>";
+      }).join("") + "<a class='card set-tile' href='#help'><span class='st-ic'>?</span><b>Как это работает</b><small>справка и словарь терминов</small></a></div>" +
+      (cloud ? "<button class='btn ghost set-out' id='signOut2'>Выйти</button>" : "") + "</div>";
+    $main.insertAdjacentHTML("afterbegin", hub);
+    $main.querySelectorAll("[data-st]").forEach(function (b) { b.onclick = function () { ui.setSec = b.dataset.st; render(); window.scrollTo(0, 0); }; });
+    var so = $main.querySelector("#signOut2"), so1 = $main.querySelector("#signOut"); if (so && so1) so.onclick = function () { so1.click(); };
+    return;
+  }
+  blocks.forEach(function (b) { b.hidden = tile[3].indexOf(b.dataset.sec) < 0; });
+  if (head) head.hidden = true;
+  $main.insertAdjacentHTML("afterbegin", "<button type='button' class='back-link linkish' id='setBack'>‹ Настройки</button><h1 class='set-h1'>" + tile[1] + "</h1>");
+  $main.querySelector("#setBack").onclick = function () { ui.setSec = null; render(); window.scrollTo(0, 0); };
 }

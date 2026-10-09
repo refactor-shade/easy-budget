@@ -240,22 +240,22 @@ var GROUPS = {
   home: ["home", "cash", "recon"],
   plan: ["year", "recurring", "week"],
   us: ["shared", "us", "tolog"],
-  analysis: ["insights", "analysis"],
+  analysis: ["insights", "months", "analysis"],
   settings: ["settings", "help"],
 };
 var SUBTABS = {
-  plan: [["year", "Таблица"], ["recurring", "Регулярные"], ["week", "Неделя"]],
+  plan: [["year", "Таблица"], ["recurring", "Регулярные"]],
   us: [["shared", "Общие траты"], ["us", "Наши итоги"]],
-  analysis: [["insights", "Выводы"], ["analysis", "Графики"]],
+  analysis: [["insights", "Выводы"], ["months", "Итоги месяцев"], ["analysis", "Графики"]],
 };
 function routeGroup(route) { for (var g in GROUPS) if (GROUPS[g].indexOf(route) >= 0) return g; return "home"; }
 var GROUP_TITLE = { plan: "План", us: "Мы", analysis: "Анализ" };
 function afterRender(route) {
   var g = routeGroup(route), tabs = SUBTABS[g];
   $main.classList.toggle("in-sec", !!tabs && route !== "week");
-  var BACK = { cash: ["#home", "Главная"], recon: ["#home", "Главная"], settings: ["#home", "Главная"], help: ["#settings", "Настройки"] };
-  if (BACK[route]) $main.insertAdjacentHTML("afterbegin", "<a class='back-link' href='" + BACK[route][0] + "'>‹ " + BACK[route][1] + "</a>");
-  if (!tabs) return;
+  var BACK = { cash: ["#home", "Главная"], settings: ["#home", "Главная"], help: ["#settings", "Настройки"], week: ["#year", "План"], tolog: ["#shared", "Мы"] };
+  if (BACK[route] && !(route === "settings" && ui.setSec)) $main.insertAdjacentHTML("afterbegin", "<a class='back-link' href='" + BACK[route][0] + "'>‹ " + BACK[route][1] + "</a>");
+  if (!tabs || route === "week" || route === "tolog") { $main.classList.remove("in-sec"); return; }
   // год: чипы старых экранов прячем, вместо них — список справа от заголовка
   var firstY = $main.querySelector(".chips [data-year], .chips [data-uy]"), chips = firstY ? Array.prototype.slice.call(firstY.parentNode.querySelectorAll("[data-year], [data-uy]")) : [], ysel = "";
   var yv = function (c) { return c.dataset.year || c.dataset.uy; };
@@ -265,8 +265,9 @@ function afterRender(route) {
       return "<option value='" + esc(yv(c)) + "'" + (c.classList.contains("on") ? " selected" : "") + ">" + esc(c.textContent) + "</option>";
     }).join("") + "</select>";
   }
-  var sheetA = g === "plan" && state && state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "";
-  var html = "<div class='sec-head'><h1>" + GROUP_TITLE[g] + "</h1>" + (ysel || sheetA) + "</div>" +
+  var hasUrl = state && state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl);
+  var sheetA = g === "plan" && !RO() ? (hasUrl ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "<button type='button' class='linkish plan-sheet' id='sheetAsk'>Google Таблица ↗</button>") : "";
+  var html = "<div class='sec-head'><h1>" + GROUP_TITLE[g] + "</h1>" + (g === "plan" ? "<span class='sh-right'>" + (route !== "year" ? ysel : "") + sheetA + "</span>" : ysel) + "</div>" +
     "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
       return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
     }).join("") + "</nav>";
@@ -275,40 +276,20 @@ function afterRender(route) {
   }).join("");
   $main.insertAdjacentHTML("afterbegin", html);
   $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
+  var sa = $main.querySelector("#sheetAsk");
+  if (sa) sa.onclick = function () {
+    modal("<form class='m-body' id='saF'><h2>Ссылка на Google Таблицу</h2><p class='small muted' style='margin:2px 0 12px'>Вставь адрес своей таблицы — один раз. Дальше кнопка «Google Таблица ↗» будет открывать её сразу.</p>" +
+      "<label class='f'>Адрес таблицы<input type='url' name='u' placeholder='https://docs.google.com/spreadsheets/…' required></label><button type='submit' hidden></button></form>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
+      var f = m.querySelector("#saF");
+      var ok = function (e) { if (e) e.preventDefault(); var v = f.u.value.trim(); if (!/^https:\/\/docs\.google\.com\//.test(v)) { toast("Нужна ссылка вида https://docs.google.com/…"); return; } state.settings.sheetUrl = v; closeModal(); changed(true); window.open(v, "_blank", "noopener"); };
+      f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok; m.querySelector("[data-act=x]").onclick = closeModal;
+    });
+  };
   var sy = $main.querySelector("#secYear");
   if (sy) sy.onchange = function () { var c = chips.find(function (x) { return yv(x) === sy.value; }); if (c) c.click(); };
 }
 
-// ---------- «+»: что вносим ----------
-function plusSheet() {
-  if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
-  var items = [
-    ["spend", "−", "Трата", "прошлая, новая или будущая"],
-    ["income", "+", "Доход", "зарплата, бонус, возврат"],
-    ["shared", "⇄", "Общая", "поделить на двоих"],
-    ["cash", "₵", "Наличка", "трата из кошелька или конверта"],
-    ["recon", "✓", "Сверка", "остатки на счетах за неделю"],
-  ];
-  modal("<div class='m-body'><h2>Внести</h2><div class='plus-list'>" + items.map(function (x) {
-    return "<button type='button' class='plus-item' data-p='" + x[0] + "'><span class='pi-ic' aria-hidden='true'>" + x[1] + "</span><span class='pi-tx'><b>" + x[2] + "</b><small>" + x[3] + "</small></span><span class='arr'>›</span></button>";
-  }).join("") + "</div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>", function (m) {
-    m.classList.add("sheet-menu");
-    m.querySelector("[data-act=x]").onclick = closeModal;
-    m.querySelectorAll("[data-p]").forEach(function (b) {
-      b.onclick = function () {
-        var p = b.dataset.p, d = defaultYearWeek(); closeModal();
-        if (d) { ui.year = d.year; ui.week = d.week; }
-        setTimeout(function () {
-          if (p === "spend") spendModal();
-          else if (p === "income") spendModal({ income: true });
-          else if (p === "shared") go("#shared", function () { var a = document.getElementById("addExpBtn") || document.getElementById("fab"); if (a) a.click(); });
-          else if (p === "cash") go("#cash", function () { var i = document.querySelector("#cashQ [name=q]"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } });
-          else { ui.recWeek = finishedWeek() || (d ? { year: d.year, week: d.week } : null); go("#recon"); }
-        }, 30);
-      };
-    });
-  });
-}
 (function () {
   var p = document.getElementById("navPlus"); if (p) p.onclick = function () { plusSheet(); };
   document.querySelectorAll(".nav-sync").forEach(function (b) { b.onclick = function () { refreshAll(); }; });

@@ -100,7 +100,7 @@ routes.year = function () {
   var ys = years(), last = Number(ys[ys.length - 1]);
   var yearSel = "<select class='year-sel' id='yearSel' aria-label='Год'>" + ys.map(function (yy) { return "<option value='" + yy + "'" + (yy === y ? " selected" : "") + ">" + yy + (state.years[yy].archived ? " · архив" : "") + "</option>"; }).join("") +
     (RO() ? "" : "<option value='new'>+ план на " + (last + 1) + "</option>") + "</select>";
-  var sheet = state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "";
+  var sheet = "";
   var html = "<div class='plan-head'><h1>План</h1>" + sheet + "</div><div class='plan-tools'>" + modeSw + "<span class='spacer'></span>" + yearSel + "</div>" +
     (mode === "weeks" ? "<p class='small muted plan-hint'>Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную.</p>" : "");
   if (mode === "months") return yearByMonths(y, r, html);
@@ -121,8 +121,10 @@ routes.year = function () {
   E.BLOCKS.forEach(function (b) {
     var list = cats().filter(function (c) { return c.block === b.id && (!c.archived || r.cells[c.id].some(Boolean)); });
     if (!list.length) return;
-    body += "<tr class='blk'><td class='sticky'>" + esc(b.name) + "</td><td class='sticky2'></td><td colspan='60'></td></tr>";
+    var openW = ui.planOpen || (ui.planOpen = { income: true, base: true }), isOpenW = !!openW[b.id];
+    body += "<tr class='blk tog' data-blk='" + b.id + "'><td class='sticky'>" + (isOpenW ? "▾ " : "▸ ") + esc(b.name) + "</td><td class='sticky2'></td><td colspan='60'></td></tr>";
     list.forEach(function (c) {
+      if (!isOpenW) return;
       body += "<tr><td class='sticky' title='" + esc(c.name) + "'>" + esc(c.name) + (c.mandatory ? " <span class='badge'>обяз.</span>" : "") + "</td>" +
         "<td class='sticky2' data-rules='" + c.id + "'>" + esc(rules[c.id] || "") + "</td>";
       weeks.forEach(function (wk) {
@@ -188,6 +190,8 @@ routes.year = function () {
   }
   wrap.addEventListener("scroll", function () { ui.gridScroll = { y: y, left: wrap.scrollLeft, top: wrap.scrollTop }; });
   wrap.addEventListener("click", function (e) {
+    var tg = e.target.closest("[data-blk]");
+    if (tg) { ui.planOpen[tg.dataset.blk] = !ui.planOpen[tg.dataset.blk]; render(); return; }
     var td = e.target.closest("td");
     if (!td) return;
     if (td.dataset.recon !== undefined && !RO()) { ui.recWeek = { year: y, week: Number(td.dataset.recon) }; location.hash = "#recon"; return; }
@@ -377,45 +381,46 @@ routes.recon = function () {
     return null;
   }
   var accs = state.accounts.filter(function (a) { return !a.archived; }).sort(function (a, b) { return a.sort - b.sort; });
-  var html = "<div class='page-head'><div><h1>Сверка</h1><div class='sub'>Впиши, сколько сейчас на счетах, — увидишь, совпало ли с планом. Дальше план считается от этих цифр.</div></div>" +
-    "<div class='row'>" + yearChips(y, false) + "<select id='recW'>" + weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }) + "</select></div></div>";
-  html += "<div class='card rc-card'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>нажми на неделю, чтобы открыть</span></div>" + reconCalendar(y, false, w) + "</div>";
+  var hasRec = rec && Object.keys(rec).length > 0;
+  var html = "<div class='rc-top'><a class='back-link' href='#home'>‹ Главная</a><button type='button' class='linkish rc-histbtn' id='recHistBtn'>" + (ui.recHist ? "Скрыть историю" : "История сверок ›") + "</button></div>" +
+    "<div class='rc-title'><h1>Сверка за " + esc(shortWeek(y, w)) + "</h1><select id='recW' class='rc-wsel' aria-label='Другая неделя'>" + weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }) + "</select></div>" +
+    "<p class='small muted rc-hint'>Впиши, сколько сейчас на каждом счёте. Можно формулой: 2000+200</p>" + yearChips(y, false).replace("class='chips'", "class='chips chips-hidden'");
   var fwk = finishedWeek();
-  if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 16px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
+  if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 12px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
     (fwk ? " <button class='btn sm' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
-  html += "<div class='grid2'><div class='card'><h2>Остатки · " + esc(E.weekTitle(Number(y), w)) + "</h2><form id='recForm' class='rec-list'>";
+  html += "<form id='recForm' class='card rc-list'>";
   accs.forEach(function (a) {
     var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
-    html += "<div class='rec-row" + (a.kind === "info" ? " info" : "") + "'><label for='rf_" + a.id + "' class='rec-name'><span>" + esc(a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, "")) + "</span>" +
-      "<small>" + (a.kind === "info" ? "для справки, в факт не входит" : !active ? "считается с " + esc(a.countsFrom) : lk !== null ? "было " + esc(E.fmt(lk)) : "") + "</small>" +
-      (/налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name) ? "<button type='button' class='linkish small' data-cashfill='" + a.id + "'>по учёту налички " + E.eur(cashEurTotal()) + " — подставить</button>" : "") + "</label>" +
-      "<input id='rf_" + a.id + "' type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk)) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></div>";
+    var isCash = /налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name);
+    html += "<div class='rc-row" + (a.kind === "info" ? " info" : "") + "'><label for='rf_" + a.id + "' class='rc-name'><b>" + esc(a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, "")) + "</b>" +
+      "<small>" + (a.kind === "info" ? "для справки" : !active ? "считается с " + esc(a.countsFrom) : lk !== null ? "было " + esc(E.fmt(lk, { dec: 0 })) : "") +
+      (isCash ? " · <button type='button' class='linkish' data-cashfill='" + a.id + "'>в «Наличке» " + E.fmt(cashEurTotal(), { dec: 0 }) + "</button>" : "") + "</small></label>" +
+      "<input id='rf_" + a.id + "' type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk, { dec: 0 })) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></div>";
   });
-  html += "</form><details style='margin-top:14px'" + (Object.keys(srec).length ? " open" : "") + "><summary>Накопления, рубли и доллары (по желанию, раз в квартал)</summary>" +
+  html += "</form><details class='rc-sav'" + (Object.keys(srec).length ? " open" : "") + "><summary>+ Накопления и рубли — по желанию, раз в квартал</summary>" +
     "<p class='small muted'>Впиши весь остаток, а не изменение: он заменит расчёт. Так учитываются рост инвестиций и проценты.</p><form id='savForm' class='form-grid'>";
   E.CAPITAL_ROWS.forEach(function (cr) {
     html += "<label class='f'>" + cr.name + "<input type='text' inputmode='decimal' name='" + cr.key + "' value='" + (srec[cr.key] !== undefined ? esc(srec[cr.key] / 100) : "") +
       "' placeholder='" + esc(E.fmt(rnd(r.rows[cr.key][w]))) + "'></label>";
   });
-  html += "</form></details><div class='row' style='margin-top:16px'><button class='btn primary' id='recSave'>Сохранить сверку</button>" +
-    (rec && Object.keys(rec).length ? "<button class='btn ghost danger' id='recClear'>Очистить неделю</button>" : "") + "</div></div>";
+  html += "</form></details>";
+  if (hasRec) html += "<div class='rc-after'><div class='card'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Внеси — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести</button></div>" + unspentCard(y, w) + "</div>";
 
-  html += "<div><div class='card' id='recResult'></div>" +
-    unspentCard(y, w) +
-    "<div class='card'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Внеси — расхождение пересчитается сразу.</p><button class='btn' id='recAdd'>+ Внести</button></div></div></div>";
-
-  // история сверок
+  // история сверок — по кнопке
   var hist = [];
   activeYears().forEach(function (yy) {
     var rr = E.compute(state, yy);
     rr.fact.forEach(function (f, i) { if (f !== null) hist.push({ y: yy, i: i, f: f, o: rr.obr[i], d: rr.diff[i], wk: rr.weeks[i] }); });
   });
   hist = hist.reverse().slice(0, 12);
-  html += "<div class='section'><h2>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Расхождение</th></tr></thead><tbody>" +
+  if (ui.recHist) html += "<div class='section' id='recHist'><div class='card rc-card'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>нажми на неделю, чтобы открыть</span></div>" + reconCalendar(y, false, w) + "</div>" +
+    "<h2 style='margin-top:18px'>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Расхождение</th></tr></thead><tbody>" +
     (hist.length ? hist.map(function (h) {
       return "<tr data-go='" + h.y + ":" + h.i + "' style='cursor:pointer'><td>" + esc(E.weekTitle(Number(h.y), h.i)) + "</td><td class='n'>" + eur(rnd(h.o), { dec: 0 }) + "</td><td class='n'>" + eur(rnd(h.f), { dec: 0 }) +
         "</td><td class='n " + (h.d < state.settings.diffAlert ? "neg" : "") + "'>" + eur(rnd(h.d), { dec: 0, plus: true }) + "</td></tr>";
     }).join("") : "<tr><td colspan='4' class='muted'>Сверок пока нет.</td></tr>") + "</tbody></table></div></div>";
+  html += "<div class='rc-bar'><div id='recResult'></div><button class='btn primary rc-save' id='recSave'>" + (hasRec ? "Сохранить изменения" : "Сохранить сверку") + "</button>" +
+    (hasRec ? "<button class='linkish rc-clear' id='recClear'>Очистить неделю</button>" : "") + "</div>";
   $main.innerHTML = html;
 
   function liveResult() {
@@ -425,23 +430,21 @@ routes.recon = function () {
       if (!inp || inp.disabled || a.kind !== "cash_flow" || !inp.value.trim()) return;
       try { f = (f || 0) + E.exprCents(inp.value); } catch (e) { err = a.name + ": " + e.message; }
     });
-    var calc = r.obr[w], box = $main.querySelector("#recResult");
-    var s = "<h2>Итог</h2><table class='t'><tr><td>Расчёт по плану</td><td class='n'>" + eur(rnd(calc), { dec: 0 }) + "</td></tr>" +
-      "<tr><td>Факт (сумма счетов)</td><td class='n'>" + (f === null ? "—" : eur(f)) + "</td></tr>";
-    if (f !== null) {
-      var d = f - calc;
-      s += "<tr class='total'><td>Расхождение</td><td class='n " + (d < state.settings.diffAlert ? "neg" : d >= 0 ? "pos" : "") + "'>" + eur(d, { plus: true }) + "</td></tr></table>";
-      s += d < state.settings.diffAlert ? "<div class='alert'>Потрачено больше плана. Найди в выписке траты на <b>~" + eur(rnd(-d), { dec: 0 }) + "</b> и внеси их кнопкой «Внести трату» — станет понятно, куда ушли деньги.</div>"
-        : d > 5000 ? "<div class='ok-box'>Денег больше, чем по плану, на " + eur(rnd(d), { dec: 0 }) + ". Возможно, не внесён доход или трата ещё не списалась.</div>"
-          : "<div class='ok-box'>Всё сходится с планом. Следующие недели посчитаются от факта.</div>";
-    } else s += "</table><p class='small muted'>Впиши остатки — расхождение посчитается сразу.</p>";
+    var calc = r.obr[w], box = $main.querySelector("#recResult"), d = f === null ? null : f - calc;
+    var s = "<div class='rc-nums'><div><span>на счетах</span><b>" + (f === null ? "—" : eur(rnd(f), { dec: 0 })) + "</b></div><div><span>по плану</span><b>" + eur(rnd(calc), { dec: 0 }) + "</b></div>" +
+      "<div><span>расхождение<button type='button' class='q-btn' data-explain='diff' aria-label='Что такое расхождение'>?</button></span><b class='" + (d === null ? "" : d < state.settings.diffAlert ? "neg" : d >= 0 ? "pos" : "") + "'>" + (d === null ? "—" : eur(rnd(d), { dec: 0, plus: true })) + "</b></div></div>";
+    s += "<p class='rc-msg small'>" + (d === null ? "Впиши остатки — расхождение посчитается сразу." : d < state.settings.diffAlert ? "Денег меньше плана на " + eur(rnd(-d), { dec: 0 }) + " — так бывает. После сохранения подскажу, где искать." :
+      d > 5000 ? "Денег больше плана — возможно, трата ещё не списалась или не внесён доход." : "Всё сходится с планом. Следующие недели посчитаются от факта.") + "</p>";
     if (err) s += "<div class='alert'>Ошибка в формуле — " + esc(err) + "</div>";
     box.innerHTML = s;
   }
   $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
   $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
-  bindRecCal(y);
+  if (ui.recHist) bindRecCal(y);
   liveResult();
+  $main.querySelectorAll("#recResult [data-explain]").forEach(function () {});
+  $main.querySelector("#recResult").addEventListener("click", function (e) { var q = e.target.closest("[data-explain]"); if (q) explain(q.dataset.explain); });
+  $main.querySelector("#recHistBtn").onclick = function () { ui.recHist = !ui.recHist; render(); if (ui.recHist) setTimeout(function () { var h = document.getElementById("recHist"); if (h) h.scrollIntoView({ behavior: "smooth" }); }, 50); };
   bindYearChips(function (yy) { ui.recWeek = { year: yy, week: yy === sel.year ? w : 0 }; render(); });
   $main.querySelector("#recW").onchange = function (e) { ui.recWeek = { year: y, week: Number(e.target.value) }; render(); };
   $main.querySelector("#recSave").onclick = function () {
@@ -465,7 +468,7 @@ routes.recon = function () {
   };
   var cl = $main.querySelector("#recClear");
   if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
-  $main.querySelector("#recAdd").onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; } }); };
+  if ($main.querySelector("#recAdd")) $main.querySelector("#recAdd").onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; } }); };
   var td = $main.querySelector("#toDone"); if (td) td.onclick = function () { ui.recWeek = fwk; render(); };
   $main.querySelectorAll("[data-unsp]").forEach(function (b) { b.onclick = function () { moveSkipModal(y, b.dataset.unsp, w, function () { ui.recWeek = { year: y, week: w }; }); }; });
   $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; render(); }; });

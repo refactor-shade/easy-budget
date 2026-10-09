@@ -40,29 +40,33 @@ routes.cash = function () {
   }
   var lines = cashLines(), bal = K.balances(c, lines), pockets = c.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
   var total = cashEurTotal();
-  if (!ro) html += "<div class='card cash-input'><form id='cashQ' autocomplete='off'><div class='cash-q'><input name='q' placeholder='кофе 4,5 из кошелька' aria-label='Что произошло с наличкой'>" +
+  if (!ro) html += "<div class='card cash-input' hidden><form id='cashQ' autocomplete='off'><div class='cash-q'><input name='q' placeholder='кофе 4,5 из кошелька' aria-label='Что произошло с наличкой'>" +
     
     "</div><div class='chips cash-ex'>" + ["такси 12 из кошелька", "переложила 100 из конверта 1 в кошелёк", "сняла 200", "положила 300 на карту"].map(function (x) { return "<button type='button' class='chip' data-ex='" + esc(x) + "'>" + esc(x) + "</button>"; }).join("") + "</div>" +
     "<div id='cashPv'></div></form></div>";
-  html += "<div class='pockets'>" + pockets.map(function (p) {
-    return "<div class='pocket" + (p.id === c.defaultPocket ? " def" : "") + "'><div class='row'><b>" + esc(p.name) + "</b><span class='spacer'></span>" + (ro ? "" : "<button class='btn sm ghost' data-pk='" + p.id + "' aria-label='Настроить'>⋯</button>") + "</div>" +
-      "<div class='pocket-val'>" + E.fmt(bal[p.id] || 0, { cur: pocketCur(p.id) }) + "</div>" + (p.id === c.defaultPocket ? "<div class='small muted'>по умолчанию</div>" : "") +
-      (ro ? "" : "<button class='btn sm' data-recount='" + p.id + "'>Пересчитать</button>") + "</div>";
-  }).join("") + (ro ? "" : "<button class='pocket add' id='addPocket'>+ конверт</button>") + "</div>";
-  html += "<div class='small muted' style='margin:8px 2px 0'>Всего наличными: <b>" + E.eur(total, { dec: 0 }) + "</b> · учёт с " + esc(c.since.slice(8, 10) + "." + c.since.slice(5, 7) + "." + c.since.slice(0, 4)) + "</div>";
+  html = html.replace(/<div class='page-head'>[\s\S]*?<\/div><\/div>/, "<div class='page-head cash-head'><h1>Наличка</h1><span class='small muted'>всего " + E.eur(total, { dec: 2 }) + "</span></div>");
+  html += "<div class='pk-grid'>" + pockets.map(function (p) {
+    return "<div class='pk-tile'><button type='button' class='pk-main' data-recount='" + p.id + "'" + (ro ? " disabled" : "") + "><span class='pk-n'>" + esc(p.name) + "</span><b>" + E.fmt(bal[p.id] || 0, { cur: pocketCur(p.id) }) + "</b>" + (ro ? "" : "<small>пересчитать ›</small>") + "</button>" +
+      (ro ? "" : "<button type='button' class='pk-more' data-pk='" + p.id + "' aria-label='Настроить карман'>⋯</button>") + "</div>";
+  }).join("") + "</div>";
+  if (!ro) html += "<div class='pk-acts'><button type='button' class='btn primary sm' id='cashAdd'>+ Трата</button><button type='button' class='btn sm' id='cashMove'>Перенести</button><button type='button' class='btn sm' id='addPocket'>+ Карман</button></div>";
 
-  // история
+  // история по дням
   var all = (c.tx || []).map(function (t) { return Object.assign({ own: true }, t); }).concat(lines).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.ts || 0) - (a.ts || 0); });
-  html += "<div class='section'><h2>История</h2>" + (all.length ? "<ul class='cash-list'>" + all.slice(0, ui.cashLimit || 60).map(function (t) {
-    var flow = t.kind === "move" ? pocketName(t.from) + " → " + pocketName(t.to) : t.kind === "in" ? "карта → " + pocketName(t.to) : t.kind === "out" ? pocketName(t.from) + " → карта" :
-      t.kind === "ext" ? "→ " + pocketName(t.to) : t.kind === "adjust" ? "пересчёт · " + pocketName(t.to) : pocketName(t.from);
+  var today = E.todayISO(), yday = E.addDays(today, -1), lastD = null;
+  var dayT = function (d) { return d === today ? "Сегодня" : d === yday ? "Вчера, " + new Date(d + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }) : new Date(d + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }); };
+  html += "<h2 class='cash-h2'>История</h2>" + (all.length ? "<ul class='card cash-hist'>" + all.slice(0, ui.cashLimit || 60).map(function (t) {
+    var flow = t.kind === "move" ? "из " + pocketName(t.from) + " в " + pocketName(t.to) : t.kind === "in" ? "с карты в " + pocketName(t.to) : t.kind === "out" ? "из " + pocketName(t.from) + " на карту" :
+      t.kind === "ext" ? "в " + pocketName(t.to) : t.kind === "adjust" ? "пересчёт · " + pocketName(t.to) : pocketName(t.from);
     var sgn = t.kind === "spend" || t.kind === "out" ? -1 : t.kind === "move" ? 0 : 1, v = t.kind === "adjust" ? t.cents : sgn * t.cents;
+    var ic = t.kind === "move" ? "⇄" : t.kind === "adjust" ? "=" : v > 0 ? "+" : "−";
     var title = t.shared ? esc(t.shared.desc) + " <span class='badge'>общая</span>" : esc(t.note || (K.KINDS.find(function (k) { return k.id === t.kind; }) || { name: "пересчёт" }).name);
-    var right = t.shared && pockets.length > 1 && !ro ? "<select data-shp='" + esc(t.shared.id) + "' aria-label='Из какого кармана'>" + pockets.map(function (p) { return "<option value='" + p.id + "'" + (p.id === t.from ? " selected" : "") + ">" + esc(p.name) + "</option>"; }).join("") + "</select>" : "<span class='muted small'>" + esc(flow) + "</span>";
-    return "<li><span class='d small muted'>" + esc(t.date.slice(8, 10) + "." + t.date.slice(5, 7)) + "</span><span class='tt'>" + title + "<span class='fl'>" + right + "</span></span>" +
-      "<span class='val " + (v > 0 ? "pos" : v < 0 ? "neg" : "") + "'>" + (v === 0 ? E.fmt(t.cents, { cur: pocketCur(t.from) }) : E.fmt(v, { cur: pocketCur(t.from || t.to), plus: v > 0 })) + "</span>" +
-      (t.own && !ro ? "<button class='btn sm ghost danger' data-deltx='" + t.id + "' aria-label='Удалить'>✕</button>" : "<span></span>") + "</li>";
-  }).join("") + "</ul>" + (all.length > (ui.cashLimit || 60) ? "<button class='btn ghost sm' id='cashMore'>Показать ещё</button>" : "") : "<p class='empty'>Пока пусто. Наличные траты из «Общих», которые платила ты, появятся здесь сами.</p>") + "</div>";
+    var sub = t.shared && pockets.length > 1 && !ro ? "<select data-shp='" + esc(t.shared.id) + "' aria-label='Из какого кармана'>" + pockets.map(function (p) { return "<option value='" + p.id + "'" + (p.id === t.from ? " selected" : "") + ">" + esc(p.name) + "</option>"; }).join("") + "</select>" : esc(flow);
+    var head = t.date !== lastD ? "<li class='ch-day'>" + esc(dayT(t.date)) + "</li>" : ""; lastD = t.date;
+    return head + "<li class='ch-row'><span class='ch-ic'>" + ic + "</span><span class='ch-tx'><span class='ch-t'>" + title + "</span><small>" + sub + "</small></span>" +
+      "<span class='ch-v " + (v > 0 ? "pos" : "") + "'>" + (v === 0 ? E.fmt(t.cents, { cur: pocketCur(t.from) }) : E.fmt(v, { cur: pocketCur(t.from || t.to), plus: v > 0 })) + "</span>" +
+      (t.own && !ro ? "<button class='ch-del' data-deltx='" + t.id + "' aria-label='Удалить'>✕</button>" : "") + "</li>";
+  }).join("") + "</ul>" + (all.length > (ui.cashLimit || 60) ? "<button class='btn ghost sm' id='cashMore'>Показать ещё</button>" : "") : "<p class='empty'>Пока пусто. Наличные траты из «Мы», которые платила ты, появятся здесь сами.</p>");
   $main.innerHTML = html;
   if (ro) return;
 
@@ -174,5 +178,7 @@ routes.cash = function () {
     if (cents) c.tx.push({ id: E.uid("t"), ts: Date.now(), date: E.todayISO(), kind: "adjust", to: c.pockets[c.pockets.length - 1].id, cents: cents, note: "начальный остаток" });
     changed();
   };
+  $main.querySelector("#cashAdd").onclick = function () { plusSheet("cash"); };
+  $main.querySelector("#cashMove").onclick = function () { plusSheet("cash"); setTimeout(function () { var q = document.getElementById("plusQ"); if (q) { q.value = "переложила  из " + (pockets[1] ? pockets[1].name.toLowerCase() : "конверта") + " в " + pockets[0].name.toLowerCase(); q.setSelectionRange(11, 11); q.dispatchEvent(new Event("input")); } }, 120); };
   var cm = $main.querySelector("#cashMore"); if (cm) cm.onclick = function () { ui.cashLimit = (ui.cashLimit || 60) + 100; render(); };
 };
