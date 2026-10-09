@@ -172,6 +172,7 @@ function start() {
     }
     myState = migrate(b.data);
     boot();
+    loadSheetLink();
     if (b.offline) toast("Нет связи — показываю копию с этого устройства");
     if (b.pendingLocal) save(); // изменения, сделанные без сети, — отправить
     else showOutbox();
