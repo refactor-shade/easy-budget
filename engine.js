@@ -137,7 +137,7 @@
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
     s = parts.join(",");
     var sign = v < 0 && Math.abs(v) >= Math.pow(10, -dec) / 2 ? "−" : (opts.plus && v > 0 ? "+" : "");
-    return sign + s + (opts.cur ? " " + opts.cur : "");
+    return sign + s + (opts.cur ? "\u00A0" + opts.cur : "");
   }
   function eur(c, o) { o = o || {}; o.cur = "€"; return fmt(c, o); }
 

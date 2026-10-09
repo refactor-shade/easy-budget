@@ -78,7 +78,7 @@
     if (r && !r.archived) capNow = t.cur ? r.cap[t.wNow] : mon.total.cap;
     if (capNow !== null && capStart !== null && !t.plan) {
       var dCap = capNow - capStart;
-      if (dCap >= 10000) good.push({ id: "cap", ic: "◆", rank: 1, h: "Капитал " + (t.cur ? "с начала года" : "за " + Y) + " " + eurP(dCap) + "!", p: (t.cur ? "Сейчас" : "На конец года") + " " + eur(capNow) + " — все твои деньги вместе." });
+      if (dCap >= 10000) good.push({ id: "cap", ic: "◆", rank: 1, h: "Капитал " + (t.cur ? "с начала года" : "за " + Y) + " " + eurP(dCap), p: (t.cur ? "Сейчас" : "На конец года") + " " + eur(capNow) + " — все твои деньги вместе." });
       var m1 = n - 1, m2 = n - 2;
       if (m2 >= 0 && mon.months[m1].dcap !== null && mon.months[m2].dcap !== null && mon.months[m1].dcap < 0 && mon.months[m2].dcap < 0)
         improve.push({ id: "capdown", ic: "↘", rank: 12, h: "Капитал снижается второй месяц подряд", p: mName(m2) + " " + eurP(mon.months[m2].dcap) + ", " + mName(m1) + " " + eurP(mon.months[m1].dcap) + ". Стоит посмотреть, какие траты были крупнее обычного.", act: "analysis", actLabel: "Открыть анализ" });
@@ -90,7 +90,7 @@
       var prevRate = null;
       if (pmon) { var pi = tot(pmon, "income", 0, n), ps = tot(pmon, "total", 0, n); if (pi > 0) prevRate = (pi - ps) / pi; }
       if (rate >= 0.1) good.push({ id: "rate", ic: "↑", rank: 2, h: "Откладываешь " + pct(rate) + " доходов" + (rate >= 0.2 ? " — отлично" : ""), p: eur(inc - spend) + " " + period + ". " + (rate >= 0.2 ? "Это выше ориентира 10–20%." : "Это в ориентире 10–20%.") });
-      else if (rate < 0) improve.push({ id: "rate", ic: "!", rank: 3, h: "Расходы больше доходов на " + eur(spend - inc), p: cap1(period) + " ушло " + eur(spend) + " при доходах " + eur(inc) + ". Можно посмотреть, что из крупного сдвинуть на потом.", act: "year", actLabel: "Открыть год", next: "Сдвинь одну крупную трату на потом — и год выйдет в плюс." });
+      else if (rate < 0) improve.push({ id: "rate", ic: "↗", rank: 3, h: "Расходы больше доходов на " + eur(spend - inc), p: cap1(period) + " ушло " + eur(spend) + " при доходах " + eur(inc) + ". Можно посмотреть, что из крупного сдвинуть на потом.", act: "year", actLabel: "Открыть год", next: "Сдвинь одну крупную трату на потом — и год выйдет в плюс." });
       else info.push({ id: "rate", ic: "↑", rank: 30, h: "Откладываешь " + pct(rate) + " доходов", p: "Ориентир — 10–20%. " + eur(inc - spend) + " " + period + "." });
       if (prevRate !== null && rate >= 0 && prevRate - rate >= 0.1) improve.push({ id: "ratedrop", ic: "↘", rank: 9, h: "Доля сбережений ниже прошлого года: " + pct(rate) + " против " + pct(prevRate), p: "За те же месяцы " + prevY + " оставалось больше. Чаще всего это рост пары категорий — они ниже в выводах." });
     }
@@ -108,8 +108,8 @@
       var minV = Infinity, minW = t.wNow;
       for (var i = t.wNow; i < 60; i++) if (r.base[i] < minV) { minV = r.base[i]; minW = i; }
       var wkTitle = E.weekTitle(Number(Y), minW);
-      if (minV < 0) improve.push({ id: "low", ic: "!", rank: 0, h: "Остаток уйдёт в минус: " + eur(minV) + ", " + wkTitle, p: "Если всё пойдёт по плану. Можно сдвинуть крупную трату или переложить из накоплений.", act: "year", actLabel: "Открыть год", next: "Сдвинь крупную трату с " + wkTitle + " — и остаток не уйдёт в минус." });
-      else if (minV < avgM) improve.push({ id: "low", ic: "!", rank: 1, h: "Самый низкий остаток — " + eur(minV) + ", " + wkTitle, p: "Это меньше месяца расходов. Можно заранее сдвинуть крупную трату.", act: "year", actLabel: "Открыть год" });
+      if (minV < 0) improve.push({ id: "low", ic: "↗", rank: 0, h: "Остаток уйдёт в минус: " + eur(minV) + ", " + wkTitle, p: "Если всё пойдёт по плану. Можно сдвинуть крупную трату или переложить из накоплений.", act: "year", actLabel: "Открыть год", next: "Сдвинь крупную трату с " + wkTitle + " — и остаток не уйдёт в минус." });
+      else if (minV < avgM) improve.push({ id: "low", ic: "↗", rank: 1, h: "Самый низкий остаток — " + eur(minV) + ", " + wkTitle, p: "Это меньше месяца расходов. Можно заранее сдвинуть крупную трату.", act: "year", actLabel: "Открыть год" });
       else info.push({ id: "low", ic: "✓", rank: 32, h: "Самый низкий остаток впереди — " + eur(minV), p: wkTitle + ", если всё пойдёт по плану. Это больше месяца расходов." });
       var obrNow = r.base[t.wNow];
       if (obrNow > avgM * 3) improve.push({ id: "idle", ic: "%", rank: 14, h: "В обращении " + eur(obrNow) + " — " + months1(obrNow / avgM) + " " + monthsWord(obrNow / avgM) + " расходов", p: "На каждый день хватит и двух-трёх. Около " + eur(obrNow - avgM * 3) + " можно положить под процент — капитал от этого не уменьшится.", next: "Переложи " + eur(obrNow - avgM * 3) + " на счёт с процентом — это плюс к капиталу без усилий." });
@@ -250,7 +250,7 @@
     if (row.dcap !== null && row.dcap >= 10000) good.push({ id: "mcap", ic: "◆", rank: 1, h: "Капитал за " + mName(m) + " " + eurP(row.dcap), p: "Теперь " + eur(row.cap) + "." });
     if (row.income > 0 && row.net > 0) good.push({ id: "mnet", ic: "↑", rank: 2, h: "Осталось " + eur(row.net) + " — " + pct(row.net / row.income) + " доходов", p: row.net / row.income >= 0.1 ? "В ориентире 10–20% или выше." : "Ориентир — 10–20%." });
     if (avgYear > 0 && row.total < avgYear * 0.8) good.push({ id: "mlight", ic: "◌", rank: 3, h: cap1(mName(m)) + " — лёгкий месяц", p: "Расходы " + eur(row.total) + " — на " + pct(1 - row.total / avgYear) + " ниже обычного." });
-    if (row.income > 0 && row.net < 0) improve.push({ id: "mneg", ic: "!", rank: 1, h: "Расходы больше доходов на " + eur(-row.net), p: "Бывает в дорогие месяцы. Главное — чтобы год в целом был в плюсе." });
+    if (row.income > 0 && row.net < 0) improve.push({ id: "mneg", ic: "↗", rank: 1, h: "Расходы больше доходов на " + eur(-row.net), p: "Бывает в дорогие месяцы. Главное — чтобы год в целом был в плюсе." });
     var cats = state.categories.filter(function (c) { return SPEND_BLOCKS[c.block] && !c.mandatory; }).map(function (c) {
       var arr = cm[c.id] || [], others = 0, k = 0; for (var i = 0; i < 12; i++) if (i !== m) { others += arr[i]; k++; }
       return { c: c, v: arr[m], avg: k ? others / k : 0 };

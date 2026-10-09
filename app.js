@@ -6,11 +6,8 @@ function render() {
   if (!routes[route]) route = "home";
   document.body.classList.remove("auth");
   $main.classList.toggle("wide", route === "year");
-  document.querySelectorAll("#nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === route); });
-  var tl = document.getElementById("navToLog");
-  if (tl) { var n = myState && !RO() ? toLogCount() : 0; tl.querySelector(".cnt").textContent = n ? String(n) : ""; }
-  var extra = document.querySelector("#nav a.x[data-route='" + route + "']");
-  document.getElementById("navMore").classList.toggle("active", !!extra);
+  var grp = routeGroup(route);
+  document.querySelectorAll("#nav a[data-group]").forEach(function (a) { a.classList.toggle("active", a.dataset.group === grp); });
   profileBar();
   try {
     if (RO() && route !== "shared" && route !== "help" && route !== "tolog") {
@@ -23,6 +20,7 @@ function render() {
       }
     }
     routes[route]();
+    afterRender(route);
   }
   catch (err) { console.error(err); $main.innerHTML = "<div class='alert'>Этот экран не открылся: " + esc(err.message) + ". Обнови страницу — данные не пропали.</div>"; }
 }
