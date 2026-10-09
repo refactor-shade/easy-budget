@@ -930,3 +930,14 @@ table.g.g-months tfoot td.now { background: #2a2a27; }
 .main.in-sec .plan-head h1 { display: none; }
 .main.in-sec .plan-head { display: none; }
 .back-link { display: inline-flex; align-items: center; min-height: 36px; margin: -6px 0 2px; font-size: 15px; text-decoration: none; }
+
+/* Главная: раскладка без :has (старые правила с :not(:has()) перебивали новую) */
+.home .home-grid.hg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "todo week" "month cash"; align-items: stretch; }
+.home .home-grid.hg.hg-nocash { grid-template-areas: "todo week" "month month"; }
+.home .home-grid.hg.hg-notodo { grid-template-areas: "week month" "cash cash"; }
+.home .home-grid.hg.hg-notodo.hg-nocash { grid-template-areas: "week month"; }
+@media (max-width: 820px) {
+  .home .home-grid.hg { display: flex; flex-direction: column; gap: 14px; }
+  .home .home-grid.hg > * { width: 100%; box-sizing: border-box; }
+}
+.icon-btn svg { display: block; }
