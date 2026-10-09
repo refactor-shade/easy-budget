@@ -852,3 +852,81 @@ button.sync { display: inline-flex; align-items: center; gap: 6px; }
 }
 .icon-btn.sync { border-radius: 20px; padding: 0; justify-content: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 17px; }
 .fab { display: none !important; }
+
+/* ===== Главная по макету (QA) ===== */
+.home > * + * { margin-top: 14px; }
+.home-grid { gap: 14px; }
+.home-grid > .card { margin: 0; }
+.q-btn { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 5px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--muted); font: 600 10px/1 var(--font); vertical-align: 1px; cursor: pointer; }
+.q-btn::after { content: ""; position: absolute; inset: -12px; }
+.q-btn { position: relative; }
+.hero-label { display: flex; align-items: center; }
+.hero-min { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.hero-dcap { font-size: 13px; color: var(--muted); }
+.hero-value { display: block; border: 0; background: none; padding: 0; color: inherit; cursor: pointer; text-align: left; }
+.a-todo h2, .a-week h2 { margin: 0 0 6px; }
+.rc-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; text-decoration: none; min-height: 32px; }
+.rc-row .rc-l { flex: none; }
+.rc-row .rc-strip { flex: 1; min-width: 0; overflow: hidden; margin: 0; }
+.rc-row .arr { color: var(--muted); font-size: 18px; }
+.wk-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wk-title { text-align: center; min-width: 0; }
+.wk-title h2 { margin: 0; font-size: 17px; }
+.round-btn { width: 36px; height: 36px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 17px; cursor: pointer; padding: 0; }
+.a-week .plan-list li { cursor: default; padding: 9px 0; }
+.a-week .plan-list li:hover { background: none; }
+.a-week .plan-list .val { font-weight: 600; }
+.a-week .plan-list .val.neg { color: var(--neg); }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.kv:last-of-type { border-bottom: 0; }
+.kv b { font-weight: 500; white-space: nowrap; }
+.a-month .month-bar { grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 12px 0 4px; }
+.a-month .month-bar span { height: 8px; border-radius: 4px; }
+.card .more { display: inline-flex; margin-top: 4px; margin-right: 14px; padding-left: 0; padding-right: 0; }
+.month-sum .ms-nums { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.month-sum .ms-nums div { display: flex; flex-direction: column; }
+.month-sum .ms-nums b { font-size: 20px; }
+.month-sum ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.month-sum li { display: flex; gap: 10px; }
+.month-sum .mk { flex: none; width: 18px; color: var(--muted); }
+.month-sum li.good .mk { color: var(--pos); }
+@media (max-width: 820px) {
+  .home-head { margin: 0 0 14px; }
+  .home-head h1 { margin-top: 2px; }
+  .card { padding: 14px 16px; }
+  .hero { padding: 16px; }
+}
+
+/* ===== План по макету (QA) ===== */
+.plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.plan-head h1 { font-size: 28px; }
+.plan-sheet { font-size: 14px; text-decoration: none; white-space: nowrap; }
+.plan-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.year-sel { height: 36px; padding: 0 30px 0 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); font-size: 14px; color: var(--ink); appearance: auto; }
+.plan-hint { margin: -4px 0 10px; }
+.g-months tr.tog td { cursor: pointer; font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink-2); white-space: nowrap; }
+.g-months tr.tog td.sticky { overflow: hidden; text-overflow: ellipsis; }
+.g-months tfoot td { position: sticky; bottom: 0; background: #1c1c1a; color: #fff; border-color: #333; font-weight: 500; }
+.g-months tfoot tr:first-child td { bottom: 29px; }
+.g-months tfoot td.sticky { z-index: 4; color: #c9c7bf; }
+.g-months tfoot td.now { background: #2a2a27; font-weight: 700; }
+@media (max-width: 820px) {
+  .grid-wrap { max-height: calc(100vh - 290px - env(safe-area-inset-bottom)); }
+}
+table.g.g-months tr.tog td { text-transform: none; letter-spacing: 0; font-size: 13px; }
+table.g.g-months tfoot td, table.g.g-months tfoot td.sticky { background: #1c1c1a; color: #fff; }
+table.g.g-months tfoot td.sticky { color: #c9c7bf; }
+table.g.g-months tfoot td.now { background: #2a2a27; }
+.plan-tools .year-sel { width: auto; min-width: 0; flex: none; }
+
+/* ===== Заголовок раздела: «План / Мы / Анализ» + год, под ним вкладки ===== */
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.sec-head h1 { font-size: 28px; }
+.sec-head .year-sel { width: auto; flex: none; }
+.main.in-sec .page-head > div:first-child > h1, .main.in-sec .page-head > div:first-child > .sub, .main.in-sec .page-head > h1, .main.in-sec .page-head > .sub { display: none; }
+.main.in-sec .page-head { margin-bottom: 12px; }
+.main.in-sec .page-head:not(:has(:not(.chips-hidden):not(:empty))) { display: none; }
+.chips-hidden { display: none !important; }
+.main.in-sec .plan-head h1 { display: none; }
+.main.in-sec .plan-head { display: none; }
+.back-link { display: inline-flex; align-items: center; min-height: 36px; margin: -6px 0 2px; font-size: 15px; text-decoration: none; }
