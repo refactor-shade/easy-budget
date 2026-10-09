@@ -64,7 +64,7 @@ routes.week = function () {
   $main.querySelector("[data-act=prev]").onclick = function () { if (ui.week > 0) ui.week--; else if (state.years[String(Number(y) - 1)] && !state.years[String(Number(y) - 1)].archived) { ui.year = String(Number(y) - 1); ui.week = 59; } render(); };
   $main.querySelector("[data-act=next]").onclick = function () { if (ui.week < 59) ui.week++; else if (state.years[String(Number(y) + 1)]) { ui.year = String(Number(y) + 1); ui.week = 0; } render(); };
   $main.querySelector("[data-act=today]").onclick = function () { var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week; render(); };
-  var rb = $main.querySelector("[data-act=recon]"); if (rb && RO()) rb.remove(); else if (rb) rb.onclick = function () { ui.recWeek = { year: y, week: w }; location.hash = "#recon"; };
+  var rb = $main.querySelector("[data-act=recon]"); if (rb && RO()) rb.remove(); else if (rb) rb.onclick = function () { ui.recWeek = { year: y, week: w }; ui.recStep = 1; location.hash = "#recon"; };
   $main.querySelectorAll("[data-cell]").forEach(function (li) { li.onclick = function () { editCell(y, li.dataset.cell, w); }; });
   $main.querySelectorAll("[data-ob]").forEach(function (b) { b.onclick = function () { obrBreakdown(y, w); }; });
   var sb = $main.querySelector("[data-act=spend]");
@@ -375,145 +375,229 @@ function newYearDialog() {
   });
 }
 
-// ===== СВЕРКА =====
+// ===== СВЕРКА: один экран, три шага — 1 Остатки · 2 Проверка · 3 Итог =====
+// ui.recStep: 1 | 2 | 3; пусто — сам решает: неделя уже сверена → итог, нет → остатки.
+// Входы: квадратики на Главной и «История сверок» → 3; «+ → Сверка», «Что сделать» → по правилу выше.
 routes.recon = function () {
   var sel = ui.recWeek || finishedWeek() || defaultYearWeek();
   if (state.years[sel.year].archived) sel = defaultYearWeek();
   var y = sel.year, w = sel.week, yr = state.years[y], r = E.compute(state, y), wk = r.weeks[w];
   yr.recon = yr.recon || {}; yr.savRecon = yr.savRecon || {};
-  var rec = yr.recon[w] || {}, srec = yr.savRecon[w] || {};
-  // последний известный остаток по счёту — подсказка
+  var rec = yr.recon[w] || {}, srec = yr.savRecon[w] || {}, hasRec = Object.keys(rec).length > 0;
+  var step = ui.recStep || (hasRec ? 3 : 1);
+  if (step === 2 && !hasRec) step = 1;
+  ui.recStep = step; ui.recWeek = { year: y, week: w };
+  var lim = state.settings.diffAlert || -5000, fwk = finishedWeek();
+  // последний известный остаток по счёту — только подпись «было …», в поле не подставляется
   function lastKnown(accId) {
     for (var i = w - 1; i >= 0; i--) if (yr.recon[i] && yr.recon[i][accId]) return yr.recon[i][accId].cents;
     return null;
   }
   var accs = state.accounts.filter(function (a) { return !a.archived; }).sort(function (a, b) { return a.sort - b.sort; });
-  var hasRec = rec && Object.keys(rec).length > 0;
-  var html = "<div class='rc-top'><a class='back-link' href='#home'>‹ Главная</a><button type='button' class='linkish rc-histbtn' id='recHistBtn'>" + (ui.recHist ? "Скрыть историю" : "История сверок ›") + "</button></div>" +
-    "<div class='rc-title'><h1>Сверка за " + esc(shortWeek(y, w)) + "</h1><select id='recW' class='rc-wsel' aria-label='Другая неделя'>" + weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }) + "</select></div>" +
-    "<p class='small muted rc-hint'>Впиши, сколько сейчас на каждом счёте. Можно формулой: 2000+200</p><p class='rc-msg small' id='recMsg'></p>" + yearChips(y, false).replace("class='chips'", "class='chips chips-hidden'");
-  var fwk = finishedWeek();
-  if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 12px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
-    (fwk ? " <button class='btn sm' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
-  html += "<form id='recForm' class='card rc-list'>";
-  accs.forEach(function (a) {
-    var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
-    var isCash = /налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name);
-    html += "<div class='rcl-row" + (a.kind === "info" ? " info" : "") + "'><label for='rf_" + a.id + "' class='rc-name'><b>" + esc(a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, "")) + "</b>" +
-      "<small>" + (a.kind === "info" ? "для справки" : !active ? "считается с " + esc(a.countsFrom) : lk !== null ? "было " + esc(E.fmt(lk, { dec: 0 })) : "") +
-      (isCash ? " · <button type='button' class='linkish' data-cashfill='" + a.id + "'>в «Наличке» " + E.fmt(cashEurTotal(), { dec: 0 }) + "</button>" : "") + "</small></label>" +
-      "<input id='rf_" + a.id + "' type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder='" + (lk !== null ? esc(E.fmt(lk, { dec: 0 })) : "0") + "'" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></div>";
-  });
-  html += "</form><details class='rc-sav'" + (Object.keys(srec).length ? " open" : "") + "><summary>+ Накопления и рубли — по желанию, раз в квартал</summary>" +
-    "<p class='small muted'>Впиши весь остаток, а не изменение: он заменит расчёт. Так учитываются рост инвестиций и проценты.</p><form id='savForm' class='form-grid'>";
-  E.CAPITAL_ROWS.forEach(function (cr) {
-    html += "<label class='f'>" + cr.name + "<input type='text' inputmode='decimal' name='" + cr.key + "' value='" + (srec[cr.key] !== undefined ? esc(srec[cr.key] / 100) : "") +
-      "' placeholder='" + esc(E.fmt(rnd(r.rows[cr.key][w]))) + "'></label>";
-  });
-  html += "</form></details>";
-  var side = "";
-  // календарь недель: на компьютере всегда справа, на телефоне — по «История сверок»
-  side += "<div class='card rc-card rc-calcard'><div class='row'><h2 style='margin:0'>Сверки " + y + "</h2><span class='spacer'></span><span class='small muted'>неделя — нажми</span></div>" + reconCalendar(y, false, w) + "</div>";
-  if (hasRec) {
-    side += "<div class='card rc-help'><h2>Нашла в выписке то, чего не было в плане?</h2><p class='small muted' style='margin-top:-6px'>Напиши одной фразой — попадёт в эту неделю, расхождение пересчитается.</p>" +
-      "<form id='recPhrase' class='rc-phrase' autocomplete='off'><input name='q' placeholder='например: аптека 45'><button class='btn primary' type='submit'>Внести</button></form><button type='button' class='linkish small' id='recAdd'>заполнить по полям</button></div>";
-    side += unspentCard(y, w);
-    var reps = RO() ? [] : E.findRepeats(state, y);
-    if (reps.length) side += "<div class='card rc-help'><h2>Нашла " + reps.length + " " + (reps.length % 10 === 1 && reps.length % 100 !== 11 ? "повторяющуюся трату" : reps.length % 10 >= 2 && reps.length % 10 <= 4 && (reps.length % 100 < 10 || reps.length % 100 >= 20) ? "повторяющиеся траты" : "повторяющихся трат") + "</h2><p class='small muted' style='margin-top:-6px'>Если сделать их регулярными, план следующего года заполнится сам.</p><a class='btn' href='#recurring'>Посмотреть в «Регулярных» ›</a></div>";
+  var flow = accs.filter(function (a) { return a.kind !== "info"; }), info = accs.filter(function (a) { return a.kind === "info"; });
+  function nums(f, calc, d) {
+    return "<div class='rc-nums'><div><span>на счетах</span><b>" + (f === null ? "—" : eur(rnd(f), { dec: 0 })) + "</b></div><div><span>по плану</span><b>" + eur(rnd(calc), { dec: 0 }) + "</b></div>" +
+      "<div><span>разница<button type='button' class='q-btn' data-explain='diff' aria-label='Что такое разница'>?</button></span><b class='" + (d === null ? "" : d < lim ? "neg" : d >= 0 ? "pos" : "") + "'>" + (d === null ? "—" : eur(rnd(d), { dec: 0, plus: true })) + "</b></div></div>";
   }
-  var hist = [];
-  activeYears().forEach(function (yy) {
-    var rr = E.compute(state, yy);
-    rr.fact.forEach(function (f, i) { if (f !== null) hist.push({ y: yy, i: i, f: f, o: rr.obr[i], d: rr.diff[i], wk: rr.weeks[i] }); });
-  });
-  hist = hist.reverse().slice(0, 12);
-  side += "<div class='rc-histwrap'><h2>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Разница</th></tr></thead><tbody>" +
-    (hist.length ? hist.map(function (h) {
-      return "<tr data-go='" + h.y + ":" + h.i + "' style='cursor:pointer'><td>" + esc(shortWeek(h.y, h.i)) + "</td><td class='n'>" + eur(rnd(h.o), { dec: 0 }) + "</td><td class='n'>" + eur(rnd(h.f), { dec: 0 }) +
-        "</td><td class='n " + (h.d < state.settings.diffAlert ? "neg" : "") + "'>" + eur(rnd(h.d), { dec: 0, plus: true }) + "</td></tr>";
-    }).join("") : "<tr><td colspan='4' class='muted'>Сверок пока нет.</td></tr>") + "</tbody></table></div></div>";
-  html += (hasRec ? "<button class='linkish rc-clear' id='recClear'>Очистить неделю</button>" : "") +
-    "<div class='rc-bar'><div id='recResult'></div><button class='btn primary rc-save' id='recSave'>Сохранить</button></div>";
-  html = "<div class='rcx-wrap'><div class='rcx-main'>" + html + "</div><aside class='rcx-side" + (ui.recHist ? " open" : "") + "' id='recHist'>" + side + "</aside></div>";
+  var html = "<div class='rs'><div class='rc-top'><a class='back-link' href='#home'>‹ Главная</a>" + (step !== 3 ? "<button type='button' class='linkish' data-step='3'>История сверок ›</button>" : "") + "</div>" +
+    "<div class='rc-title'><h1>Сверка за " + esc(shortWeek(y, w)) + "</h1><select id='recW' class='rc-wsel' aria-label='Другая неделя'>" + weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }) + "</select></div>" +
+    "<ol class='rs-steps'>" + [[1, "Остатки"], [2, "Проверка"], [3, "Итог"]].map(function (s) {
+      var can = s[0] !== 2 || hasRec;
+      return "<li><button type='button' class='rs-step" + (s[0] === step ? " on" : s[0] < step ? " done" : "") + "' data-step='" + s[0] + "'" + (can ? "" : " disabled") + (s[0] === step ? " aria-current='step'" : "") + "><span class='rs-n'>" + s[0] + "</span>" + s[1] + "</button></li>";
+    }).join("") + "</ol>";
+
+  // ---- шаг 1: остатки ----
+  if (step === 1) {
+    var accRow = function (a) {
+      var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
+      var isCash = /налич/i.test(a.name) && cashEurTotal() !== null && !/₽|руб/i.test(a.name);
+      var from = a.countsFrom ? "считается с " + (E.MONTHS_GEN[Number(a.countsFrom.slice(5, 7)) - 1] || a.countsFrom) : "";
+      var sub = a.kind === "info" ? "для справки" + (lk !== null ? " · было " + E.fmt(lk, { dec: 0 }) : "") : !active ? from : lk !== null ? "было " + E.fmt(lk, { dec: 0 }) : "";
+      return "<div class='rcl-row" + (a.kind === "info" ? " info" : "") + "'><label for='rf_" + a.id + "' class='rc-name'><b>" + esc(a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, "")) + "</b>" +
+        "<small>" + esc(sub) + (isCash ? (sub ? " · " : "") + "<button type='button' class='linkish' data-cashfill='" + a.id + "'>в «Наличке» " + E.fmt(cashEurTotal(), { dec: 0 }) + "</button>" : "") + "</small></label>" +
+        "<input id='rf_" + a.id + "' type='text' inputmode='decimal' name='" + a.id + "' value='" + esc(e ? e.expr : "") + "' placeholder=''" + (a.kind === "cash_flow" && !active ? " disabled" : "") + "></div>";
+    };
+    html += "<p class='small muted rc-hint'>Впиши, сколько сейчас на каждом счёте. Можно формулой: 2000+200</p>";
+    if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 12px'>Неделя " + esc(shortWeek(y, w)) + " ещё идёт: сверка будет точнее, когда в остатках окажутся все её траты." +
+      (fwk && !(fwk.year === y && fwk.week === w) ? " <button class='btn sm' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
+    html += "<form id='recForm' class='card rc-list'>" + flow.map(accRow).join("") + "</form>";
+    var savOpen = Object.keys(srec).length > 0;
+    html += "<details class='rc-sav'" + (savOpen ? " open" : "") + "><summary>Накопления, инвестиции, рубли — по желанию</summary>" +
+      "<p class='small muted'>Впиши весь остаток, а не изменение: он заменит расчёт. Так учитываются рост инвестиций и проценты.</p>" +
+      (info.length ? "<form id='recInfo' class='card rc-list'>" + info.map(accRow).join("") + "</form>" : "") + "<form id='savForm' class='form-grid'>";
+    E.CAPITAL_ROWS.forEach(function (cr) {
+      html += "<label class='f'><span>" + cr.name + " <small class='muted'>по расчёту " + esc(E.fmt(rnd(r.rows[cr.key][w]), { dec: 0 })) + "</small></span><input type='text' inputmode='decimal' name='" + cr.key + "' value='" + (srec[cr.key] !== undefined ? esc(srec[cr.key] / 100) : "") + "' placeholder=''></label>";
+    });
+    html += "</form></details>" + (hasRec ? "<button class='linkish rc-clear' id='recClear'>Очистить неделю</button>" : "") +
+      "<div class='rc-bar'><div id='recResult'></div><button class='btn primary rc-save' id='recNext'>Дальше</button></div>";
+  }
+
+  // ---- шаг 2: проверка — ветка по разнице ----
+  if (step === 2) {
+    var d = r.diff[w], before = ui.recBefore && ui.recBefore.key === y + ":" + w ? ui.recBefore.diff : null;
+    html += "<div class='card rs-sum'>" + nums(r.fact[w], r.obr[w], d) + (before !== null && before !== d ? "<p class='small muted rs-was'>до правок " + eur(rnd(before), { dec: 0, plus: true }) + "</p>" : "") + "</div>";
+    if (d >= lim && d <= -lim) {
+      html += "<div class='card rs-ok'><h2>Всё сходится</h2><p class='small muted'>Разница " + eur(rnd(d), { dec: 0, plus: true }) + " — в пределах " + eur(rnd(-lim), { dec: 0 }) + ". Следующие недели посчитаются от факта.</p></div>";
+    } else if (d > 0) {
+      html += "<p class='rs-lead'>Денег больше плана на " + eur(rnd(d), { dec: 0 }) + ". Обычно это трата, которой не было, или доход, которого нет в плане.</p>" +
+        unspentCard(y, w, "Что из плана не потратила?") + phraseCard("income");
+    } else {
+      html += "<p class='rs-lead'>Денег меньше плана на " + eur(rnd(-d), { dec: 0 }) + " — так бывает. Поищи в выписке за неделю.</p>" +
+        phraseCard("spend") + unspentCard(y, w, "А что из плана не потратила?");
+    }
+    html += "<div class='rs-foot'><button type='button' class='btn ghost' data-step='1'>‹ к остаткам</button><button type='button' class='btn primary' id='recDone'>Завершить</button></div>";
+  }
+
+  // ---- шаг 3: итог, карта сверок за год, последние сверки ----
+  if (step === 3) {
+    var left = "", right = "";
+    if (hasRec) {
+      var d3 = r.diff[w], b3 = ui.recBefore && ui.recBefore.key === y + ":" + w ? ui.recBefore.diff : null;
+      left += "<div class='card rs-sum'><div class='rs-sumh'><h2>Итог недели</h2><span class='small muted'>" + esc(RS_TEXT[reconStatus(y, w, r)]) + "</span></div>" + nums(r.fact[w], r.obr[w], d3) +
+        (b3 !== null && b3 !== d3 ? "<p class='small muted rs-was'>до правок " + eur(rnd(b3), { dec: 0, plus: true }) + " → после " + eur(rnd(d3), { dec: 0, plus: true }) + "</p>" : "") +
+        "<button type='button' class='btn sm rs-fix' data-step='1'>Поправить остатки</button></div>";
+    } else if (weekDone(y, w)) {
+      left += "<div class='card rs-sum'><h2>Сверки за эту неделю нет</h2><p class='small muted'>Впиши остатки на счетах — разница с планом посчитается сразу.</p><button type='button' class='btn primary' data-step='1'>Сделать сверку</button></div>";
+    } else {
+      left += "<div class='card rs-sum'><h2>Неделя ещё идёт</h2><p class='small muted'>Сверку удобнее делать, когда она закончится.</p>" +
+        (fwk ? "<button type='button' class='btn' id='toDone'>К неделе " + esc(shortWeek(fwk.year, fwk.week)) + "</button>" : "") + "</div>";
+    }
+    left += "<div class='card rs-cal'><h2>Сверки " + y + "</h2>" + reconCalendar(y, false, w) + "</div>";
+    var reps = RO() ? [] : E.findRepeats(state, y);
+    if (reps.length) left += "<div class='card rc-help'><h2>Нашла " + reps.length + " " + (reps.length % 10 === 1 && reps.length % 100 !== 11 ? "повторяющуюся трату" : reps.length % 10 >= 2 && reps.length % 10 <= 4 && (reps.length % 100 < 10 || reps.length % 100 >= 20) ? "повторяющиеся траты" : "повторяющихся трат") + "</h2><p class='small muted' style='margin-top:-6px'>Если сделать их регулярными, план следующего года заполнится сам.</p><a class='btn' href='#recurring'>Посмотреть в «Регулярных» ›</a></div>";
+    var hist = [];
+    activeYears().forEach(function (yy) {
+      var rr = E.compute(state, yy);
+      rr.fact.forEach(function (f, i) { if (f !== null) hist.push({ y: yy, i: i, f: f, o: rr.obr[i], d: rr.diff[i] }); });
+    });
+    hist = hist.reverse().slice(0, 12);
+    right += "<div class='rc-histwrap'><h2>Последние сверки</h2><div class='tbl-wrap'><table class='t'><thead><tr><th>Неделя</th><th class='n'>Расчёт</th><th class='n'>Факт</th><th class='n'>Разница</th></tr></thead><tbody>" +
+      (hist.length ? hist.map(function (h) {
+        return "<tr data-go='" + h.y + ":" + h.i + "' class='" + (h.y === y && h.i === w ? "on" : "") + "' style='cursor:pointer'><td>" + esc(shortWeek(h.y, h.i)) + "</td><td class='n'>" + eur(rnd(h.o), { dec: 0 }) + "</td><td class='n'>" + eur(rnd(h.f), { dec: 0 }) +
+          "</td><td class='n " + (h.d < lim ? "neg" : "") + "'>" + eur(rnd(h.d), { dec: 0, plus: true }) + "</td></tr>";
+      }).join("") : "<tr><td colspan='4' class='muted'>Сверок пока нет.</td></tr>") + "</tbody></table></div></div>";
+    html += "<div class='rs-grid'><div class='rs-col'>" + left + "</div><div class='rs-col'>" + right + "</div></div>";
+  }
+  html += "</div>";
   $main.innerHTML = html;
 
-  function liveResult() {
-    var f = null, err = null;
-    accs.forEach(function (a) {
-      var inp = $main.querySelector("#recForm [name=" + a.id + "]");
-      if (!inp || inp.disabled || a.kind !== "cash_flow" || !inp.value.trim()) return;
-      try { f = (f || 0) + E.exprCents(inp.value); } catch (e) { err = a.name + ": " + e.message; }
-    });
-    var calc = r.obr[w], box = $main.querySelector("#recResult"), d = f === null ? null : f - calc;
-    var s = "<div class='rc-nums'><div><span>на счетах</span><b>" + (f === null ? "—" : eur(rnd(f), { dec: 0 })) + "</b></div><div><span>по плану</span><b>" + eur(rnd(calc), { dec: 0 }) + "</b></div>" +
-      "<div><span>расхождение<button type='button' class='q-btn' data-explain='diff' aria-label='Что такое расхождение'>?</button></span><b class='" + (d === null ? "" : d < state.settings.diffAlert ? "neg" : d >= 0 ? "pos" : "") + "'>" + (d === null ? "—" : eur(rnd(d), { dec: 0, plus: true })) + "</b></div></div>";
-    var msgEl = $main.querySelector("#recMsg"); if (msgEl) msgEl.innerHTML = (d === null ? "Впиши остатки — расхождение посчитается сразу." : d < state.settings.diffAlert ? "Денег меньше плана на " + eur(rnd(-d), { dec: 0 }) + " — так бывает. После сохранения подскажу, где искать." :
-      d > 5000 ? "Денег больше плана — возможно, трата ещё не списалась или не внесён доход." : "Всё сходится с планом. Следующие недели посчитаются от факта.");
-    if (err) s += "<div class='alert'>Ошибка в формуле — " + esc(err) + "</div>";
-    box.innerHTML = s;
-  }
-  $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
-  $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
-  bindRecCal(y);
-  var rph = $main.querySelector("#recPhrase");
-  if (rph) rph.onsubmit = function (e) {
-    e.preventDefault();
-    var t = rph.q.value.trim(); if (!t) return;
-    var ph = phParse(t), ci = phCat(ph.words, false);
-    if (!ph.cents) { toast("Не вижу сумму — допиши число"); return; }
-    var cat = ci ? ci.id : defaultCat(), note = ph.words.filter(function (x, i) { return !ci || i !== ci.used; }).join(" ");
-    var d = ph.date && E.weekOfDate(ph.date) && E.weekOfDate(ph.date).idx === w ? ph.date : wk.from, wk2 = E.weekOfDate(d);
-    addToCell(String(wk2.year), cat, wk2.idx, String(ph.cents / 100), note);
-    ui.recWeek = { year: y, week: w };
-    toast(E.fmt(ph.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(String(wk2.year), wk2.idx)); changed();
-  };
-  liveResult();
-  $main.querySelectorAll("#recResult [data-explain]").forEach(function () {});
-  $main.querySelector("#recResult").addEventListener("click", function (e) { var q = e.target.closest("[data-explain]"); if (q) explain(q.dataset.explain); });
-  $main.querySelector("#recHistBtn").onclick = function () {
-    if (window.matchMedia("(min-width: 821px)").matches) { var hw = $main.querySelector(".rc-histwrap"); if (hw) hw.scrollIntoView({ behavior: "smooth" }); return; }
-    ui.recHist = !ui.recHist; render(); if (ui.recHist) setTimeout(function () { var h = document.getElementById("recHist"); if (h) h.scrollIntoView({ behavior: "smooth" }); }, 50);
-  };
-  bindYearChips(function (yy) { ui.recWeek = { year: yy, week: yy === sel.year ? w : 0 }; render(); });
-  $main.querySelector("#recW").onchange = function (e) { ui.recWeek = { year: y, week: Number(e.target.value) }; render(); };
-  $main.querySelector("#recSave").onclick = function () {
-    var nr = {}, ns = {};
-    try {
-      accs.forEach(function (a) {
+  // ---- общее ----
+  $main.querySelectorAll("[data-step]").forEach(function (b) { b.onclick = function () { ui.recStep = Number(b.dataset.step); render(); window.scrollTo(0, 0); }; });
+  $main.querySelector("#recW").onchange = function (e) { ui.recWeek = { year: y, week: Number(e.target.value) }; ui.recStep = step === 3 ? 3 : null; render(); };
+  $main.querySelector(".rs").addEventListener("click", function (e) { var q = e.target.closest("[data-explain]"); if (q) explain(q.dataset.explain); });
+  var td = $main.querySelector("#toDone"); if (td) td.onclick = function () { ui.recWeek = fwk; ui.recStep = null; render(); };
+
+  if (step === 1) {
+    var liveResult = function () {
+      var f = null, err = null;
+      flow.forEach(function (a) {
         var inp = $main.querySelector("#recForm [name=" + a.id + "]");
-        if (!inp || !inp.value.trim()) return;
-        nr[a.id] = { expr: inp.value.trim(), cents: E.exprCents(inp.value) };
+        if (!inp || inp.disabled || a.kind !== "cash_flow" || !inp.value.trim()) return;
+        try { f = (f || 0) + E.exprCents(inp.value); } catch (e) { err = a.name + ": " + e.message; }
       });
-      E.CAPITAL_ROWS.forEach(function (cr) {
-        var inp = $main.querySelector("#savForm [name=" + cr.key + "]");
-        if (inp && inp.value.trim()) ns[cr.key] = E.exprCents(inp.value);
-      });
-    } catch (e) { toast("Ошибка в формуле: " + e.message); return; }
-    if (Object.keys(nr).length) yr.recon[w] = nr; else delete yr.recon[w];
-    if (Object.keys(ns).length) yr.savRecon[w] = ns; else delete yr.savRecon[w];
-    ui.recWeek = { year: y, week: w };
-    maybeWeeklyBackup("после сверки за " + shortWeek(y, w));
-    changed(false, "Сверка сохранена"); toast("Сверка сохранена");
-  };
-  var cl = $main.querySelector("#recClear");
-  if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; changed(); };
-  if ($main.querySelector("#recAdd")) $main.querySelector("#recAdd").onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; } }); };
-  var td = $main.querySelector("#toDone"); if (td) td.onclick = function () { ui.recWeek = fwk; render(); };
-  $main.querySelectorAll("[data-unsp]").forEach(function (b) { b.onclick = function () { moveSkipModal(y, b.dataset.unsp, w, function () { ui.recWeek = { year: y, week: w }; }); }; });
-  $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; render(); }; });
+      var calc = r.obr[w], dd = f === null ? null : f - calc;
+      $main.querySelector("#recResult").innerHTML = nums(f, calc, dd) + (err ? "<div class='alert'>Ошибка в формуле — " + esc(err) + "</div>" : "");
+    };
+    $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
+    $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
+    liveResult();
+    $main.querySelector("#recNext").onclick = function () {
+      var nr = {}, ns = {};
+      try {
+        accs.forEach(function (a) {
+          var inp = $main.querySelector("#recForm [name=" + a.id + "], #recInfo [name=" + a.id + "]");
+          if (!inp || !inp.value.trim()) return;
+          nr[a.id] = { expr: inp.value.trim(), cents: E.exprCents(inp.value) };
+        });
+        E.CAPITAL_ROWS.forEach(function (cr) {
+          var inp = $main.querySelector("#savForm [name=" + cr.key + "]");
+          if (inp && inp.value.trim()) ns[cr.key] = E.exprCents(inp.value);
+        });
+      } catch (e) { toast("Ошибка в формуле: " + e.message); return; }
+      if (!flow.some(function (a) { return nr[a.id]; })) { toast("Впиши хотя бы один остаток"); return; }
+      yr.recon[w] = nr;
+      if (Object.keys(ns).length) yr.savRecon[w] = ns; else delete yr.savRecon[w];
+      var fsum = 0; flow.forEach(function (a) { if (a.kind === "cash_flow" && E.accountActive(a, wk) && nr[a.id]) fsum += nr[a.id].cents; });
+      ui.recBefore = { key: y + ":" + w, diff: fsum - r.obr[w] }; // разница до правок на шаге 2 — как в панели внизу
+      ui.recStep = 2; ui.recWeek = { year: y, week: w };
+      maybeWeeklyBackup("после сверки за " + shortWeek(y, w));
+      changed(false, "Сверка сохранена"); window.scrollTo(0, 0);
+    };
+    var cl = $main.querySelector("#recClear");
+    if (cl) cl.onclick = function () { if (!confirm("Удалить сверку за " + shortWeek(y, w) + "? Остатки сотрутся, и неделя снова посчитается по плану.")) return; delete yr.recon[w]; delete yr.savRecon[w]; ui.recBefore = null; changed(); };
+  }
+
+  if (step === 2) {
+    $main.querySelectorAll(".rs-phrase").forEach(function (fm) {
+      fm.onsubmit = function (e) {
+        e.preventDefault();
+        var t = fm.q.value.trim(); if (!t) return;
+        var inc = fm.dataset.kind === "income", ph = phParse(t), ci = phCat(ph.words, inc);
+        if (!ph.cents) { toast("Не вижу сумму — допиши число"); return; }
+        var firstInc = cats().find(function (c) { return c.block === "income" && !c.archived; });
+        var cat = ci ? ci.id : inc ? (firstInc && firstInc.id) : defaultCat();
+        if (!cat) { toast("Нет категории для доходов — добавь её в «Настройках»"); return; }
+        var note = ph.words.filter(function (x, i) { return !ci || i !== ci.used; }).join(" ");
+        var dd = ph.date && E.weekOfDate(ph.date) && E.weekOfDate(ph.date).idx === w ? ph.date : wk.from, wk2 = E.weekOfDate(dd);
+        addToCell(String(wk2.year), cat, wk2.idx, String(ph.cents / 100), note);
+        toast((inc ? "+" : "") + E.fmt(ph.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(String(wk2.year), wk2.idx)); changed();
+      };
+    });
+    var ra = $main.querySelector("#recAdd"); if (ra) ra.onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; ui.recStep = 2; } }); };
+    $main.querySelectorAll("[data-unsp]").forEach(function (b) { b.onclick = function () { moveSkipModal(y, b.dataset.unsp, w, function () { ui.recWeek = { year: y, week: w }; ui.recStep = 2; }); }; });
+    $main.querySelector("#recDone").onclick = function () { ui.recStep = 3; toast("Сверка за " + shortWeek(y, w) + " готова"); render(); window.scrollTo(0, 0); };
+  }
+
+  if (step === 3) {
+    bindRecTips();
+    $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; ui.recStep = 3; render(); }; });
+  }
 };
 
+// Шаг 2: внести фразой — трату, которой не было в плане, или доход
+function phraseCard(kind) {
+  var inc = kind === "income";
+  return "<div class='card rc-help'><h2>" + (inc ? "Может, пришёл доход, которого нет в плане?" : "Нашла в выписке то, чего не было в плане?") + "</h2>" +
+    "<p class='small muted' style='margin-top:-6px'>Напиши одной фразой — попадёт в эту неделю, разница пересчитается сразу.</p>" +
+    "<form class='rc-phrase rs-phrase' data-kind='" + kind + "' autocomplete='off'><input name='q' aria-label='" + (inc ? "Доход одной фразой" : "Трата одной фразой") + "' placeholder='" + (inc ? "например: возврат налога 120" : "например: аптека 45") + "'><button class='btn primary' type='submit'>Внести</button></form>" +
+    (inc ? "" : "<button type='button' class='linkish small' id='recAdd'>заполнить по полям</button>") + "</div>";
+}
 
-// На сверке: плановые траты недели, которые могли не случиться
-function unspentCard(y, w) {
+// Шаг 3: квадратик — подсказка при наведении (компьютер) или плашка по нажатию (телефон); в неделю не уводит
+function bindRecTips() {
+  var wrap = $main.querySelector(".rs-cal .rc-wrap"); if (!wrap) return;
+  var tip = document.createElement("div"), pinned = null;
+  tip.className = "rs-tip"; tip.setAttribute("role", "status"); wrap.appendChild(tip);
+  function show(b) {
+    tip.textContent = b.dataset.cap; tip.classList.add("on");
+    var wb = wrap.getBoundingClientRect(), bb = b.getBoundingClientRect(), tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(wb.width - tw, bb.left - wb.left + bb.width / 2 - tw / 2)) + "px";
+    tip.style.top = (bb.top - wb.top - 6) + "px";
+  }
+  function hide() { tip.classList.remove("on"); }
+  wrap.querySelectorAll("[data-rw]").forEach(function (b) {
+    b.removeAttribute("data-tip"); // своя подсказка вместо общей
+    b.addEventListener("mouseenter", function () { if (!pinned) show(b); });
+    b.addEventListener("mouseleave", function () { if (!pinned) hide(); });
+    b.onclick = function (e) {
+      e.preventDefault();
+      if (pinned) pinned.classList.remove("pin");
+      if (pinned === b) { pinned = null; hide(); return; }
+      pinned = b; b.classList.add("pin"); show(b);
+    };
+  });
+}
+
+// Сверка: плановые траты недели, которые могли не случиться
+function unspentCard(y, w, title) {
   var r = E.compute(state, y), items = cats().filter(function (c) {
     var x = r.cells[c.id][w]; return x && x.cents < 0 && c.block !== "income" && c.block !== "savings" && c.currency !== "RUB" && !/из общих|перенесено на|не было/.test(x.note || "");
   }).map(function (c) { return { c: c, v: r.cells[c.id][w].cents }; }).sort(function (a, b) {
     var pr = { periodic: 0, base: 1, subs_es: 2, subs_ru: 3 }; return (pr[a.c.block] - pr[b.c.block]) || (a.v - b.v);
   }).slice(0, 8);
   if (!items.length) return "";
-  return "<div class='card'><h2>Что из плана не потратила?</h2><p class='small muted' style='margin-top:-6px'>Если покупка не случилась, перенеси её на потом или убери — расхождение пересчитается.</p><ul class='plan-list'>" +
-    items.map(function (x) { return "<li data-unsp='" + x.c.id + "'><span class='name'>" + esc(x.c.name) + "</span><span class='val neg'>" + E.fmt(x.v, { cur: cur(x.c) }) + "</span><span class='small muted'>перенести ›</span></li>"; }).join("") + "</ul></div>";
+  return "<div class='card'><h2>" + esc(title || "Что из плана не потратила?") + "</h2><p class='small muted' style='margin-top:-6px'>Если покупка не случилась, убери её или перенеси на потом — разница пересчитается.</p><ul class='plan-list'>" +
+    items.map(function (x) { return "<li data-unsp='" + x.c.id + "'><span class='name'>" + esc(x.c.name) + "</span><span class='val neg'>" + E.fmt(x.v, { cur: cur(x.c) }) + "</span><span class='small muted rs-act'><span class='rs-act-t'>убрать / перенести </span>›</span></li>"; }).join("") + "</ul></div>";
 }
 
 // ===== РЕГУЛЯРНЫЕ ТРАТЫ =====
@@ -547,7 +631,7 @@ routes.recurring = function () {
   });
   if (!list.length) html += "<tr><td colspan='6' class='muted'>Регулярных трат пока нет — добавь первую ниже: например, аренду.</td></tr>";
   html += "</tbody></table></div>";
-  html += "<div class='card section'><h2>Добавить регулярную трату</h2><p class='small muted' style='margin-top:-6px'>«Недели месяца» — когда списывается: <b>1</b> — первая неделя, <b>2,4</b> — вторая и четвёртая, <b>все</b> — каждую неделю (например, продукты).</p><form id='addRule' class='form-grid'><label class='f'>Категория<select name='cat'>" + catOptions() + "</select></label>" +
+  html += "<div class='card section'><h2>+ Регулярная трата или доход</h2><p class='small muted' style='margin-top:-6px'>«Недели месяца» — когда списывается: <b>1</b> — первая неделя, <b>2,4</b> — вторая и четвёртая, <b>все</b> — каждую неделю (например, продукты).</p><form id='addRule' class='form-grid'><label class='f'>Категория<select name='cat'>" + catOptions() + "</select></label>" +
     "<label class='f'>Сумма<input type='text' name='expr' placeholder='150' required inputmode='decimal'></label>" +
     "<label class='f'>Недели месяца<input type='text' name='weeks' placeholder='все · 1 · 2,4 · 5' required></label>" +
     "<label class='f'>Действует<select name='from'>" + monthOpts(y + "-01-01") + "</select></label><button class='btn primary' type='submit'>Добавить</button></form></div>";

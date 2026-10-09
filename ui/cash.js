@@ -44,7 +44,7 @@ routes.cash = function () {
     
     "</div><div class='chips cash-ex'>" + ["такси 12 из кошелька", "переложила 100 из конверта 1 в кошелёк", "сняла 200", "положила 300 на карту"].map(function (x) { return "<button type='button' class='chip' data-ex='" + esc(x) + "'>" + esc(x) + "</button>"; }).join("") + "</div>" +
     "<div id='cashPv'></div></form></div>";
-  html = html.replace(/<div class='page-head'>[\s\S]*?<\/div><\/div>/, "<div class='page-head cash-head'><h1>Наличка</h1><span class='small muted'>всего " + E.eur(total, { dec: 2 }) + "</span></div>");
+  html = html.replace(/<div class='page-head'>[\s\S]*?<\/div><\/div>/, "<div class='page-head cash-head'><h1>Наличка</h1><div class='cash-total'><b>" + E.eur(total, { dec: 2 }) + "</b><span>всего наличными</span></div></div>");
   html += "<div class='cash-wrap'><div class='cash-l'><div class='pk-grid'>" + pockets.map(function (p) {
     return "<div class='pk-tile'><button type='button' class='pk-main' data-recount='" + p.id + "'" + (ro ? " disabled" : "") + "><span class='pk-n'>" + esc(p.name) + "</span><b>" + E.fmt(bal[p.id] || 0, { cur: pocketCur(p.id) }) + "</b>" + (ro ? "" : "<small>пересчитать ›</small>") + "</button>" +
       (ro ? "" : "<button type='button' class='pk-more' data-pk='" + p.id + "' aria-label='Настроить карман'>⋯</button>") + "</div>";

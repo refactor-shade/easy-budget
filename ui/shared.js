@@ -264,30 +264,50 @@ routes.us = function () {
     "<div class='ut-sum'>" + (capMe === null ? "—" : eur(rnd(capAll), { dec: 0 })) + "</div>" +
     (both ? "<div class='ut-bar'><i style='width:" + pMe + "%'></i><i style='width:" + (100 - pMe) + "%'></i></div><div class='ut-leg'><span><b class='d1'>●</b> " + esc(meName) + " " + eur(rnd(capMe || 0), { dec: 0 }) + "</span><span><b class='d2'>●</b> " + esc(pName) + " " + eur(rnd(capThem || 0), { dec: 0 }) + "</span></div>" : "") +
     "<div class='small muted' style='margin-top:6px'>на конец " + E.MONTHS_GEN[nowM] + "</div></div>";
-  // 2. сколько тратим вдвоём
-  var ex = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === y; }) : [];
-  var prevEx = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === String(Number(y) - 1); }) : [];
+  // 2. сколько тратим вдвоём — прозрачно: общие целиком + личное каждой сверх своей доли в общих
+  // Период один на весь блок: полные месяцы года (как в «Кто платил»); за прошлые годы — весь год.
+  var ex = sh ? sh.expenses.filter(function (e) { return (e.kind === "expense" || e.kind === "batch") && e.date.slice(0, 4) === y; }) : [];
+  var prevEx = sh ? sh.expenses.filter(function (e) { return (e.kind === "expense" || e.kind === "batch") && e.date.slice(0, 4) === String(Number(y) - 1); }) : [];
   var toE = function (e) { return S.toEur(e.cost, e.currency, e.date, state.settings); };
-  var byCat = {}, prevCat = {}, paidMe = 0, paidThem = 0, sharedTot = 0;
-  ex.forEach(function (e) { var v = toE(e), c = S.catOf(e, sh.learned); byCat[c] = (byCat[c] || 0) + v; sharedTot += v; if (e.paidByMe) paidMe += v; else paidThem += v; });
-  prevEx.forEach(function (e) { var c = S.catOf(e, sh.learned); prevCat[c] = (prevCat[c] || 0) + toE(e); });
-  var livMe = (mine.total.living || 0) / 12, livThem = both ? (theirs.total.living || 0) / 12 : null;
-  html += "<div class='card ut-spend'><h2>Сколько тратим вдвоём · в месяц</h2>" +
-    "<div class='kv'><span>Личное " + esc(nameGen(meName)) + " <small>на жизнь, без налогов</small></span><b>" + eur(rnd(livMe), { dec: 0 }) + "</b></div>" +
-    "<div class='kv'><span>Личное " + esc(nameGen(pName)) + " <small>на жизнь, без налогов</small></span><b>" + (both ? eur(rnd(livThem), { dec: 0 }) : "—") + "</b></div>" +
-    "<div class='kv ut-total'><span>Итого вдвоём</span><b>" + (both ? eur(rnd(livMe + livThem), { dec: 0 }) : "—") + "</b></div>" +
-    "<div class='kv ut-sub'><span>из них общие траты целиком</span><span>" + eur(rnd(sharedTot / months), { dec: 0 }) + "</span></div>" +
-    "<p class='small muted' style='margin:6px 0 0'>Каждая вносит в личный план свою долю общих трат, поэтому общие уже внутри личного. Переводы между вами не считаются.</p></div>";
-  // 3. кто платил
-  if (ex.length) {
-    var shMe = paidMe / (paidMe + paidThem || 1);
-    html += "<div class='card'><div class='small muted'>Кто платил за общее · " + y + "</div><div class='ut-bar' style='margin-top:8px'><i style='width:" + Math.round(shMe * 100) + "%'></i><i style='width:" + (100 - Math.round(shMe * 100)) + "%'></i></div>" +
-      "<div class='ut-leg'><span>" + esc(meName) + " " + Math.round(shMe * 100) + "% · " + eur(rnd(paidMe), { dec: 0 }) + "</span><span>" + esc(pName) + " " + (100 - Math.round(shMe * 100)) + "% · " + eur(rnd(paidThem), { dec: 0 }) + "</span></div>" +
-      "<p class='small muted' style='margin:6px 0 0'>Это кто оплачивал, а не чья доля больше — разницу закрывает «Рассчитаться».</p></div>";
+  var fullM = String(new Date().getFullYear()) === y ? Math.max(1, new Date().getMonth()) : 12;
+  var pay = window.BudgetInsights.payers(sh ? sh.expenses : [], y, fullM, toE), period = pay.label;
+  var catKey = function (e) { return e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, sh.learned); };
+  var byCat = {}, prevCat = {}, sharedTot = 0, shareMe = 0;
+  ex.forEach(function (e) {
+    if (Number(e.date.slice(5, 7)) > fullM) return;
+    var v = toE(e), c = catKey(e); byCat[c] = (byCat[c] || 0) + v; sharedTot += v;
+    shareMe += S.toEur(e.share, e.currency, e.date, state.settings);
+  });
+  prevEx.forEach(function (e) { if (Number(e.date.slice(5, 7)) > fullM) return; var c = catKey(e); prevCat[c] = (prevCat[c] || 0) + toE(e); });
+  var shareThem = sharedTot - shareMe, livSum = function (src) { var t = 0; for (var mi = 0; mi < fullM; mi++) t += src.months[mi].living || 0; return t / fullM; };
+  var livMe = livSum(mine), livThem = both ? livSum(theirs) : null;
+  var sharedM = sharedTot / fullM, overMe = livMe - shareMe / fullM, overThem = both ? livThem - shareThem / fullM : null;
+  var family = both ? sharedM + overMe + overThem : null;
+  var low = function (over, liv) { return over !== null && over < Math.max(10000, (liv || 0) * 0.15); };
+  var row = function (label, sub, v, cls) { return "<div class='kv" + (cls ? " " + cls : "") + "'><span>" + label + (sub ? " <small>" + sub + "</small>" : "") + "</span><b>" + (v === null ? "—" : eur(rnd(v), { dec: 0 })) + "</b></div>"; };
+  html += "<div class='card ut-spend'><h2>Сколько тратим вдвоём · в месяц</h2><p class='small muted' style='margin:-6px 0 8px'>" + esc(period) + ", в среднем за месяц</p>" +
+    row("Общие траты", "Splitwise, целиком", sharedM) +
+    row(esc(meName) + " сверх общих", "личное на жизнь − своя доля в общих", overMe) +
+    row(esc(pName) + " сверх общих", "личное на жизнь − своя доля в общих", overThem) +
+    row("Итого как семья", "", family, "ut-total") +
+    [[meName, overMe, livMe], [pName, overThem, livThem]].filter(function (x) { return low(x[1], x[2]); }).map(function (x) {
+      return "<p class='hint small ut-warn'>Похоже, в плане " + esc(nameGen(x[0])) + " учтены не все общие траты: личное на жизнь " + (x[1] < 0 ? "меньше" : "почти равно") + " доле в общих.</p>";
+    }).join("") +
+    "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'>" +
+    "<li><b>Общие траты</b> — все траты и сводные суммы из общей ленты за " + esc(period) + ", целиком, в евро. Переводы между вами не считаются.</li>" +
+    "<li><b>Сверх общих</b> — личный план «на жизнь» (без налогов и накоплений) минус своя доля в общих: каждая вносит долю общих в личный план, поэтому её вычитаем, чтобы не посчитать дважды.</li>" +
+    "<li>Доли: " + esc(meName) + " " + eur(rnd(shareMe / fullM), { dec: 0 }) + ", " + esc(pName) + " " + eur(rnd(shareThem / fullM), { dec: 0 }) + " в месяц. Личное на жизнь: " + esc(meName) + " " + eur(rnd(livMe), { dec: 0 }) + (both ? ", " + esc(pName) + " " + eur(rnd(livThem), { dec: 0 }) : "") + ".</li>" +
+    "<li><b>Итого как семья</b> = общие + сверх общих у каждой.</li></ul></details></div>";
+  // 3. кто платил — та же формула, что «Кто платил» в «Для справки»
+  if (pay.all > 0) {
+    var shMe = pay.me / pay.all, pm = Math.round(shMe * 100);
+    html += "<div class='card'><div class='small muted'>Кто платил за общее · " + esc(period) + "</div><div class='ut-bar' style='margin-top:8px'><i style='width:" + pm + "%'></i><i style='width:" + (100 - pm) + "%'></i></div>" +
+      "<div class='ut-leg'><span>" + esc(meName) + " " + pm + "% · " + eur(rnd(pay.me), { dec: 0 }) + "</span><span>" + esc(pName) + " " + (100 - pm) + "% · " + eur(rnd(pay.them), { dec: 0 }) + "</span></div>" +
+      "<p class='small muted' style='margin:6px 0 0'>Траты и сводные суммы, в евро. Это кто оплачивал, а не чья доля больше — разницу закрывает «Рассчитаться».</p></div>";
   }
   // 4. выводы про нас
   if (sh) {
-    var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount() });
+    var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount(), toEur: toE });
     if (both) {
       var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
       var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + "." };
@@ -295,15 +315,18 @@ routes.us = function () {
     }
     html += "<div class='section'><h2 style='margin-bottom:0'>Выводы про нас</h2></div>" + sandwichHtml(tres);
   }
-  // 5. на что уходят общие деньги
+  // 5. на что уходят общие деньги: названия целиком, суммы ровной колонкой, стрелки отдельно
   var cats2 = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
-  if (ex.length) {
+  if (sharedTot > 0) {
     var mx = byCat[cats2[0]] || 1;
-    html += "<div class='card section'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>" + y + ", целиком · в среднем " + eur(rnd(sharedTot / months), { dec: 0 }) + " в месяц</p><div class='ut-bars'>" +
+    html += "<div class='card section'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>" + esc(period) + " · целиком · в среднем " + eur(rnd(sharedTot / fullM), { dec: 0 }) + " в месяц</p><div class='ut-cats'>" +
       cats2.slice(0, 8).map(function (c) {
-        var v = byCat[c], pv = prevCat[c], tr = pv ? (v / months * 12 > pv * 1.15 ? " ↑" : v / months * 12 < pv * 0.85 ? " ↓" : "") : "";
-        return "<div class='ub-row'><span class='ub-n'>" + catIcon(c) + "<span>" + esc(catLabel(c)) + "</span></span><span class='ub-track'><i style='width:" + Math.max(3, Math.round(v / mx * 100)) + "%'></i></span><b>" + eur(rnd(v), { dec: 0 }) + "<small>" + tr + "</small></b></div>";
-      }).join("") + "</div></div>";
+        var v = byCat[c], pv = prevCat[c], tr = pv ? (v > pv * 1.15 ? "↑" : v < pv * 0.85 ? "↓" : "") : "";
+        return "<div class='uc-row'><span class='uc-n'>" + catIcon(c) + "<span>" + esc(catLabel(c)) + "</span></span><span class='uc-v'>" + eur(rnd(v), { dec: 0 }) + "</span><span class='uc-tr " + (tr === "↑" ? "up" : tr ? "down" : "") + "'" + (tr ? " title='" + (tr === "↑" ? "больше" : "меньше") + ", чем " + esc(period.replace(y, String(Number(y) - 1))) + "'" : "") + ">" + tr + "</span>" +
+          "<span class='uc-track'><i style='width:" + Math.max(3, Math.round(v / mx * 100)) + "%'></i></span></div>";
+      }).join("") + "</div>" +
+      "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li>Суммы — общие траты целиком (обе доли), в евро, за " + esc(period) + ".</li>" +
+      "<li>↑ / ↓ — больше или меньше, чем за те же месяцы " + (Number(y) - 1) + ", если разница больше 15%.</li><li>Показаны 8 самых крупных категорий.</li></ul></details></div>";
   }
   // 6. твоя доля по категориям
   var msh = S.monthlyShares(sharedForCalc(), state.settings, y), shareRows = Object.keys(msh.byCat).map(function (c) { return { c: c, v: msh.byCat[c].reduce(function (a, b) { return a + b; }, 0) }; }).filter(function (x) { return Math.abs(x.v) >= 100; }).sort(function (a, b) { return b.v - a.v; });
@@ -458,10 +481,10 @@ routes.shared = function () {
     }
     return true;
   }).slice().reverse();
-  if (!RO()) html += "<div class='us-add-row'><button type='button' class='btn primary' id='usAdd'>+ Общая трата</button></div>";
   html += "<div class='section us-feed'><div class='row' style='margin-bottom:10px'>" +
     "<input type='search' id='fQ' class='sh-search' placeholder='Поиск: описание, заметка, сумма' value='" + esc(st.q || "") + "' aria-label='Поиск по общим тратам'>" +
     "<button type='button' class='btn sh-ftoggle" + (st.fopen ? " on" : "") + "' id='fToggle' aria-expanded='" + (st.fopen ? "true" : "false") + "'>Фильтры" + (nF ? " · " + nF : "") + "</button>" +
+    (RO() ? "" : "<button type='button' class='btn primary us-addbtn' id='usAdd'>+ Общая трата</button>") +
     "<div class='sh-filters" + (st.fopen ? " open" : "") + "'><select id='fY'>" + ylist.map(function (y) { return "<option" + (y === st.year ? " selected" : "") + ">" + y + "</option>"; }).join("") + "</select>" +
     "<select id='fM'>" + mlist.map(function (m) { return "<option value='" + m + "'" + (m === st.month ? " selected" : "") + ">" + (m === "all" ? "все месяцы" : E.MONTHS[Number(m) - 1]) + "</option>"; }).join("") + "</select>" +
     "<select id='fC'><option value='all'>все категории</option>" + sharedCats().concat(["Сводные суммы"]).map(function (c) { return "<option value='" + esc(c) + "'" + (c === st.cat ? " selected" : "") + ">" + esc(catLabel(c)) + "</option>"; }).join("") + "</select>" +

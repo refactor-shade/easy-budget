@@ -166,7 +166,7 @@ routes.home = function () {
     };
   });
   var hs = $main.querySelector("#homeSync"); if (hs) hs.onclick = refreshAll;
-  var rr = $main.querySelector("#rcRow"); if (rr) rr.onclick = function (e) { var c = e.target.closest("[data-rw]"); ui.recWeek = c ? { year: y, week: Number(c.dataset.rw) } : null; ui.recHist = !c; go("#recon"); };
+  var rr = $main.querySelector("#rcRow"); if (rr) rr.onclick = function (e) { var c = e.target.closest("[data-rw]"); ui.recWeek = c ? { year: y, week: Number(c.dataset.rw) } : null; ui.recStep = 3; go("#recon"); };
   $main.querySelectorAll("[data-q]").forEach(function (el) {
     el.onclick = function () {
       var q = el.dataset.q; ui.year = y; ui.week = w;
@@ -218,7 +218,7 @@ function reconCalendar(y, compact, selW) {
   var r = E.compute(state, y), cells = "";
   if (compact) {
     var now = (E.weekOfDate(E.todayISO()) || {}).idx, end = String(new Date().getFullYear()) === String(y) ? now : 59, from = Math.max(0, end - 15);
-    for (var i = from; i <= end; i++) cells += rcCell(y, i, r, false);
+    for (var i = end; i >= from; i--) cells += rcCell(y, i, r, false); // новые первыми: полоска идёт справа налево
     return "<div class='rc-strip'>" + cells + "</div>";
   }
   var head = E.MONTHS_SHORT.map(function (m) { return "<span>" + m + "</span>"; }).join("");
@@ -233,6 +233,6 @@ function reconCalendar(y, compact, selW) {
 function bindRecCal(y) {
   $main.querySelectorAll("[data-rw]").forEach(function (b) {
     b.addEventListener("mouseenter", function () { var c = document.getElementById("rcCap"); if (c) c.textContent = b.dataset.cap; });
-    b.onclick = function () { ui.recWeek = { year: y, week: Number(b.dataset.rw) }; if (location.hash === "#recon") render(); else location.hash = "#recon"; };
+    b.onclick = function (e) { e.stopPropagation(); ui.recWeek = { year: y, week: Number(b.dataset.rw) }; ui.recStep = 3; go("#recon"); };
   });
 }
