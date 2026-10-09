@@ -2,7 +2,7 @@
 "use strict";
 
 // ---------- разбор фразы ----------
-var PH_STOP = ["евро", "eur", "€", "руб", "р", "в", "на", "за", "из", "и", "с", "со", "по", "это", "было"];
+var PH_STOP = ["евро", "eur", "€", "руб", "р", "в", "на", "за", "из", "и", "с", "со", "по", "это", "было", "доход", "получила", "пришло", "пришла"];
 var PH_WD = { "понедельник": 1, "пн": 1, "вторник": 2, "вт": 2, "среда": 3, "среду": 3, "ср": 3, "четверг": 4, "чт": 4, "пятница": 5, "пятницу": 5, "пт": 5, "суббота": 6, "субботу": 6, "сб": 6, "воскресенье": 0, "вс": 0 };
 function phNorm(s) { return String(s || "").toLowerCase().replace(/ё/g, "е"); }
 function phStem(w) { w = phNorm(w); return w.length <= 4 ? w : w.slice(0, Math.max(4, w.length - 2)); }
@@ -12,6 +12,20 @@ function phParse(text) {
   t = t.replace(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b/, function (m, d, mo, yy) {
     var y = yy ? (yy.length === 2 ? "20" + yy : yy) : E.todayISO().slice(0, 4);
     out.date = y + "-" + ("0" + mo).slice(-2) + "-" + ("0" + d).slice(-2); return " ";
+  });
+  // месяц словами: «в конце ноября», «15 ноября», «в начале декабря», «в феврале», «конец месяца»
+  var MON = ["янв", "фев", "мар", "апр", "ма[йяе]", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  var mre = new RegExp("(?:(в\\s+)?(конц[еа]|конец|начал[еа]|середин[еуы])\\s+)?(\\d{1,2}\\s+)?(" + MON.join("|") + ")[а-я]*", "i");
+  var today = E.todayISO(), ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7)) - 1;
+  var lastDay = function (y, m) { return new Date(y, m + 1, 0).getDate(); };
+  var mk = function (y, m, d) { return y + "-" + ("0" + (m + 1)).slice(-2) + "-" + ("0" + d).slice(-2); };
+  t = t.replace(/(?:в\s+)?(конц[еа]|конец|начал[еа]|середин[еуы])\s+месяца/, function (m0, pos) {
+    out.date = mk(ty, tm, /^кон/.test(pos) ? lastDay(ty, tm) : /^нач/.test(pos) ? 1 : 15); return " ";
+  });
+  if (!out.date) t = t.replace(mre, function (m0, v, pos, day, mon) {
+    var mi = MON.findIndex(function (x) { return new RegExp("^" + x, "i").test(mon); }); if (mi < 0) return m0;
+    var y = mi < tm ? ty + 1 : ty, d = day ? Number(day) : pos ? (/^кон/.test(pos) ? lastDay(y, mi) : /^нач/.test(pos) ? 1 : 15) : 1;
+    out.date = mk(y, mi, Math.min(d, lastDay(y, mi))); return " ";
   });
   // сумма: первое число (4,5 · 1 200 · 89)
   t = t.replace(/(\d+(?:[  ]\d{3})*(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(Number(m.replace(/[  ]/g, "").replace(",", ".")) * 100); return " "; });
@@ -119,6 +133,10 @@ function plusModel() {
 
 function plusChip(label, cls, inner) { return "<label class='pchip " + (cls || "") + "'>" + label + (inner || "") + "</label>"; }
 function drawParsed(m) {
+  if (plusUi.tab === "spend" && /(^|\s)(доход|получила|пришл[оа])/i.test(plusUi.text)) {
+    plusUi.tab = "income";
+    m.querySelectorAll("[data-pt]").forEach(function (b) { b.classList.toggle("on", b.dataset.pt === "income"); });
+  }
   var md = plusModel(), chips = m.querySelector("#plusChips"), where = m.querySelector("#plusWhere"), html = "", wh = "";
   var dateLbl = md.date === E.todayISO() ? "сегодня" : md.date === E.addDays(E.todayISO(), -1) ? "вчера" : new Date(md.date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
   var dateChip = plusChip(esc(dateLbl) + " ▾", md.date === E.todayISO() ? "soft" : "", "<input type='date' data-o='date' value='" + md.date + "'>");

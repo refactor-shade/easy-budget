@@ -362,8 +362,8 @@ function sharedSetup() {
 }
 
 function sharedCats() {
-  var custom = (sh && sh.space.settings.customCats) || [];
-  return S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; }));
+  var custom = (sh && sh.space.settings.customCats) || [], hidden = (sh && sh.space.settings.hiddenCats) || [];
+  return S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; })).filter(function (c) { return hidden.indexOf(c) < 0; });
 }
 function catPicker(current, onPick) {
   var list = sharedCats();
@@ -405,10 +405,11 @@ routes.shared = function () {
     "<div class='ub-sum'>" + E.fmt(Math.abs(bv), { cur: bc, dec: 2 }) + "</div></div>" + (Math.abs(bv) >= 1 ? "<button class='btn primary' id='settle'>Рассчитаться</button>" : "") + "</div>";
   // общие траты и личный план: текущий месяц
   var nowM = Number(E.todayISO().slice(5, 7)) - 1, covM = myState.years[st.year] ? S.coverage(myState, calc, st.year)[nowM] : null, tl = toLogCount();
-  if (covM || tl) {
+  var covBad = covM && covM.personal && covM.shared > covM.personal;
+  if (covBad || tl) {
     html += "<div class='us-plan'><b>Общие траты и твой план · " + E.MONTHS[nowM] + "</b>" +
-      (covM && covM.personal ? "<div class='up-row'><span>Еда и развлечения: общие " + E.fmt(rnd(covM.shared), { cur: "€" }) + " из плана " + E.fmt(rnd(covM.personal), { cur: "€" }) + "</span><span class='" + (covM.shared <= covM.personal ? "pos" : "warn") + "'>" + (covM.shared <= covM.personal ? "сходится" : "выше плана") + "</span></div>" : "") +
-      (tl ? "<div class='up-row'><span>Нет в личном плане: " + tl + " " + (tl % 10 === 1 && tl % 100 !== 11 ? "трата" : tl % 10 >= 2 && tl % 10 <= 4 && (tl % 100 < 10 || tl % 100 >= 20) ? "траты" : "трат") + "</span><a href='#tolog'>посмотреть ›</a></div>" : "<div class='up-row'><span>Всё есть в личном плане</span><a href='#tolog'>подробнее ›</a></div>") + "</div>";
+      (covBad ? "<div class='up-row'><span>Еда и развлечения: общие " + E.fmt(rnd(covM.shared), { cur: "€" }) + " — больше, чем в твоём плане (" + E.fmt(rnd(covM.personal), { cur: "€" }) + ")</span><a href='#tolog'>поправить ›</a></div>" : "") +
+      (tl ? "<div class='up-row'><span>Нет в личном плане: " + tl + " " + (tl % 10 === 1 && tl % 100 !== 11 ? "трата" : tl % 10 >= 2 && tl % 10 <= 4 && (tl % 100 < 10 || tl % 100 >= 20) ? "траты" : "трат") + "</span><a href='#tolog'>посмотреть ›</a></div>" : "") + "</div>";
   }
 
   // сколько фильтров включено, кроме года (год виден всегда — в заголовке ленты)

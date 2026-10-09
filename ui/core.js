@@ -271,7 +271,7 @@ function afterRender(route) {
     "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
       return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
     }).join("") + "</nav>";
-  if (g === "us" && !RO()) html += viewablePeople().map(function (p) {
+  if (route === "us" && !RO()) html += viewablePeople().map(function (p) {
     return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(nameGen(p.name)) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
   }).join("");
   $main.insertAdjacentHTML("afterbegin", html);

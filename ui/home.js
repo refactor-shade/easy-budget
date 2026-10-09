@@ -103,7 +103,7 @@ routes.home = function () {
   if (!ro) html += "<section class='card a-todo'><h2>Что сделать</h2>" + (todo.length ? "<ul class='todo-list'>" + todo.map(function (x, j) {
     return "<li class='" + (x.k || "") + "' data-todo='" + j + "'><span class='ic'>" + x.ic + "</span><span class='tx'><b>" + x.h + "</b><span>" + x.p + "</span></span><span class='arr'>›</span></li>";
   }).join("") + "</ul>" : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>") +
-    "<a class='rc-row' href='#recon'><span class='rc-l'>Сверки</span>" + reconCalendar(y, true) + "<span class='arr'>›</span></a></section>";
+    "<div class='rc-row' role='link' tabindex='0' id='rcRow'><span class='rc-l'>Сверки</span>" + reconCalendar(y, true) + "<span class='arr'>›</span></div></section>";
 
   // наличка: карманы и вход в историю
   var cs = state.cash;
@@ -122,7 +122,7 @@ routes.home = function () {
       return "<li><span class='name'>" + esc(x.c.name) + "</span><span class='val " + sign(x.cell.cents) + "'>" + E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) + "</span></li>";
     }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") +
     (items.length > 5 && !open ? "<button type='button' class='btn ghost sm more' id='hwMore'>Ещё " + (items.length - 5) + " · показать всю неделю</button>" : "") +
-    "<button type='button' class='btn ghost sm more' data-go='week' data-gw='" + hw + "'>открыть в плане ›</button></section>";
+    "</section>";
 
   // месяц
   var monthName = E.MONTHS[wk.month - 1];
@@ -164,6 +164,7 @@ routes.home = function () {
     };
   });
   var hs = $main.querySelector("#homeSync"); if (hs) hs.onclick = refreshAll;
+  var rr = $main.querySelector("#rcRow"); if (rr) rr.onclick = function (e) { var c = e.target.closest("[data-rw]"); ui.recWeek = c ? { year: y, week: Number(c.dataset.rw) } : null; ui.recHist = !c; go("#recon"); };
   $main.querySelectorAll("[data-q]").forEach(function (el) {
     el.onclick = function () {
       var q = el.dataset.q; ui.year = y; ui.week = w;

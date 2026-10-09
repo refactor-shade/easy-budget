@@ -402,6 +402,21 @@ function settingsHub() {
   }
   blocks.forEach(function (b) { b.hidden = tile[3].indexOf(b.dataset.sec) < 0; });
   if (head) head.hidden = true;
-  $main.insertAdjacentHTML("afterbegin", "<button type='button' class='back-link linkish' id='setBack'>‹ Настройки</button><h1 class='set-h1'>" + tile[1] + "</h1>");
+  $main.insertAdjacentHTML("afterbegin", "<div class='set-bar'><button type='button' class='back-link linkish' id='setBack'>‹ Настройки</button></div><h1 class='set-h1'>" + tile[1] + "</h1>");
+  if (sec === "us" && sh && !RO()) {
+    var hidden = sh.space.settings.hiddenCats || [], custom = sh.space.settings.customCats || [];
+    var all = S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; }));
+    $main.insertAdjacentHTML("beforeend", "<div class='card section sc-card'><h2>Категории общих трат</h2><p class='small muted' style='margin-top:-6px'>Общие для вас обеих: изменения видят и ты, и " + esc(partnerName()) + ". Скрытая категория не показывается при вводе, старые траты в ней остаются.</p>" +
+      "<ul class='sc-list'>" + all.map(function (c) {
+        var isHidden = hidden.indexOf(c) >= 0, isCustom = S.SHARED_CATS.indexOf(c) < 0;
+        return "<li class='" + (isHidden ? "off" : "") + "'>" + catIcon(c) + "<span class='sc-n'>" + esc(c) + "</span>" +
+          (isCustom ? "<button type='button' class='linkish' data-scren='" + esc(c) + "'>переименовать</button>" : "") +
+          "<button type='button' class='btn sm' data-schide='" + esc(c) + "'>" + (isHidden ? "Показать" : "Скрыть") + "</button></li>";
+      }).join("") + "</ul><button type='button' class='btn' id='scAdd'>+ Новая категория</button></div>");
+    var saveSp = function () { Store.saveSpaceSettings(sh.space.id, sh.space.settings).catch(function (e) { toast("Не сохранилось: " + e.message); }); render(); };
+    $main.querySelectorAll("[data-schide]").forEach(function (b) { b.onclick = function () { var c = b.dataset.schide, h = sh.space.settings.hiddenCats || []; sh.space.settings.hiddenCats = h.indexOf(c) >= 0 ? h.filter(function (x) { return x !== c; }) : h.concat([c]); saveSp(); }; });
+    $main.querySelectorAll("[data-scren]").forEach(function (b) { b.onclick = function () { var c = b.dataset.scren, n = (prompt("Новое название", c) || "").trim(); if (!n || n === c) return; sh.space.settings.customCats = (sh.space.settings.customCats || []).map(function (x) { return x === c ? n : x; }); saveSp(); }; });
+    $main.querySelector("#scAdd").onclick = function () { var n = (prompt("Название новой категории (например, «Животные»)") || "").trim(); if (!n) return; if (all.indexOf(n) >= 0) { toast("Такая уже есть"); return; } sh.space.settings.customCats = (sh.space.settings.customCats || []).concat([n]); saveSp(); };
+  }
   $main.querySelector("#setBack").onclick = function () { ui.setSec = null; render(); window.scrollTo(0, 0); };
 }

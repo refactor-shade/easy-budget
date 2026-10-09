@@ -45,7 +45,7 @@ routes.cash = function () {
     "</div><div class='chips cash-ex'>" + ["такси 12 из кошелька", "переложила 100 из конверта 1 в кошелёк", "сняла 200", "положила 300 на карту"].map(function (x) { return "<button type='button' class='chip' data-ex='" + esc(x) + "'>" + esc(x) + "</button>"; }).join("") + "</div>" +
     "<div id='cashPv'></div></form></div>";
   html = html.replace(/<div class='page-head'>[\s\S]*?<\/div><\/div>/, "<div class='page-head cash-head'><h1>Наличка</h1><span class='small muted'>всего " + E.eur(total, { dec: 2 }) + "</span></div>");
-  html += "<div class='pk-grid'>" + pockets.map(function (p) {
+  html += "<div class='cash-wrap'><div class='cash-l'><div class='pk-grid'>" + pockets.map(function (p) {
     return "<div class='pk-tile'><button type='button' class='pk-main' data-recount='" + p.id + "'" + (ro ? " disabled" : "") + "><span class='pk-n'>" + esc(p.name) + "</span><b>" + E.fmt(bal[p.id] || 0, { cur: pocketCur(p.id) }) + "</b>" + (ro ? "" : "<small>пересчитать ›</small>") + "</button>" +
       (ro ? "" : "<button type='button' class='pk-more' data-pk='" + p.id + "' aria-label='Настроить карман'>⋯</button>") + "</div>";
   }).join("") + "</div>";
@@ -55,6 +55,7 @@ routes.cash = function () {
   var all = (c.tx || []).map(function (t) { return Object.assign({ own: true }, t); }).concat(lines).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.ts || 0) - (a.ts || 0); });
   var today = E.todayISO(), yday = E.addDays(today, -1), lastD = null;
   var dayT = function (d) { return d === today ? "Сегодня" : d === yday ? "Вчера, " + new Date(d + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }) : new Date(d + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }); };
+  html += "<div class='card cash-sum'><div class='small muted'>Всего наличными</div><div class='cs-v'>" + E.eur(total, { dec: 2 }) + "</div><div class='small muted'>учёт с " + esc(c.since.slice(8, 10) + "." + c.since.slice(5, 7) + "." + c.since.slice(0, 4)) + " · траты из «Мы», которые ты платила наличными, попадают сюда сами</div></div></div><div class='cash-r'>";
   html += "<h2 class='cash-h2'>История</h2>" + (all.length ? "<ul class='card cash-hist'>" + all.slice(0, ui.cashLimit || 60).map(function (t) {
     var flow = t.kind === "move" ? "из " + pocketName(t.from) + " в " + pocketName(t.to) : t.kind === "in" ? "с карты в " + pocketName(t.to) : t.kind === "out" ? "из " + pocketName(t.from) + " на карту" :
       t.kind === "ext" ? "в " + pocketName(t.to) : t.kind === "adjust" ? "пересчёт · " + pocketName(t.to) : pocketName(t.from);
@@ -66,7 +67,7 @@ routes.cash = function () {
     return head + "<li class='ch-row'><span class='ch-ic'>" + ic + "</span><span class='ch-tx'><span class='ch-t'>" + title + "</span><small>" + sub + "</small></span>" +
       "<span class='ch-v " + (v > 0 ? "pos" : "") + "'>" + (v === 0 ? E.fmt(t.cents, { cur: pocketCur(t.from) }) : E.fmt(v, { cur: pocketCur(t.from || t.to), plus: v > 0 })) + "</span>" +
       (t.own && !ro ? "<button class='ch-del' data-deltx='" + t.id + "' aria-label='Удалить'>✕</button>" : "") + "</li>";
-  }).join("") + "</ul>" + (all.length > (ui.cashLimit || 60) ? "<button class='btn ghost sm' id='cashMore'>Показать ещё</button>" : "") : "<p class='empty'>Пока пусто. Наличные траты из «Мы», которые платила ты, появятся здесь сами.</p>");
+  }).join("") + "</ul>" + (all.length > (ui.cashLimit || 60) ? "<button class='btn ghost sm' id='cashMore'>Показать ещё</button>" : "") : "<p class='empty'>Пока пусто. Наличные траты из «Мы», которые платила ты, появятся здесь сами.</p>") + "</div></div>";
   $main.innerHTML = html;
   if (ro) return;
 
