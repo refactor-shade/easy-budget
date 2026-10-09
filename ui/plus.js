@@ -53,6 +53,15 @@ function phCat(words, income) {
   return null;
 }
 
+// Вкладка по словам: «зарплата», «доход», «бонус» → Доход; «пополам», «вдвоём», имя партнёра → Общая
+function plusAutoTab(text) {
+  var t = phNorm(text), words = t.split(/[\s,;.!?]+/).filter(Boolean);
+  if (sh && (/(^|\s)(пополам|поровну|вдво[её]м|на двоих|общ(ая|ий|ее|ую|ие))(\s|$)/.test(t) || words.some(function (w) { return partnerStems().some(function (st) { return st && w.indexOf(st) === 0; }); }))) return "shared";
+  if (/(^|\s)(доход|зарплат|зп(\s|$)|получил|пришл[оа]|бонус|преми|аванс|кешбэк|кэшбэк|гонорар|возврат налог)/.test(t)) return "income";
+  var p = phParse(text);
+  if (p.words.length && !phCat(p.words, false) && phCat(p.words, true)) return "income";
+  return null;
+}
 // имя партнёра в фразе: «Рита», «Риты», «Rita» — первые 3 буквы в обеих раскладках
 function partnerStems() {
   var n = sh && sh.partner ? phNorm(sh.partner.name.split(" ")[0]) : ""; if (!n) return [];
@@ -66,8 +75,9 @@ function nameDat(n) { n = String(n || ""); return /[ая]$/i.test(n) ? n.slice(0
 var plusUi = { tab: "spend", text: "", over: {} };
 function plusSheet(tab) {
   if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
-  if (tab) plusUi.tab = tab;
+  plusUi.tab = tab || "spend"; // без явной вкладки всегда начинаем с «Траты» — угаданная в прошлый раз не залипает
   plusUi.text = ""; plusUi.over = {};
+  plusUi.manual = !!tab; plusUi.base = plusUi.tab; // вкладку угадываем по фразе, пока её не выбрали руками
   modal("<div class='m-body plus'><div class='plus-head'><h2>Внести</h2><button class='linkish' data-act='x'>Закрыть</button></div>" +
     "<div class='plus-tabs' role='tablist'>" + [["spend", "Трата"], ["income", "Доход"], ["shared", "Общая"], ["cash", "Наличка"], ["recon", "Сверка ›"]].map(function (x) {
       return "<button type='button' role='tab' data-pt='" + x[0] + "'>" + x[1] + "</button>";
@@ -78,7 +88,7 @@ function plusSheet(tab) {
       b.onclick = function () {
         if (b.dataset.pt === "recon") { closeModal(); var d = defaultYearWeek(); ui.recWeek = finishedWeek() || (d ? { year: d.year, week: d.week } : null); go("#recon"); return; }
         if (b.dataset.pt === "shared" && !sh) { closeModal(); go("#shared"); return; }
-        plusUi.tab = b.dataset.pt; plusUi.over = {}; plusUi.text = ""; drawPlus(m);
+        plusUi.tab = b.dataset.pt; plusUi.over = {}; plusUi.text = ""; plusUi.manual = true; drawPlus(m);
       };
     });
     drawPlus(m);
@@ -122,11 +132,13 @@ function plusModel() {
     md.word = ci ? null : p.words[0];
   } else if (tab === "shared") {
     var pNames = partnerStems(), payP = false, full = false, desc = [];
+    // «с Ритой», «для Риты» — вместе, а не «платила Рита»
+    var withP = pNames.some(function (st) { return st && new RegExp("(^|\\s)(с|со|для|вместе с)\\s+" + st).test(phNorm(plusUi.text)); });
     p.words.forEach(function (w) {
-      if (pNames.some(function (s) { return phNorm(w).indexOf(s) === 0; })) { payP = true; return; }
+      if (pNames.some(function (s) { return phNorm(w).indexOf(s) === 0; })) { payP = !withP; return; }
       if (/^(заплатил|платил|оплатил)/.test(w)) return;
       if (w === "я" || w === "мы") return;
-      if (w === "пополам" || w === "поровну") return;
+      if (/^(пополам|поровну|вдво[её]м|общ(ая|ий|ее|ую|ие))$/.test(w)) return;
       if (/^полност|^целиком|^всё$|^все$/.test(w)) { full = true; return; }
       desc.push(w);
     });
@@ -145,9 +157,12 @@ function plusModel() {
 
 function plusChip(label, cls, inner) { return "<label class='pchip " + (cls || "") + "'>" + label + (inner || "") + "</label>"; }
 function drawParsed(m) {
-  if (plusUi.tab === "spend" && /(^|\s)(доход|получила|пришл[оа])/i.test(plusUi.text)) {
-    plusUi.tab = "income";
-    m.querySelectorAll("[data-pt]").forEach(function (b) { b.classList.toggle("on", b.dataset.pt === "income"); });
+  if (!plusUi.manual && plusUi.base === "spend") {
+    var want = plusAutoTab(plusUi.text) || "spend";
+    if (want !== plusUi.tab) {
+      plusUi.tab = want; plusUi.over = {};
+      m.querySelectorAll("[data-pt]").forEach(function (b) { b.classList.toggle("on", b.dataset.pt === want); b.setAttribute("aria-selected", b.dataset.pt === want ? "true" : "false"); });
+    }
   }
   var md = plusModel(), chips = m.querySelector("#plusChips"), where = m.querySelector("#plusWhere"), html = "", wh = "";
   var dateLbl = md.date === E.todayISO() ? "сегодня" : md.date === E.addDays(E.todayISO(), -1) ? "вчера" : new Date(md.date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short" });

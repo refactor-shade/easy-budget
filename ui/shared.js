@@ -148,13 +148,6 @@ routes.tolog = function () {
   }).filter(function (x) { return x.share >= 1000; }).sort(function (a2, b2) { return b2.share - a2.share; });
   var html = "<div class='tl-head'><h1>Общие траты и твой план</h1><div class='tl-month'><button type='button' class='round-btn' data-tm='-1' aria-label='Предыдущий месяц'>‹</button><b>" + E.MONTHS[tm][0].toUpperCase() + E.MONTHS[tm].slice(1) + " " + ty + "</b><button type='button' class='round-btn' data-tm='1' aria-label='Следующий месяц'>›</button></div>" +
     "<p class='small muted'>Твоя доля общих трат рядом с суммой в личном плане. Ничего не вносится само — только если нажмёшь.</p></div>";
-  html += "<div class='card tl-cats'>" + (catRows.length ? catRows.map(function (x) {
-    var ok = x.plan > 0 && x.share <= x.plan, none = !x.plan;
-    return "<div class='tl-row" + (none ? " none" : "") + "'><div class='tl-top'><b>" + esc(catLabel(x.c)) + "</b>" + (ok ? "<span class='pos'>✓</span>" : none ? "<span class='warn'>нет в плане</span>" : "<span class='warn'>выше плана</span>") + "</div>" +
-      (x.plan ? "<div class='tl-track'><i style='width:" + Math.min(100, Math.round(x.share / x.plan * 100)) + "%'></i></div>" : "") +
-      "<div class='small muted'>общие " + E.eur(rnd(x.share), { dec: 0 }) + (x.plan ? " из плана " + E.eur(rnd(x.plan), { dec: 0 }) + (x.pid ? " · «" + esc(catName(x.pid)) + "»" : "") : x.pid ? " · в «" + esc(catName(x.pid)) + "» на этот месяц 0 €" : " · категория личного плана не выбрана") + "</div></div>";
-  }).join("") : "<p class='muted' style='margin:0'>В этом месяце заметных общих трат пока нет.</p>") + "</div>";
-  html += "<details class='tl-opts small'><summary>Какие траты проверять</summary><div class='row' style='margin-top:8px'><label class='small muted'>с <input type='date' id='lgSince' value='" + o.since + "'></label><label class='small muted'>доля от <input id='lgMin' inputmode='decimal' value='" + o.min / 100 + "' style='width:64px'> €</label></div></details>";
   function row(x) {
     var e = x.e;
     return "<li class='lg' data-id='" + esc(e.id) + "'><div class='lg-main'><b>" + esc(e.desc) + "</b><span class='small muted'>" + esc(e.date.slice(8, 10) + "." + e.date.slice(5, 7)) + " · " + esc(x.sharedCat) + " · всего " + E.fmt(e.cost, { cur: e.currency === "EUR" ? "€" : e.currency, dec: 0 }) +
@@ -163,15 +156,24 @@ routes.tolog = function () {
       "<div class='lg-act'><select data-lc aria-label='Категория личного плана'><option value=''>категория…</option>" + catOptions(x.catId, function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select>" +
       "<button class='btn sm primary' data-la='add'>Внести</button><button class='btn sm' data-la='had'>Уже есть</button><button class='btn sm ghost' data-la='skip'>Не нужно</button></div></li>";
   }
-  var uc = utilitiesCard(); html += uc.html;
+  var uc = utilitiesCard();
   if (!fresh.length && !maybe.length && !gaps.length) html += "<div class='card all-good'><span class='ic'>✓</span>Всё заметное из общих уже в личном плане.</div>";
+  if (fresh.length) html += "<div class='card'><h2>Нет в личном плане · " + fresh.length + "</h2><p class='small muted' style='margin-top:-6px'>Выбери категорию и нажми «Внести» — или «Уже есть», если учла по-другому.</p><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
   if (gaps.length) html += "<div class='card'><h2>Еда и развлечения вышли за план</h2><ul class='lg-list'>" + gaps.map(function (g) {
     return "<li class='lg' data-gap='" + g.key + "'><div class='lg-main'><b>" + E.MONTHS[g.month - 1][0].toUpperCase() + E.MONTHS[g.month - 1].slice(1) + " " + g.year + "</b><span class='small muted'>общие " + E.eur(rnd(g.shared), { dec: 0 }) + " (твоя доля) при личном плане " + E.eur(rnd(g.personal), { dec: 0 }) + "</span></div>" +
       "<div class='lg-val neg'>+" + E.eur(rnd(g.gap), { dec: 0 }) + "</div><div class='lg-act'><button class='btn sm primary' data-ga='add'>Добавить разницу в план</button><button class='btn sm ghost' data-ga='skip'>Не нужно</button></div></li>";
   }).join("") + "</ul></div>";
-  if (fresh.length) html += "<div class='card'><h2>Нет в личном плане · " + fresh.length + "</h2><p class='small muted' style='margin-top:-6px'>Выбери категорию и нажми «Внести» — или «Уже есть», если учла по-другому.</p><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
   if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b> <span class='small muted'>в нужной категории в тот месяц есть сумма не меньше</span></summary>" +
     "<div class='row' style='margin:10px 0'><button class='btn sm' id='allHad'>Да, всё это уже учтено</button></div><ul class='lg-list'>" + maybe.map(row).join("") + "</ul></details>";
+  // обзор по категориям, коммуналка и настройки — ниже, после того, что нужно сделать
+  html += "<h2 class='section'>По категориям за месяц</h2><div class='card tl-cats'>" + (catRows.length ? catRows.map(function (x) {
+    var ok = x.plan > 0 && x.share <= x.plan, none = !x.plan;
+    return "<div class='tl-row" + (none ? " none" : "") + "'><div class='tl-top'><b>" + esc(catLabel(x.c)) + "</b>" + (ok ? "<span class='pos'>✓</span>" : none ? "<span class='warn'>нет в плане</span>" : "<span class='warn'>выше плана</span>") + "</div>" +
+      (x.plan ? "<div class='tl-track'><i style='width:" + Math.min(100, Math.round(x.share / x.plan * 100)) + "%'></i></div>" : "") +
+      "<div class='small muted'>общие " + E.eur(rnd(x.share), { dec: 0 }) + (x.plan ? " из плана " + E.eur(rnd(x.plan), { dec: 0 }) + (x.pid ? " · «" + esc(catName(x.pid)) + "»" : "") : x.pid ? " · в «" + esc(catName(x.pid)) + "» на этот месяц 0 €" : " · категория личного плана не выбрана") + "</div></div>";
+  }).join("") : "<p class='muted' style='margin:0'>В этом месяце заметных общих трат пока нет.</p>") + "</div>";
+  html += "<details class='tl-opts small' style='margin-top:16px'><summary>Какие траты проверять</summary><div class='row' style='margin-top:8px'><label class='small muted'>с <input type='date' id='lgSince' value='" + o.since + "'></label><label class='small muted'>доля от <input id='lgMin' inputmode='decimal' value='" + o.min / 100 + "' style='width:64px'> €</label></div></details>";
+  html += uc.html;
   $main.innerHTML = html;
   uc.bind();
   $main.querySelectorAll("[data-tm]").forEach(function (b) { b.onclick = function () { var v = (ui.tologM !== undefined ? ui.tologM : Number(E.todayISO().slice(5, 7)) - 1) + Number(b.dataset.tm); ui.tologM = Math.max(0, Math.min(11, v)); render(); }; });
@@ -466,6 +468,8 @@ routes.shared = function () {
       (covBad ? "<div class='up-row'><span>Еда и развлечения: общие " + E.fmt(rnd(covM.shared), { cur: "€" }) + " — больше, чем в твоём плане (" + E.fmt(rnd(covM.personal), { cur: "€" }) + ")</span><a href='#tolog'>поправить ›</a></div>" : "") +
       (tl ? "<div class='up-row'><span>Нет в личном плане: " + tl + " " + (tl % 10 === 1 && tl % 100 !== 11 ? "трата" : tl % 10 >= 2 && tl % 10 <= 4 && (tl % 100 < 10 || tl % 100 >= 20) ? "траты" : "трат") + "</span><a href='#tolog'>посмотреть ›</a></div>" : "") + "</div>";
   }
+  // вход на экран сравнения есть всегда, даже когда всё учтено
+  else if (!RO()) html += "<a class='us-plan us-plan-ok' href='#tolog'><span><b>Общие траты и твой план</b><span class='small muted'>всё заметное уже учтено ✓</span></span><span class='arr'>›</span></a>";
 
   // сколько фильтров включено, кроме года (год виден всегда — в заголовке ленты)
   var nF = (st.month !== "all") + (st.cat !== "all") + (st.kind !== "all") + (st.year !== E.todayISO().slice(0, 4));
