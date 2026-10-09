@@ -351,7 +351,8 @@ function sheetSteps(token) {
     "<li>Открой <a href='https://sheets.new' target='_blank' rel='noopener'>новую Google Таблицу</a> (или ту, где хочешь видеть бюджет).</li>" +
     "<li>В ней: <b>Расширения → Apps Script</b>. Удали всё в редакторе, вставь код и нажми «Сохранить» (дискета). <button class='btn sm' id='gsCode'>Скопировать код</button></li>" +
     "<li>Вернись в таблицу и обнови страницу — появится меню <b>Easy Budget</b>.</li>" +
-    "<li><b>Easy Budget → Подключить</b> и вставь ключ. <button class='btn sm' id='gsKey'>Скопировать ключ</button><br><small class='muted'>Google спросит разрешение: скрипту нужен доступ к этой таблице и к интернету, чтобы забирать данные.</small></li></ol>" +
+    "<li><b>Easy Budget → Подключить</b> и вставь ключ. <button class='btn sm' id='gsKey'>Скопировать ключ</button><br><small class='muted'>Google спросит разрешение: скрипту нужен доступ к этой таблице и к интернету, чтобы забирать данные. После «Разрешить» нажми «Подключить» ещё раз — Google не продолжает команду сам.</small></li>" +
+    "<li>Через несколько секунд появятся листы. Не появились — <b>Easy Budget → Проверить подключение</b> покажет, в чём дело.</li></ol>" +
     "<p class='small muted'>Ключ — как пароль к копии бюджета: не пересылай его. Если он утёк — «Новый ключ», и старый перестанет работать.</p></div>" +
     "<div class='m-foot'><span class='spacer'></span><button class='btn primary' data-act='ok'>Готово</button></div>", function (m) {
     function copy(text, label) {
