@@ -56,91 +56,105 @@ routes.home = function () {
   });
   items.sort(function (a, b) { return Math.abs(b.cell.cents) - Math.abs(a.cell.cents); });
 
+  // «Итог месяца» — строка в «Что сделать», подробности по нажатию
+  var INS = window.BudgetInsights;
+  var due = !ro ? INS.monthDue(state, E.todayISO()) : null, ms = null;
+  if (due && state.settings.monthSeen !== due.key) {
+    ms = INS.month(state, due.year, due.month);
+    var nb0 = ms.numbers, pct = nb0.income > 0 ? Math.round(nb0.net / nb0.income * 100) : null;
+    todo.unshift({ ic: "◷", h: "Итог " + E.MONTHS_GEN[due.month] + " готов", p: (nb0.dcap === null ? "" : "Капитал " + eur(rnd(nb0.dcap), { dec: 0, plus: true }) + ", ") + (pct === null ? "посмотри, как прошёл месяц" : "осталось " + pct + "% доходов"), act: "month" });
+  }
+
+  // неделя на карточке: можно листать ‹ ›
+  var hw = Math.max(0, Math.min(59, w + (ui.homeWeekOff || 0)));
+  if (hw !== w) {
+    items = []; tin = 0; tout = 0;
+    cats().forEach(function (c) {
+      var cell = r.cells[c.id][hw]; if (!cell) return;
+      var v = c.currency === "RUB" ? 0 : cell.cents;
+      if (c.block !== "savings") { if (v > 0) tin += v; else tout += v; }
+      items.push({ c: c, cell: cell });
+    });
+    items.sort(function (a, b) { return Math.abs(b.cell.cents) - Math.abs(a.cell.cents); });
+  }
+  var qb = function (key, label) { return "<button type='button' class='q-btn' data-explain='" + key + "' aria-label='" + label + "'>?</button>"; };
+
   var html = "<div class='home'>";
-  html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + " · " + wk.wim + "-я неделя месяца</div>" +
+  html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + "</div>" +
     "<div class='home-act'><button type='button' class='icon-btn sync' data-sync id='homeSync' aria-label='Обновить'><span aria-hidden='true'>↻</span><i class='sync-dot' aria-hidden='true'></i></button>" +
     "<a class='icon-btn' href='#settings' aria-label='Настройки'><span aria-hidden='true'>⚙</span></a></div></div>" +
-    "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1>" + (ro ? "<div class='sub'>Бюджет " + esc(view.name) + " — только просмотр</div>" : "") + "</header>";
+    "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1></header>";
 
   // главный блок
   var ok = minV >= 0;
-  html += "<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении сейчас</div>" +
+  html += "<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении сейчас" + qb("obr", "Что такое «в обращении»") + "</div>" +
     "<button class='hero-value' data-ob='1' title='Из чего складывается'>" + eur(rnd(r.base[w]), { dec: 0 }) + "</button>" +
     "<div class='hero-status " + (ok ? "good" : "bad") + "'><span class='dot'></span>" + "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + "</div>" +
-    "<div class='hero-min small'>" + esc(shortWeek(y, minW)) + ", если всё пойдёт по плану</div>" +
-    "<div class='hero-note small muted'>" + (r.fact[w] === null ? (lastRec >= 0 ? "Посчитано от сверки " + esc(shortWeek(y, lastRec)) : "Посчитано по плану, сверок ещё не было") : "По сверке этой недели") +
+    "<div class='hero-min'>" + esc(shortWeek(y, minW)) + ", если всё пойдёт по плану<br>" +
+    (r.fact[w] === null ? (lastRec >= 0 ? "По сверке " + esc(shortWeek(y, lastRec)) : "По плану, сверок ещё не было") : "По сверке этой недели") +
     " · <button class='linkish' data-ob='1'>из чего складывается</button></div></div>" +
-    "<div class='hero-side'><div class='hero-label'>Капитал <span class='muted small'>· все твои деньги вместе</span></div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
-    "<div class='small'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> <span class='muted'>с начала " + E.MONTHS_GEN[wk.month - 1] + "</span></div>" +
+    "<div class='hero-side'><div class='hero-label'>Капитал" + qb("cap", "Что такое капитал") + "</div><div class='hero-cap'>" + eur(rnd(r.cap[w]), { dec: 0 }) + "</div>" +
+    "<div class='hero-dcap'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> с начала " + E.MONTHS_GEN[wk.month - 1] + "</div>" +
     "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-  // «Заметное»: одна хорошая новость + одна подсказка (подсказки меняются от недели к неделе)
-  var INS = window.BudgetInsights, ins = !ro ? INS.personal(state, y, insightCtx()) : null, notes = [];
-  if (ins) {
-    if (ins.good[0]) notes.push({ z: "good", c: ins.good[0] });
-    var tips = ins.improve.length ? ins.improve : ins.info.filter(function (c) { return c.id === "family" || c.id === "low" || c.id === "reserve"; });
-    if (tips.length) notes.push({ z: "improve", c: tips[w % tips.length] });
-  }
-  var noteCard = notes.length ? "<section class='card a-note'><div class='row'><h2 style='margin:0'>Заметное</h2><span class='spacer'></span><a class='small' href='#insights'>все выводы ›</a></div><ul class='note-list'>" + notes.map(function (x) {
-    return "<li class='" + (x.z === "good" ? "up" : "flat") + "'><span class='fact-ic' aria-hidden='true'>" + (x.z === "good" ? "✓" : "→") + "</span><span><b>" + esc(x.c.h) + "</b> " + esc(x.c.p) + "</span></li>";
-  }).join("") + "</ul></section>" : "";
-
-  // «Итог месяца»: после сверки последней недели месяца или через 3 дня после его конца
-  var due = !ro ? INS.monthDue(state, E.todayISO()) : null, monthCard = "";
-  if (due && state.settings.monthSeen !== due.key) {
-    var ms = INS.month(state, due.year, due.month), nb = ms.numbers, mn = E.MONTHS[due.month];
-    var li = function (z, mk, h, p) { return "<li class='" + z + "'><span class='mk' aria-hidden='true'>" + mk + "</span><span><b>" + esc(h) + "</b>" + (p ? " " + esc(p) : "") + "</span></li>"; };
-    monthCard = "<section class='card month-sum'><div class='row'><h2 style='margin:0'>Итог месяца: " + mn + "</h2><span class='spacer'></span>" + (due.recon ? "" : "<span class='badge'>без сверки</span>") + "</div>" +
-      "<div class='ms-nums'><div><span class='muted small'>доходы</span><b class='pos'>" + eur(rnd(nb.income), { dec: 0 }) + "</b></div><div><span class='muted small'>расходы</span><b>" + eur(rnd(nb.total), { dec: 0 }) + "</b></div>" +
-      "<div><span class='muted small'>осталось</span><b class='" + sign(nb.net) + "'>" + eur(rnd(nb.net), { dec: 0, plus: true }) + "</b></div><div><span class='muted small'>капитал</span><b class='" + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "—" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</b></div></div><ul>" +
-      ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "↗", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") +
-      "</ul><div class='row' style='margin-top:12px'><a class='btn sm' href='#insights'>Все выводы</a><span class='spacer'></span><button class='btn ghost sm' id='msSeen'>Прочитано</button></div></section>";
-  }
-
-  html += monthCard;
   html += "<div class='home-grid'>";
   // дела
   if (!ro) html += "<section class='card a-todo'><h2>Что сделать</h2>" + (todo.length ? "<ul class='todo-list'>" + todo.map(function (x, j) {
     return "<li class='" + (x.k || "") + "' data-todo='" + j + "'><span class='ic'>" + x.ic + "</span><span class='tx'><b>" + x.h + "</b><span>" + x.p + "</span></span><span class='arr'>›</span></li>";
   }).join("") + "</ul>" : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>") +
-    "<div class='rc-home'><span class='small muted'>Сверки за последние недели</span>" + reconCalendar(y, true) + "</div></section>";
+    "<a class='rc-row' href='#recon'><span class='rc-l'>Сверки</span>" + reconCalendar(y, true) + "<span class='arr'>›</span></a></section>";
 
   // наличка: карманы и вход в историю
-  var cs = state.cash, cashCard = "";
+  var cs = state.cash;
   if (cs && cs.pockets && cs.pockets.length) {
     var cb = K.balances(cs, cashLines()), cps = cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
-    cashCard = "<a class='card a-cash' href='#cash'><span class='cc-tx'><span class='cc-row'><b>Наличка</b><b>" + eur(cashEurTotal(), { dec: 0 }) + "</b></span>" +
+    html += "<a class='card a-cash' href='#cash'><span class='cc-tx'><span class='cc-row'><b>Наличка</b><b>" + eur(cashEurTotal(), { dec: 0 }) + "</b></span>" +
       "<span class='small muted'>" + cps.slice(0, 3).map(function (p) { return esc(p.name) + " " + E.fmt(cb[p.id] || 0, { cur: pocketCur(p.id), dec: 0 }); }).join(" · ") + (cps.length > 3 ? " · ещё " + (cps.length - 3) : "") + "</span></span><span class='arr'>›</span></a>";
   }
-  html += cashCard;
+
   // неделя
-  html += "<section class='card a-week'><div class='row'><h2 style='margin:0'>Эта неделя</h2><span class='spacer'></span><span class='small muted'>" + esc(E.weekTitle(Number(y), w)) + "</span></div>" +
-    "<div class='mini-kpis'><div><span class='muted small'>приход</span><b class='pos'>" + eur(tin, { dec: 0 }) + "</b></div><div><span class='muted small'>расход</span><b>" + eur(-tout, { dec: 0 }) + "</b></div></div>" +
-    (items.length ? "<ul class='plan-list'>" + items.slice(0, 5).map(function (x) {
-      return "<li data-go='week'><span class='name'>" + esc(x.c.name) + "</span><span class='badge " + x.cell.src + "'>" + (x.cell.src === "rec" ? "регулярная" : "вручную") + "</span><span class='val " + sign(x.cell.cents) + "'>" + E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) + "</span></li>";
+  var open = !!ui.homeWeekOpen, shown = open ? items : items.slice(0, 5);
+  html += "<section class='card a-week'><div class='wk-head'><button type='button' class='round-btn' data-hw='-1' aria-label='Предыдущая неделя'>‹</button>" +
+    "<div class='wk-title'><h2>Неделя " + esc(shortWeek(y, hw)) + "</h2><div class='small muted'>приход " + eur(tin, { dec: 0 }) + " · расход " + eur(-tout, { dec: 0 }) + "</div></div>" +
+    "<button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>" +
+    (items.length ? "<ul class='plan-list'>" + shown.map(function (x) {
+      return "<li><span class='name'>" + esc(x.c.name) + "</span><span class='val " + sign(x.cell.cents) + "'>" + E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) + "</span></li>";
     }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>") +
-    "<button class='btn ghost sm more' data-go='week'>" + (items.length > 5 ? "Ещё " + (items.length - 5) + " · " : "") + "открыть неделю ›</button></section>";
+    (items.length > 5 && !open ? "<button type='button' class='btn ghost sm more' id='hwMore'>Ещё " + (items.length - 5) + " · показать всю неделю</button>" : "") +
+    "<button type='button' class='btn ghost sm more' data-go='week' data-gw='" + hw + "'>открыть в плане ›</button></section>";
 
   // месяц
   var monthName = E.MONTHS[wk.month - 1];
   html += "<section class='card a-month'><div class='row'><h2 style='margin:0'>" + monthName[0].toUpperCase() + monthName.slice(1) + "</h2><span class='spacer'></span><span class='small muted'>неделя " + wk.wim + " из 5</span></div>" +
     "<div class='month-bar' aria-hidden='true'>" + [1, 2, 3, 4, 5].map(function (n) { return "<span class='" + (n < wk.wim ? "past" : n === wk.wim ? "now" : "") + "'></span>"; }).join("") + "</div>" +
-    "<table class='t'><tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
-    "<tr><td>Расходы</td><td class='n'>" + eur(rnd(mon.total), { dec: 0 }) + "</td></tr>" +
-    "<tr><td>Отложить в накопления</td><td class='n'>" + eur(rnd(mon.saved), { dec: 0 }) + "</td></tr></table>" +
+    "<div class='kv'><span>Доходы</span><b class='pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</b></div>" +
+    "<div class='kv'><span>Расходы</span><b>" + eur(rnd(mon.total), { dec: 0 }) + "</b></div>" +
+    "<div class='kv'><span>Отложить в накопления</span><b>" + eur(rnd(mon.saved), { dec: 0 }) + "</b></div>" +
     "<button class='btn ghost sm more' data-go='year'>весь год ›</button></section>";
   html += "</div>";
 
   html += "<p class='home-help small muted'>Впервые здесь или что-то непонятно? <a href='#help'>Как это работает</a></p></div>";
   $main.innerHTML = html;
 
-  $main.querySelectorAll("[data-go]").forEach(function (el) { el.onclick = function () { ui.year = y; ui.week = w; go("#" + el.dataset.go); }; });
-  var msSeen = $main.querySelector("#msSeen");
-  if (msSeen) msSeen.onclick = function () { state.settings.monthSeen = due.key; changed(); };
+  $main.querySelectorAll("[data-hw]").forEach(function (b) { b.onclick = function () { ui.homeWeekOff = (ui.homeWeekOff || 0) + Number(b.dataset.hw); ui.homeWeekOpen = false; render(); }; });
+  var hm = $main.querySelector("#hwMore"); if (hm) hm.onclick = function () { ui.homeWeekOpen = true; render(); };
+  function monthModal() {
+    var nb = ms.numbers, mn = E.MONTHS[due.month];
+    var li = function (z, mk, h, p) { return "<li class='" + z + "'><span class='mk' aria-hidden='true'>" + mk + "</span><span><b>" + esc(h) + "</b>" + (p ? " " + esc(p) : "") + "</span></li>"; };
+    modal("<div class='m-body month-sum'><h2>Итог месяца: " + mn + "</h2>" + (due.recon ? "" : "<p class='small muted' style='margin:0'>Без сверки в конце месяца — цифры по плану.</p>") +
+      "<div class='ms-nums'><div><span class='muted small'>доходы</span><b class='pos'>" + eur(rnd(nb.income), { dec: 0 }) + "</b></div><div><span class='muted small'>расходы</span><b>" + eur(rnd(nb.total), { dec: 0 }) + "</b></div>" +
+      "<div><span class='muted small'>осталось</span><b class='" + sign(nb.net) + "'>" + eur(rnd(nb.net), { dec: 0, plus: true }) + "</b></div><div><span class='muted small'>капитал</span><b class='" + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "—" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</b></div></div><ul>" +
+      ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "↗", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") +
+      "</ul></div><div class='m-foot'><a class='btn ghost' href='#insights'>Все выводы</a><button class='btn primary' data-act='seen'>Прочитано</button></div>", function (m) {
+      m.querySelector("[data-act=seen]").onclick = function () { state.settings.monthSeen = due.key; closeModal(); changed(); };
+    });
+  }
+  $main.querySelectorAll("[data-go]").forEach(function (el) { el.onclick = function () { ui.year = y; ui.week = el.dataset.gw ? Number(el.dataset.gw) : w; go("#" + el.dataset.go); }; });
   $main.querySelectorAll("[data-todo]").forEach(function (el) {
     el.onclick = function () {
       var td = todo[Number(el.dataset.todo)], a = td.act;
       if (a === "tour") return showTour(0);
+      if (a === "month") return monthModal();
       if (a === "reminder") { try { localStorage.setItem("eb:pushAsked", "1"); } catch (e) { /* ок */ } return reminderModal(); }
       if (a === "install") return installModal();
       if (a === "backup") { backupDownload(); return render(); }

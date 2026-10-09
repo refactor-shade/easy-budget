@@ -247,18 +247,34 @@ var SUBTABS = {
   analysis: [["insights", "Выводы"], ["analysis", "Графики"]],
 };
 function routeGroup(route) { for (var g in GROUPS) if (GROUPS[g].indexOf(route) >= 0) return g; return "home"; }
+var GROUP_TITLE = { plan: "План", us: "Мы", analysis: "Анализ" };
 function afterRender(route) {
   var g = routeGroup(route), tabs = SUBTABS[g];
-  if (tabs) {
-    var html = "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
+  $main.classList.toggle("in-sec", !!tabs && route !== "week");
+  var BACK = { cash: ["#home", "Главная"], recon: ["#home", "Главная"], settings: ["#home", "Главная"], help: ["#settings", "Настройки"] };
+  if (BACK[route]) $main.insertAdjacentHTML("afterbegin", "<a class='back-link' href='" + BACK[route][0] + "'>‹ " + BACK[route][1] + "</a>");
+  if (!tabs) return;
+  // год: чипы старых экранов прячем, вместо них — список справа от заголовка
+  var firstY = $main.querySelector(".chips [data-year], .chips [data-uy]"), chips = firstY ? Array.prototype.slice.call(firstY.parentNode.querySelectorAll("[data-year], [data-uy]")) : [], ysel = "";
+  var yv = function (c) { return c.dataset.year || c.dataset.uy; };
+  if (chips.length) {
+    chips[0].parentNode.classList.add("chips-hidden");
+    ysel = "<select class='year-sel' id='secYear' aria-label='Год'>" + chips.map(function (c) {
+      return "<option value='" + esc(yv(c)) + "'" + (c.classList.contains("on") ? " selected" : "") + ">" + esc(c.textContent) + "</option>";
+    }).join("") + "</select>";
+  }
+  var sheetA = g === "plan" && state && state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "";
+  var html = "<div class='sec-head'><h1>" + GROUP_TITLE[g] + "</h1>" + (ysel || sheetA) + "</div>" +
+    "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
       return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
     }).join("") + "</nav>";
-    if (g === "us" && !RO()) html += viewablePeople().map(function (p) {
-      return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(p.name) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
-    }).join("");
-    $main.insertAdjacentHTML("afterbegin", html);
-    $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
-  }
+  if (g === "us" && !RO()) html += viewablePeople().map(function (p) {
+    return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(p.name) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
+  }).join("");
+  $main.insertAdjacentHTML("afterbegin", html);
+  $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
+  var sy = $main.querySelector("#secYear");
+  if (sy) sy.onchange = function () { var c = chips.find(function (x) { return yv(x) === sy.value; }); if (c) c.click(); };
 }
 
 // ---------- «+»: что вносим ----------
@@ -502,13 +518,14 @@ function spendModal(o) {
   o = o || {};
   var date = o.date || E.todayISO();
   var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = incCat || defaultCat();
+  var chipCats = o.income ? cats().filter(function (c) { return c.block === "income" && !c.archived; }).slice(0, 6) : recentCats();
   modal("<form class='m-body' id='spForm'><h2>" + (o.income ? "Внести доход" : "Внести трату") + "</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
     "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
     "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
     "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
-    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + recentCats().map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
-    "<select name='cat' aria-label='Все категории'>" + catOptions(dc) + "</select></div>" +
-    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' placeholder='например, шопинг'></label></div>" +
+    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + chipCats.map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
+    "<select name='cat' aria-label='Все категории'" + (o.income && chipCats.length === cats().filter(function (c) { return c.block === "income" && !c.archived; }).length ? " hidden" : "") + ">" + catOptions(dc, o.income ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select></div>" +
+    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' placeholder='" + (o.income ? "например, бонус за квартал" : "например, шопинг") + "'></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
     "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
     var f = m.querySelector("#spForm"), hint = m.querySelector("#spWeek");

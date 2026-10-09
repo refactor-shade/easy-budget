@@ -95,13 +95,14 @@ routes.year = function () {
   });
   // на телефоне по умолчанию месяцы: 60 недель в узкий экран не помещаются
   var mode = ui.gridMode || (window.matchMedia("(max-width: 820px)").matches ? "months" : "weeks");
-  var modeSw = "<div class='seg' role='group' aria-label='Столбцы таблицы'><button class='seg-b" + (mode === "weeks" ? " on" : "") + "' data-mode='weeks'>Недели</button>" +
-    "<button class='seg-b" + (mode === "months" ? " on" : "") + "' data-mode='months'>Месяцы</button></div>";
-  var html = "<div class='page-head'><div><h1>Год " + y + "</h1><div class='sub'>" + (mode === "months"
-    ? "Строки — категории, столбцы — месяцы. Нажми на месяц, чтобы открыть его недели и поправить суммы."
-    : "Строки — категории, столбцы — недели. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную. Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. Внизу — остатки по счетам, как в таблице.") +
-    (state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? " <a href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Открыть в Google Таблице ↗</a>" : "") + "</div></div>" +
-    "<div class='row'>" + modeSw + yearChips(y, true, RO() ? "" : "<button class='chip' data-act='newyear'>+ " + (Number(years()[years().length - 1]) + 1) + "</button>") + "</div></div>";
+  var modeSw = "<div class='seg' role='group' aria-label='Столбцы таблицы'><button class='seg-b" + (mode === "months" ? " on" : "") + "' data-mode='months'>Месяцы</button>" +
+    "<button class='seg-b" + (mode === "weeks" ? " on" : "") + "' data-mode='weeks'>Недели</button></div>";
+  var ys = years(), last = Number(ys[ys.length - 1]);
+  var yearSel = "<select class='year-sel' id='yearSel' aria-label='Год'>" + ys.map(function (yy) { return "<option value='" + yy + "'" + (yy === y ? " selected" : "") + ">" + yy + (state.years[yy].archived ? " · архив" : "") + "</option>"; }).join("") +
+    (RO() ? "" : "<option value='new'>+ план на " + (last + 1) + "</option>") + "</select>";
+  var sheet = state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl) ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "";
+  var html = "<div class='plan-head'><h1>План</h1>" + sheet + "</div><div class='plan-tools'>" + modeSw + "<span class='spacer'></span>" + yearSel + "</div>" +
+    (mode === "weeks" ? "<p class='small muted plan-hint'>Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную.</p>" : "");
   if (mode === "months") return yearByMonths(y, r, html);
 
   var head1 = "<tr><th class='sticky'>" + y + "</th><th class='sticky2'>регулярно</th>", head2 = "<tr><th class='sticky'></th><th class='sticky2'>сумма · недели</th>";
@@ -264,6 +265,8 @@ function inlineEditRecon(td, y) {
 
 function bindYearHead() {
   bindYearChips(function (yy) { ui.gridYear = yy; if (!state.years[yy].archived) ui.year = yy; render(); });
+  var ysel = $main.querySelector("#yearSel");
+  if (ysel) ysel.onchange = function () { var v = ysel.value; if (v === "new") { ysel.value = ui.gridYear || ui.year; return newYearDialog(); } ui.gridYear = v; if (!state.years[v].archived) ui.year = v; render(); };
   var ny = $main.querySelector("[data-act=newyear]");
   if (ny) ny.onclick = newYearDialog;
   $main.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = function () { ui.gridMode = b.dataset.mode; ui.gridScroll = null; render(); }; });
@@ -274,29 +277,36 @@ function yearByMonths(y, r, html) {
   var mon = E.monthly(state, y).months;
   function mth(m) { return (m === nowM ? " now" : ""); }
   var head = "<tr><th class='sticky'>" + y + "</th>" + E.MONTHS_SHORT.map(function (n, m) { return "<th class='mhead" + mth(m) + "' data-m='" + m + "'>" + n + "</th>"; }).join("") + "<th>Год</th></tr>";
-  var body = "";
+  var body = "", openB = ui.planOpen || (ui.planOpen = { income: true, base: true });
   E.BLOCKS.forEach(function (b) {
     var list = cats().filter(function (c) { return c.block === b.id && r.cells[c.id].some(Boolean); });
     if (!list.length) return;
-    body += "<tr class='blk'><td class='sticky'>" + esc(b.name) + "</td><td colspan='13'></td></tr>";
+    var rowsHtml = "", bsum = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], btot = 0;
     list.forEach(function (c) {
       var tot = 0, tds = "";
       for (var m = 0; m < 12; m++) {
         var sum = 0, any = false;
         for (var w = m * 5; w < m * 5 + 5; w++) { var cell = r.cells[c.id][w]; if (cell) { sum += cell.cents; any = true; } }
-        tot += sum;
+        tot += sum; if (c.currency !== "RUB") bsum[m] += sum;
         tds += "<td class='v ro" + mth(m) + "' data-m='" + m + "'>" + (any ? E.fmt(rnd(sum)) : "") + "</td>";
       }
-      body += "<tr><td class='sticky' title='" + esc(c.name) + "'>" + esc(c.name) + (c.currency === "RUB" ? " (₽)" : "") + "</td>" + tds + "<td class='v ro'><b>" + E.fmt(rnd(tot)) + "</b></td></tr>";
+      if (c.currency !== "RUB") btot += tot;
+      rowsHtml += "<tr><td class='sticky' title='" + esc(c.name) + "'>" + esc(c.name) + (c.currency === "RUB" ? " (₽)" : "") + "</td>" + tds + "<td class='v ro'><b>" + E.fmt(rnd(tot)) + "</b></td></tr>";
     });
+    var isOpen = !!openB[b.id];
+    body += "<tr class='blk tog' data-blk='" + b.id + "'><td class='sticky'>" + (isOpen ? "▾ " : "▸ ") + esc(b.name) + "</td>" +
+      bsum.map(function (v, m) { return "<td class='v ro" + mth(m) + "'>" + (v ? E.fmt(rnd(v)) : "") + "</td>"; }).join("") + "<td class='v ro'>" + (btot ? E.fmt(rnd(btot)) : "") + "</td></tr>";
+    if (isOpen) body += rowsHtml;
   });
   function totRow(label, key, cls) {
     var t = 0;
     return "<tr class='" + (cls || "tot") + "'><td class='sticky'>" + label + "</td>" + mon.map(function (row, m) { var v = row[key]; if (v !== null) t += v; return "<td class='v ro" + mth(m) + "' data-m='" + m + "'>" + (v === null ? "" : E.fmt(rnd(v))) + "</td>"; }).join("") +
       "<td class='v ro'>" + (key === "cap" ? "" : "<b>" + E.fmt(rnd(t)) + "</b>") + "</td></tr>";
   }
-  body += totRow("Доходы", "income", "tot sep") + totRow("Расходы", "total") + totRow("Капитал на конец месяца", "cap");
-  html += "<div class='grid-wrap' id='gridWrap'><table class='g g-months'><thead>" + head + "</thead><tbody>" + body + "</tbody></table></div>";
+  body += totRow("Доходы", "income", "tot sep") + totRow("Расходы", "total");
+  var foot = "<tr><td class='sticky'>В обращении</td>" + mon.map(function (row, m) { var v = r.base[m * 5 + 4]; return "<td class='v ro" + mth(m) + "'>" + (v === null || v === undefined ? "" : E.fmt(rnd(v))) + "</td>"; }).join("") + "<td></td></tr>" +
+    "<tr><td class='sticky'>Капитал</td>" + mon.map(function (row, m) { return "<td class='v ro" + mth(m) + "'>" + (row.cap === null ? "" : E.fmt(rnd(row.cap))) + "</td>"; }).join("") + "<td></td></tr>";
+  html += "<div class='grid-wrap' id='gridWrap'><table class='g g-months'><thead>" + head + "</thead><tbody>" + body + "</tbody><tfoot class='plan-foot'>" + foot + "</tfoot></table></div>";
   $main.innerHTML = html;
   bindYearHead();
   var wrap = document.getElementById("gridWrap");
@@ -305,6 +315,8 @@ function yearByMonths(y, r, html) {
     if (th) wrap.scrollLeft = Math.max(0, th.getBoundingClientRect().left - wrap.getBoundingClientRect().left - pin - th.offsetWidth);
   });
   wrap.addEventListener("click", function (e) {
+    var tg = e.target.closest("[data-blk]");
+    if (tg) { ui.planOpen[tg.dataset.blk] = !ui.planOpen[tg.dataset.blk]; render(); return; }
     var el = e.target.closest("[data-m]");
     if (!el) return;
     ui.gridMode = "weeks"; ui.gridFocusMonth = Number(el.dataset.m); ui.gridScroll = null; render();
