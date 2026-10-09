@@ -151,6 +151,7 @@ function showOnboarding() {
 }
 
 function boot() {
+  ui.syncAt = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   state = myState; view = { who: "me", level: "full", name: "", summary: null }; resetUndoBase();
   var d = defaultYearWeek(); ui.year = d.year; ui.week = d.week;
   render();
