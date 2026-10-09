@@ -767,3 +767,8 @@ button.sync { display: inline-flex; align-items: center; gap: 6px; }
 .month-sum li.improve .mk { color: #a87a1f; }
 .month-sum li.next .mk { color: var(--ink-2); }
 @media (max-width: 520px) { .month-sum .ms-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* «Год»: счета и сверка накоплений в таблице */
+.g tr.acc td.v { color: var(--manual); cursor: text; }
+.g td.v.off { background: repeating-linear-gradient(45deg, transparent 0 6px, var(--surface-2) 6px 7px); color: var(--muted); }
+.g td[data-sr] { cursor: text; }

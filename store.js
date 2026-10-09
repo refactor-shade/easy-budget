@@ -203,6 +203,9 @@
       },
       wipe: function () { return Promise.all([kvDel("state"), kvDel("space"), kvDel("shared_rows")]); },
       outboxCount: function () { return Promise.resolve(0); }, flushOutbox: function () { return Promise.resolve(); }, onOutbox: function () {},
+      sheetStatus: function () { return Promise.resolve(null); },
+      sheetConnect: function () { return Promise.reject(new Error("Google Таблица работает только в облачной версии")); },
+      sheetPush: function () { return Promise.resolve(); }, sheetDisconnect: function () { return Promise.resolve(); },
     };
     return api;
   }
@@ -509,6 +512,20 @@
           .subscribe();
       },
       wipe: function () { return Promise.resolve(); },
+
+      // Google Таблица: личный ключ + книга, которую забирает скрипт в таблице (функция sheet-feed)
+      sheetStatus: function () {
+        return sb.from("sheet_exports").select("token,updated_at").eq("owner_id", me.id).maybeSingle().then(must);
+      },
+      sheetConnect: function (model) {
+        var bytes = new Uint8Array(32); root.crypto.getRandomValues(bytes);
+        var token = Array.prototype.map.call(bytes, function (b) { return (b < 16 ? "0" : "") + b.toString(16); }).join("");
+        return sb.from("sheet_exports").upsert({ owner_id: me.id, token: token, model: model, updated_at: new Date().toISOString() }).then(must).then(function () { return token; });
+      },
+      sheetPush: function (model) {
+        return sb.from("sheet_exports").update({ model: model, updated_at: new Date().toISOString() }).eq("owner_id", me.id).then(must);
+      },
+      sheetDisconnect: function () { return sb.from("sheet_exports").delete().eq("owner_id", me.id).then(must); },
     };
     if (root.addEventListener) root.addEventListener("online", function () { api.flushOutbox(); });
     return api;
