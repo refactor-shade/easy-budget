@@ -8,6 +8,7 @@
  * 2. Вернись в таблицу и обнови страницу — появится меню «Easy Budget».
  * 3. Easy Budget → «Подключить» → вставь ключ из приложения (Настройки → Google Таблица).
  *    Google попросит разрешение: скрипту нужен доступ к этой таблице и к интернету (чтобы забрать данные).
+ *    После «Разрешить» нажми «Подключить» ещё раз — Google не продолжает команду сам.
  *
  * Правки в листах Easy Budget перезаписываются при обновлении — вноси их в приложении.
  * Свои листы с другими названиями скрипт не трогает.
@@ -19,6 +20,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Easy Budget')
     .addItem('Обновить сейчас', 'refreshNow')
     .addItem('Подключить (вставить ключ)', 'connect')
+    .addItem('Проверить подключение', 'check')
     .addSeparator()
     .addItem('Отключить автообновление', 'disconnect')
     .addToUi();
@@ -33,8 +35,16 @@ function connect() {
   PROPS.setProperty('TOKEN', token);
   PROPS.deleteProperty('LAST');
   installTrigger_();
-  refresh_(true);
-  ui.alert('Готово! Таблица будет обновляться сама раз в час. Обновить сразу — меню Easy Budget → «Обновить сейчас».');
+  if (refresh_(true)) ui.alert('Готово! Листы нарисованы. Дальше таблица обновляется сама раз в час, сразу — Easy Budget → «Обновить сейчас».');
+}
+
+function check() {
+  var ui = SpreadsheetApp.getUi(), token = PROPS.getProperty('TOKEN');
+  if (!token) { ui.alert('Ключ не вставлен. Easy Budget → «Подключить».'); return; }
+  var resp = UrlFetchApp.fetch(FEED + '?token=' + token, { muteHttpExceptions: true }), code = resp.getResponseCode(), msg = '';
+  try { var d = JSON.parse(resp.getContentText()); msg = d.error || ('листов: ' + d.model.sheets.length + ', данные от ' + String(d.model.generatedAt).slice(0, 16).replace('T', ' ')); } catch (e) { msg = 'непонятный ответ'; }
+  var trig = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'refreshAuto'; }).length;
+  ui.alert('Easy Budget', 'Ответ сервера: ' + code + ' — ' + msg + '\nАвтообновление раз в час: ' + (trig ? 'включено' : 'выключено') + '\nПоследнее обновление: ' + (PROPS.getProperty('LAST') || 'ещё не было'), ui.ButtonSet.OK);
 }
 
 function disconnect() {
@@ -48,24 +58,29 @@ function installTrigger_() {
   ScriptApp.newTrigger('refreshAuto').timeBased().everyHours(1).create();
 }
 
-function refreshNow() { refresh_(true); }
+function refreshNow() { if (!PROPS.getProperty('TOKEN')) return connect(); refresh_(true); }
 function refreshAuto() { refresh_(false); }
 
 function refresh_(force) {
+  try { return refreshInner_(force); }
+  catch (e) { if (force) SpreadsheetApp.getUi().alert('Не получилось обновить: ' + (e && e.message ? e.message : e)); else console.error(e); return false; }
+}
+function refreshInner_(force) {
   var token = PROPS.getProperty('TOKEN');
-  if (!token) { if (force) SpreadsheetApp.getUi().alert('Сначала подключи таблицу: Easy Budget → «Подключить».'); return; }
+  if (!token) { if (force) SpreadsheetApp.getUi().alert('Сначала подключи таблицу: Easy Budget → «Подключить».'); return false; }
   var last = PROPS.getProperty('LAST') || '';
   var url = FEED + '?token=' + token + (force || !last ? '' : '&since=' + encodeURIComponent(last));
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   var data = {};
   try { data = JSON.parse(resp.getContentText()); } catch (e) { data = { error: 'Сервер ответил непонятно (' + resp.getResponseCode() + ')' }; }
-  if (data.unchanged) return;
-  if (data.error || !data.model) { if (force) SpreadsheetApp.getUi().alert('Не получилось обновить: ' + (data.error || resp.getResponseCode())); return; }
+  if (data.unchanged) return true;
+  if (data.error || !data.model) { if (force) SpreadsheetApp.getUi().alert('Не получилось обновить: ' + (data.error || resp.getResponseCode())); return false; }
   var ss = SpreadsheetApp.getActive(), model = data.model;
   model.sheets.forEach(function (s, i) { draw_(ss, s, i); });
   SpreadsheetApp.flush();
   PROPS.setProperty('LAST', model.generatedAt);
   ss.toast('Обновлено из Easy Budget', 'Easy Budget', 4);
+  return true;
 }
 
 // ---------- отрисовка одного листа ----------
