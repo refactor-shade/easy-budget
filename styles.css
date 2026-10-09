@@ -1029,12 +1029,12 @@ table.g tr.tog td { cursor: pointer; text-transform: none; letter-spacing: 0; fo
 .rc-wsel { width: auto; max-width: 150px; height: 34px; border-radius: 17px; padding: 0 10px; font-size: 13px; border: 1px solid var(--line); background: var(--surface); }
 .rc-hint { margin: 4px 0 12px; }
 .rc-list { padding: 0 !important; overflow: hidden; max-width: 640px; }
-.rc-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 10px; align-items: center; padding: 6px 14px; border-top: 1px solid var(--line); }
-.rc-row:first-child { border-top: 0; }
-.rc-row.info { opacity: .7; }
+.rcl-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 10px; align-items: center; padding: 6px 14px; border-top: 1px solid var(--line); }
+.rcl-row:first-child { border-top: 0; }
+.rcl-row.info { opacity: .7; }
 .rc-name { min-width: 0; } .rc-name b { font-weight: 600; } .rc-name small { display: block; font-size: 12px; color: var(--muted); }
 .rc-name .linkish { font-size: 12px; }
-.rc-row input { height: 40px; border-radius: 10px; text-align: right; font-size: 16px; color: var(--manual); width: 100%; box-sizing: border-box; }
+.rcl-row input { height: 40px; border-radius: 10px; text-align: right; font-size: 16px; color: var(--manual); width: 100%; box-sizing: border-box; }
 .rc-sav { margin: 10px 0 0; max-width: 640px; }
 .rc-sav summary { list-style: none; cursor: pointer; text-align: center; padding: 10px; border: 1px dashed var(--line-strong); border-radius: 12px; font-size: 14px; color: var(--ink-2); }
 .rc-sav summary::-webkit-details-marker { display: none; }
@@ -1089,3 +1089,59 @@ table.g tr.tog td { cursor: pointer; text-transform: none; letter-spacing: 0; fo
 .set-h1 { margin: 0 0 14px; }
 @media (min-width: 821px) { .set-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .set-toc { display: none !important; }
+
+/* верх: шире сплошная полоса под статус-баром + плавный переход, контент ниже */
+body::before { height: calc(env(safe-area-inset-top) + 14px); background: linear-gradient(var(--bg) 70%, color-mix(in srgb, var(--bg) 0%, transparent)); }
+@media (max-width: 820px) {
+  .main { padding-top: calc(28px + env(safe-area-inset-top)); }
+  .topbar { padding-top: calc(24px + env(safe-area-inset-top)); }
+}
+.nav-plus { color: #fff; }
+.nav-plus .plus-svg { display: block; flex: none; }
+@media (max-width: 820px) { .nav-plus { display: grid; place-items: center; } .nav-plus .plus-svg { width: 26px; height: 26px; } }
+@media (min-width: 821px) { .nav-plus .plus-svg { width: 18px; height: 18px; } }
+
+/* строка «Сверки» на Главной: квадратики ровные, стрелка в той же строке */
+.rc-row { cursor: pointer; flex-wrap: nowrap; }
+.rc-row .rc-strip { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; flex: 1 1 auto; min-width: 0; }
+.rc-row .rc-strip .rc { width: 100%; height: auto; aspect-ratio: 1; max-height: 18px; min-height: 0; padding: 0; border-radius: 4px; }
+.rc-row .arr { flex: none; }
+
+/* Сверка: закреплённый низ — одна строка */
+.rc-bar { display: flex; align-items: center; gap: 12px; padding-top: 10px; padding-bottom: 10px; }
+.rc-bar #recResult { flex: 1; min-width: 0; }
+.rc-bar .rc-nums { gap: 6px; }
+.rc-bar .rc-nums span { font-size: 11px; height: 16px; }
+.rc-bar .rc-nums b { font-size: 15px; line-height: 20px; }
+.rc-bar .rc-save { width: auto; flex: none; height: 44px; padding: 0 18px; font-size: 15px; border-radius: 14px; }
+.rc-msg { margin: -4px 0 12px; color: var(--ink-2); }
+.rc-msg:empty { display: none; }
+.rc-clear { margin: 10px 0 0; }
+@media (max-width: 820px) { .rc-bar { padding: 8px 16px; } .rc-bar .rc-save { padding: 0 14px; } }
+
+/* Наличка: на компьютере две колонки */
+.cash-sum { display: none; }
+@media (min-width: 821px) {
+  .cash-wrap { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 24px; align-items: start; max-width: 1040px; }
+  .cash-l .pk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cash-l .pk-main { padding: 14px 16px; } .cash-l .pk-main b { font-size: 22px; }
+  .cash-sum { display: block; margin-top: 14px; } .cs-v { font: 600 32px/1.2 var(--serif); margin: 2px 0 6px; }
+  .cash-r .cash-h2 { margin-top: 0; }
+  .cash-r .cash-hist { max-width: none; }
+}
+
+/* Настройки: «‹ Настройки» видна при прокрутке; таблицы не шире экрана */
+.set-bar { position: sticky; top: 0; z-index: 12; background: var(--bg); margin: 0 -32px; padding: 6px 32px; }
+@media (max-width: 820px) { .set-bar { top: env(safe-area-inset-top); margin: 0 -16px; padding: 6px 16px; } }
+.main .tbl-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.t.mcard { width: 100%; }
+.t.mcard input, .t.mcard select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.sc-list { list-style: none; margin: 8px 0 12px; padding: 0; }
+.sc-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.sc-list li.off { opacity: .55; }
+.sc-n { flex: 1; min-width: 0; }
+.sc-list .linkish { font-size: 13px; }
+@media (max-width: 820px) {
+  .rc-bar { bottom: calc(76px + env(safe-area-inset-bottom)); border-radius: 14px; margin: 16px 0 0; border: 1px solid var(--line); }
+  .rc-bar .rc-nums .q-btn { display: none; }
+}
