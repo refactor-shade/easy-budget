@@ -216,17 +216,19 @@ function switchTo(who) {
   }).catch(function (e) { toast("Не удалось загрузить: " + e.message); switchTo("me"); });
 }
 // Кого ещё можно посмотреть (партнёр открыл доступ): строки «Бюджет Риты ›»
+// «Бюджет Риты»: имя в родительном падеже (простое правило для женских имён)
+function nameGen(n) { n = String(n || ""); if (/[кгхжшщч]а$/i.test(n)) return n.slice(0, -1) + "и"; if (/а$/i.test(n)) return n.slice(0, -1) + "ы"; if (/я$/i.test(n)) return n.slice(0, -1) + "и"; return n; }
 function viewablePeople() { return people.filter(function (p) { return p.theirLevel !== "hidden"; }); }
 function profileBar() {
   var bar = document.getElementById("profiles");
   if (bar) {
-    bar.innerHTML = RO() ? "<div class='ro-banner'><span class='ro-dot' aria-hidden='true'>◉</span><span>Бюджет " + esc(view.name) + " — только просмотр: видишь цифры, но изменить ничего нельзя.</span><button class='btn sm' id='roBack'>Вернуться к своему</button></div>" : "";
+    bar.innerHTML = RO() ? "<div class='ro-banner'><span class='ro-dot' aria-hidden='true'>◉</span><span>Бюджет " + esc(nameGen(view.name)) + " — только просмотр: видишь цифры, но изменить ничего нельзя.</span><button class='btn sm' id='roBack'>Вернуться к своему</button></div>" : "";
     var rb = bar.querySelector("#roBack"); if (rb) rb.onclick = function () { switchTo("me"); };
   }
   var np = document.getElementById("navPeople");
   if (np) {
     np.innerHTML = viewablePeople().map(function (p) {
-      return "<button type='button' class='nav-person" + (view.who === p.userId ? " active" : "") + "' data-who='" + esc(p.userId) + "'>Бюджет " + esc(p.name) + " <small>" + (p.theirLevel === "totals" ? "итоги" : "просмотр") + "</small></button>";
+      return "<button type='button' class='nav-person" + (view.who === p.userId ? " active" : "") + "' data-who='" + esc(p.userId) + "'>Бюджет " + esc(nameGen(p.name)) + " <small>" + (p.theirLevel === "totals" ? "итоги" : "просмотр") + "</small></button>";
     }).join("") + (RO() ? "<button type='button' class='nav-person' data-who='me'>‹ Мой бюджет</button>" : "");
     np.querySelectorAll("[data-who]").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
   }
@@ -269,7 +271,7 @@ function afterRender(route) {
       return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
     }).join("") + "</nav>";
   if (g === "us" && !RO()) html += viewablePeople().map(function (p) {
-    return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(p.name) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
+    return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(nameGen(p.name)) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
   }).join("");
   $main.insertAdjacentHTML("afterbegin", html);
   $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });

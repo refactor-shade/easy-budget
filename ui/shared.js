@@ -425,7 +425,7 @@ routes.shared = function () {
     } else {
       var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
       sub = (e.paidByMe ? "Ты заплатила " : esc(partner) + " заплатила ") + E.fmt(e.cost, { cur: c$ }) + (e.method === "cash" ? " · нал" : "");
-      catHtml = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button><button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт'>↩</button>";
+      catHtml = "<button class='cat-btn' data-cat='" + esc(e.id) + "'>" + esc(cc) + "</button><button class='btn sm ghost' data-kind='" + esc(e.id) + "' data-to='refund' title='Это перевод между вами (возврат долга) — в расходы не пойдёт' aria-label='Это перевод между вами'>↩\uFE0E</button>";
       right = Math.abs(e.net) < 1 ? "<span class='fd-amt even'><small>без долга</small>—</span>" :
         e.net > 0 ? "<span class='fd-amt lent'><small>тебе должны</small>" + E.fmt(e.net, { cur: c$ }) + "</span>" :
           "<span class='fd-amt owe'><small>ты должна</small>" + E.fmt(-e.net, { cur: c$ }) + "</span>";

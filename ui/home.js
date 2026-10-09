@@ -81,8 +81,8 @@ routes.home = function () {
 
   var html = "<div class='home'>";
   html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + "</div>" +
-    "<div class='home-act'><button type='button' class='icon-btn sync' data-sync id='homeSync' aria-label='Обновить'><span aria-hidden='true'>↻</span><i class='sync-dot' aria-hidden='true'></i></button>" +
-    "<a class='icon-btn' href='#settings' aria-label='Настройки'><span aria-hidden='true'>⚙</span></a></div></div>" +
+    "<div class='home-act'><button type='button' class='icon-btn sync' data-sync id='homeSync' aria-label='Обновить'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M20 11a8 8 0 1 0-2.3 5.7'/><path d='M20 4v7h-7'/></svg><i class='sync-dot' aria-hidden='true'></i></button>" +
+    "<a class='icon-btn' href='#settings' aria-label='Настройки'><svg width='19' height='19' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'/></svg></a></div></div>" +
     "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1></header>";
 
   // главный блок
@@ -97,7 +97,8 @@ routes.home = function () {
     "<div class='hero-dcap'><span class='" + sign(dCap) + "'>" + eur(rnd(dCap), { dec: 0, plus: true }) + "</span> с начала " + E.MONTHS_GEN[wk.month - 1] + "</div>" +
     "<div class='hero-chart'>" + spark(r.cap, w, y) + "</div></div></section>";
 
-  html += "<div class='home-grid'>";
+  var hasCash = !!(state.cash && state.cash.pockets && state.cash.pockets.length);
+  html += "<div class='home-grid hg" + (ro ? " hg-notodo" : "") + (hasCash ? "" : " hg-nocash") + "'>";
   // дела
   if (!ro) html += "<section class='card a-todo'><h2>Что сделать</h2>" + (todo.length ? "<ul class='todo-list'>" + todo.map(function (x, j) {
     return "<li class='" + (x.k || "") + "' data-todo='" + j + "'><span class='ic'>" + x.ic + "</span><span class='tx'><b>" + x.h + "</b><span>" + x.p + "</span></span><span class='arr'>›</span></li>";
