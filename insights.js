@@ -266,6 +266,18 @@
   // =====================================================================
   // «Мы»: только общие критерии (одинаково у обеих, с моей стороны)
   // =====================================================================
+  // Кто платил за общее: траты и сводные суммы за полные месяцы года (янв…months), в евро.
+  // toEur(e) — перевод в евро; без него считаются только траты в евро.
+  function payers(expenses, y, months, toEur) {
+    var me = 0, all = 0;
+    (expenses || []).forEach(function (e) {
+      if ((e.kind !== "expense" && e.kind !== "batch") || e.date.slice(0, 4) !== y || Number(e.date.slice(5, 7)) > months) return;
+      if (!toEur && e.currency && e.currency !== "EUR") return;
+      var v = toEur ? toEur(e) : e.cost; all += v; if (e.paidByMe) me += v;
+    });
+    var M = E.MONTHS_SHORT, label = months >= 12 ? "за весь " + y : months === 1 ? M[0] + " " + y : M[0] + "–" + M[months - 1] + " " + y;
+    return { me: me, them: all - me, all: all, months: months, label: label };
+  }
   var HALF = ["Жильё и счета", "Продукты", "Кафе и рестораны", "Доставка еды", "Развлечения и события", "Путешествия"];
   function together(expenses, ctx) {
     ctx = ctx || {};
@@ -302,14 +314,14 @@
     var from90 = new Date(Date.parse(today) - 90 * 864e5).toISOString().slice(0, 10);
     var odd = ex.filter(function (e) { return e.kind === "expense" && e.date >= from90 && e.cost > 0 && HALF.indexOf(catOf(e)) >= 0 && Math.abs(e.share / e.cost - 0.5) > 0.02; });
     if (odd.length) improve.push({ id: "split", ic: "½", rank: 5, h: odd.length + " " + plural(odd.length, "трата", "траты", "трат") + " поделены не пополам", p: "Дом, еда, развлечения и путешествия вы делите пополам. Проверь: " + odd.slice(0, 3).map(function (e) { return "«" + (e.desc || "без описания") + "»"; }).join(", ") + (odd.length > 3 ? " и ещё " + (odd.length - 3) : "") + ". Бывают и исключения.", act: "shared", actLabel: "Открыть ленту" });
-    // кто платит — только справка
-    var paidMe = tot(cur.filter(function (e) { return e.paidByMe; })), all = tot(cur);
-    if (all > 0) info.push({ id: "payer", ic: "⇄", rank: 30, h: "Кто платил: ты " + pct(paidMe / all) + ", " + partner + " " + pct(1 - paidMe / all), p: "Это кто оплачивал, а не чья доля больше: доли делятся при вводе, разницу показывает баланс." });
+    // кто платит — только справка; та же формула, что в карточке «Кто платил за общее»
+    var py0 = payers(expenses, y, n, ctx.toEur), all = tot(cur);
+    if (py0.all > 0) info.push({ id: "payer", ic: "⇄", rank: 30, h: "Кто платил: ты " + pct(py0.me / py0.all) + ", " + partner + " " + pct(py0.them / py0.all), p: cap1(py0.label) + ". Это кто оплачивал, а не чья доля больше: доли делятся при вводе, разницу показывает баланс." });
     if (prevAll.length) info.push({ id: "prevyear", ic: "·", rank: 31, h: "Общие траты " + py + ": " + eur(tot(prevAll)), p: "В среднем " + eur(tot(prevAll) / 12) + " в месяц." });
     if (ctx.toLog >= 3) improve.push({ id: "tolog", ic: "⇄", rank: 6, h: ctx.toLog + " " + plural(ctx.toLog, "общая трата", "общие траты", "общих трат") + " не в личном плане", p: "Внеси их в свой план одной кнопкой.", act: "tolog", actLabel: "В личный план" });
     return finish(good, improve, info, { period: "за " + n + " " + plural(n, "месяц", "месяца", "месяцев") + " " + y, neutral: all > 0 ? { id: "neutral", ic: "·", rank: 99, h: "Общие траты " + y + ": " + eur(tot(spendOf(y, 12))), p: "Пока без заметных перемен." } : null,
       fallbackNext: function () { return "Рассчитывайтесь раз в месяц — так баланс всегда понятен обеим."; } });
   }
 
-  root.BudgetInsights = { personal: personal, month: month, monthDue: monthDue, together: together, isJoy: isJoy, JOY_RE: JOY_RE, HALF: HALF };
+  root.BudgetInsights = { personal: personal, month: month, monthDue: monthDue, together: together, payers: payers, isJoy: isJoy, JOY_RE: JOY_RE, HALF: HALF };
 })(typeof window !== "undefined" ? window : this);

@@ -24,7 +24,7 @@ function render() {
   }
   catch (err) { console.error(err); $main.innerHTML = "<div class='alert'>Этот экран не открылся: " + esc(err.message) + ". Обнови страницу — данные не пропали.</div>"; }
 }
-window.addEventListener("hashchange", function () { closeModal(); if (location.hash === "#settings") ui.setSec = null; if (myState) render(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", function () { closeModal(); if (location.hash === "#settings") ui.setSec = null; if (location.hash !== "#recon") { ui.recStep = null; ui.recBefore = null; } if (myState) render(); window.scrollTo(0, 0); });
 
 // ---------- вход и первый запуск ----------
 function showLogin(msg, mode) {

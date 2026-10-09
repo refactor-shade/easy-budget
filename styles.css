@@ -1274,3 +1274,92 @@ body::before { height: calc(env(safe-area-inset-top) + 14px); background: linear
 .sc-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 16px; border: 0; border-top: 1px solid var(--line); background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .sc-row:hover { background: var(--surface-2); } .sc-row.off { opacity: .55; }
 .sc-row .arr { color: var(--muted); }
+
+/* ===== Сверка в три шага (1 Остатки · 2 Проверка · 3 Итог) ===== */
+.rs { max-width: 1080px; }
+.rs > .rc-title, .rs > .rs-steps, .rs > .rc-hint, .rs > .hint, .rs > .rc-list, .rs > .rc-sav, .rs > .rc-bar, .rs > .rs-sum, .rs > .rs-lead, .rs > .card, .rs > .rs-foot, .rs > .rc-clear { max-width: 640px; }
+.rs-steps { display: flex; gap: 6px; list-style: none; margin: 10px 0 14px; padding: 0; }
+.rs-steps li { flex: 1; min-width: 0; }
+.rs-step { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 19px; background: var(--surface); color: var(--muted); font: inherit; font-size: 14px; white-space: nowrap; cursor: pointer; }
+.rs-step .rs-n { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 10px; background: var(--surface-2); font-size: 12px; font-weight: 600; }
+.rs-step.on { border-color: var(--accent); color: var(--ink); font-weight: 600; background: var(--accent-soft); }
+.rs-step.on .rs-n { background: var(--accent); color: var(--accent-ink); }
+.rs-step.done .rs-n { background: var(--accent-soft); color: var(--accent); }
+.rs-step:disabled { opacity: .5; cursor: default; }
+.rs .rc-sav .rc-list { margin-bottom: 12px; }
+.rs #savForm .f > span small { font-weight: 400; white-space: nowrap; }
+.rs .card + .card, .rs .rs-col > * + * { margin-top: 14px; }
+.rs-sum h2 { margin: 0 0 10px; }
+.rs-sumh { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.rs-sumh h2 { margin: 0; }
+.rs-was { margin: 10px 0 0; }
+.rs-fix { margin-top: 14px; }
+.rs-sum .btn { margin-top: 12px; }
+.rs-lead { margin: 16px 0 10px; color: var(--ink-2); }
+.rs-ok { margin-top: 14px; }
+.rs-ok h2 { margin: 0 0 4px; color: var(--accent); }
+.rs-ok p { margin: 0; }
+.rs-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; }
+.rs-foot .btn { height: 46px; padding: 0 20px; border-radius: 14px; }
+.rs-foot .btn.primary { flex: 1; max-width: 260px; }
+.rs-cal h2 { margin: 0; }
+.rs-cal .rc-wrap { position: relative; max-width: none; }
+.rs-tip { position: absolute; z-index: 6; transform: translateY(-100%); max-width: 260px; padding: 7px 10px; border-radius: 8px; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.35; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.rs-tip.on { opacity: 1; }
+.rc.pin { outline: 2px solid var(--ink); outline-offset: 1px; }
+.rc-histwrap .t tr.on td, .rc-histwrap .t tr.on td:first-child { background: var(--accent-soft); }
+@media (min-width: 821px) {
+  .rs .rc-bar { margin-left: 0; margin-right: 0; border-radius: 14px; border: 1px solid var(--line); bottom: 12px; margin-bottom: 0; }
+  .rs-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .rs-grid .rc-histwrap h2 { margin-top: 0; }
+}
+@media (max-width: 820px) {
+  .rs-grid > .rs-col + .rs-col { margin-top: 18px; }
+  .rs-step { font-size: 13px; gap: 5px; padding: 0 4px; }
+  .rs-foot { position: sticky; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 5; padding: 10px; margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  .rs-foot .btn.primary { max-width: none; }
+}
+
+/* Главная: полоска сверок — новые недели справа (у стрелки); на компьютере квадратики 22 px с ровным шагом */
+.rc-row .rc-strip { direction: rtl; }
+@media (min-width: 821px) {
+  .rc-row .rc-strip { grid-template-columns: repeat(auto-fill, 22px); grid-auto-rows: 22px; gap: 6px; height: 22px; overflow: hidden; justify-content: start; }
+  .rc-row .rc-strip .rc { width: 22px; height: 22px; max-height: none; border-radius: 5px; }
+}
+
+/* Наличка: итог крупно, подпись под ним */
+.cash-head { align-items: flex-end; flex-wrap: wrap; gap: 6px 14px; }
+.cash-total { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.cash-total b { font-size: 26px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cash-total span { margin-top: 3px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+@media (min-width: 821px) { .cash-head { justify-content: space-between; } }
+
+/* «Мы»: «+ Общая трата» — в строке поиска и фильтров, справа; на телефоне есть «+» внизу */
+.us-addbtn { display: none; }
+@media (min-width: 821px) { .us-feed .us-addbtn { display: inline-flex; flex: none; order: 9; height: 42px; margin-left: auto; white-space: nowrap; } }
+
+/* «Наши итоги»: на что уходят общие — название целиком, сумма в ровной колонке, стрелка отдельно */
+.ut-cats { display: grid; gap: 10px; margin-top: 6px; }
+.uc-row { display: grid; grid-template-columns: minmax(0, 230px) minmax(0, 1fr) 92px 16px; grid-template-areas: "n t v a"; gap: 4px 12px; align-items: center; font-size: 14px; }
+.uc-n { grid-area: n; display: flex; align-items: center; gap: 8px; min-width: 0; line-height: 1.25; }
+.uc-n > span:last-child { overflow-wrap: anywhere; }
+.uc-n .cat-ic { flex: none; width: 26px; height: 26px; } .uc-n .cat-ic svg { width: 14px; height: 14px; }
+.uc-track { grid-area: t; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.uc-track i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.uc-v { grid-area: v; text-align: right; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.uc-tr { grid-area: a; text-align: center; font-size: 13px; color: var(--muted); }
+.uc-tr.up { color: var(--neg); } .uc-tr.down { color: var(--pos); }
+@media (max-width: 820px) {
+  .uc-row { grid-template-columns: minmax(0, 1fr) 84px 16px; grid-template-areas: "n v a" "t t t"; }
+  .uc-track { height: 6px; margin-left: 34px; }
+}
+.ut-how { margin-top: 12px; }
+.ut-how summary { cursor: pointer; font-size: 13px; color: var(--accent); width: max-content; }
+.ut-how ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.ut-warn { margin: 10px 0 0; }
+.ut-spend .kv small { white-space: normal; }
+@media (min-width: 821px) { .us-feed .sh-search { min-width: 220px; } .us-feed .sh-filters select { width: auto; max-width: 165px; } }
+/* «+ Внести» на компьютере: воздух под «Заполнить по полям» */
+@media (min-width: 821px) { .sheet-plus .m-body.plus { padding-bottom: 22px; } .sheet-plus .plus-form { margin-top: 12px; } }
+@media (max-width: 520px) { .rs-act-t { display: none; } }
+@media (max-width: 820px) { .ut-spend .kv > span small { display: block; margin-top: 1px; } }
