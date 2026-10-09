@@ -23,7 +23,7 @@ routes.home = function () {
     var fw = finishedWeek(), fr = fw ? E.compute(state, fw.year) : null;
     if (fw && fr.fact[fw.week] === null) todo.push({ ic: "✓", h: "Сверка за " + shortWeek(fw.year, fw.week), p: "Впиши остатки на картах и в наличке — пара минут." +
       (lastRec < 0 ? "" : " Последняя сверка — " + shortWeek(y, lastRec) + "."), act: "recon", rw: fw });
-    else if (fw && fr.diff[fw.week] < state.settings.diffAlert) todo.push({ k: "warn", ic: "!", h: "Расхождение " + eur(rnd(fr.diff[fw.week]), { dec: 0, plus: true }) + " за " + shortWeek(fw.year, fw.week),
+    else if (fw && fr.diff[fw.week] < state.settings.diffAlert) todo.push({ k: "warn", ic: "↗", h: "Расхождение " + eur(rnd(fr.diff[fw.week]), { dec: 0, plus: true }) + " за " + shortWeek(fw.year, fw.week),
       p: "Денег меньше, чем по плану. Найди в выписке крупную трату и внеси её.", act: "recon", rw: fw });
     var yrH = state.years[y], planEmpty = !(yrH.recurring || []).length && !Object.keys(yrH.entries || {}).some(function (k) { return Object.keys(yrH.entries[k]).length; });
     if (planEmpty) todo.unshift({ ic: "↻", h: "Заполнить план на " + y, p: "Начни с того, что повторяется: зарплата, аренда, подписки. Один раз — и суммы встанут во все недели.", act: "recurring" });
@@ -32,12 +32,12 @@ routes.home = function () {
     if (!state.settings.reminder) todo.push({ ic: "◷", h: "Поставить напоминание о сверке", p: Store.mode === "cloud" ? "Уведомление на телефон или событие в календаре раз в неделю — чтобы не забывать." : "Событие в календаре раз в неделю — чтобы не забывать.", act: "reminder" });
     else if (Store.mode === "cloud" && !state.settings.reminder.push && !state.settings.reminder.off && window.BudgetPush && window.BudgetPush.supported() && !reminderPushAsked()) todo.push({ ic: "◷", h: "Напоминание о сверке — уведомлением", p: "Теперь можно получать его прямо на телефон, а не только в календаре.", act: "reminder" });
     if (installHintNeeded()) todo.push({ ic: "⊕", h: "Добавить Easy Budget на экран «Домой»", p: "Откроется как приложение, без адресной строки, и сможет присылать напоминания.", act: "install" });
-    if (minV < 0) todo.push({ k: "warn", ic: "!", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(y, minW), p: "Остаток уходит в минус. Можно сдвинуть крупные траты или переложить из накоплений.", act: "year" });
+    if (minV < 0) todo.push({ k: "warn", ic: "↗", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(y, minW), p: "Остаток уходит в минус. Можно сдвинуть крупные траты или переложить из накоплений.", act: "year" });
     if (!sh) todo.push({ ic: "⇄", h: "Подключить общие траты", p: "Траты на двоих: кто сколько заплатил и кто кому должен, как в Splitwise.", act: "shared" });
     else {
       if (sh.partner && !sh.partner.userId && Store.mode === "cloud") todo.push({ ic: "✉", h: esc(partnerName()) + " ещё не вошла", p: "Пришли ей ссылку на сайт — пусть войдёт с " + esc(sh.partner.email || "своим email") + ", пространство подключится само.", act: "shared" });
       var bal = S.balance(sh.expenses).EUR || 0;
-      if (Math.abs(bal) >= 5000) todo.push({ ic: "€", h: bal > 0 ? esc(partnerName()) + " должна тебе " + eur(bal, { dec: 0 }) : "Ты должна " + esc(partnerName()) + " " + eur(-bal, { dec: 0 }), p: "Можно рассчитаться на экране «Общие».", act: "shared" });
+      if (Math.abs(bal) >= 5000) todo.push({ ic: "€", h: bal > 0 ? esc(partnerName()) + " должна тебе " + eur(bal) : "Ты должна " + esc(partnerName()) + " " + eur(-bal), p: "Рассчитаться в «Мы».", act: "shared" });
     }
     var ny = String(Number(y) + 1);
     if (wk.month >= 10 && !state.years[ny]) todo.push({ ic: "▦", h: "Пора набросать план на " + ny, p: "Создай его на экране «Год» — регулярные траты перенесутся сами.", act: "year" });
@@ -57,7 +57,9 @@ routes.home = function () {
   items.sort(function (a, b) { return Math.abs(b.cell.cents) - Math.abs(a.cell.cents); });
 
   var html = "<div class='home'>";
-  html += "<header class='home-head'><div class='home-date'>" + esc(dateLine) + " · " + wk.wim + "-я неделя месяца</div>" +
+  html += "<header class='home-head'><div class='home-top'><div class='home-date'>" + esc(dateLine) + " · " + wk.wim + "-я неделя месяца</div>" +
+    "<div class='home-act'><button type='button' class='icon-btn sync' data-sync id='homeSync' aria-label='Обновить'><span aria-hidden='true'>↻</span><i class='sync-dot' aria-hidden='true'></i></button>" +
+    "<a class='icon-btn' href='#settings' aria-label='Настройки'><span aria-hidden='true'>⚙</span></a></div></div>" +
     "<h1>" + greeting() + (name && !ro ? ", " + esc(name) : "") + "</h1>" + (ro ? "<div class='sub'>Бюджет " + esc(view.name) + " — только просмотр</div>" : "") + "</header>";
 
   // главный блок
@@ -91,16 +93,9 @@ routes.home = function () {
     monthCard = "<section class='card month-sum'><div class='row'><h2 style='margin:0'>Итог месяца: " + mn + "</h2><span class='spacer'></span>" + (due.recon ? "" : "<span class='badge'>без сверки</span>") + "</div>" +
       "<div class='ms-nums'><div><span class='muted small'>доходы</span><b class='pos'>" + eur(rnd(nb.income), { dec: 0 }) + "</b></div><div><span class='muted small'>расходы</span><b>" + eur(rnd(nb.total), { dec: 0 }) + "</b></div>" +
       "<div><span class='muted small'>осталось</span><b class='" + sign(nb.net) + "'>" + eur(rnd(nb.net), { dec: 0, plus: true }) + "</b></div><div><span class='muted small'>капитал</span><b class='" + sign(nb.dcap || 0) + "'>" + (nb.dcap === null ? "—" : eur(rnd(nb.dcap), { dec: 0, plus: true })) + "</b></div></div><ul>" +
-      ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "!", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") +
+      ms.good.map(function (c) { return li("good", "✓", c.h, c.p); }).join("") + ms.improve.map(function (c) { return li("improve", "↗", c.h, c.p); }).join("") + (ms.next ? li("next", "→", ms.next, "") : "") +
       "</ul><div class='row' style='margin-top:12px'><a class='btn sm' href='#insights'>Все выводы</a><span class='spacer'></span><button class='btn ghost sm' id='msSeen'>Прочитано</button></div></section>";
   }
-
-  // быстрые действия
-  if (!ro) html += "<div class='quick-row'>" +
-    "<button class='qa' data-q='spend'><span class='qa-ic'>+</span><span><b>Трата</b><small>прошлая, новая или будущая</small></span></button>" +
-    "<button class='qa' data-q='shared'><span class='qa-ic'>⇄</span><span><b>Общая трата</b><small>поделить на двоих</small></span></button>" +
-    "<button class='qa' data-q='cash'><span class='qa-ic'>₵</span><span><b>Наличка</b><small>внести трату наличными</small></span></button>" +
-    "<button class='qa' data-q='recon'><span class='qa-ic'>✓</span><span><b>Сверка</b><small>за прошедшую неделю</small></span></button></div>";
 
   html += monthCard;
   html += "<div class='home-grid'>";
@@ -110,6 +105,14 @@ routes.home = function () {
   }).join("") + "</ul>" : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>") +
     "<div class='rc-home'><span class='small muted'>Сверки за последние недели</span>" + reconCalendar(y, true) + "</div></section>";
 
+  // наличка: карманы и вход в историю
+  var cs = state.cash, cashCard = "";
+  if (cs && cs.pockets && cs.pockets.length) {
+    var cb = K.balances(cs, cashLines()), cps = cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
+    cashCard = "<a class='card a-cash' href='#cash'><span class='cc-tx'><span class='cc-row'><b>Наличка</b><b>" + eur(cashEurTotal(), { dec: 0 }) + "</b></span>" +
+      "<span class='small muted'>" + cps.slice(0, 3).map(function (p) { return esc(p.name) + " " + E.fmt(cb[p.id] || 0, { cur: pocketCur(p.id), dec: 0 }); }).join(" · ") + (cps.length > 3 ? " · ещё " + (cps.length - 3) : "") + "</span></span><span class='arr'>›</span></a>";
+  }
+  html += cashCard;
   // неделя
   html += "<section class='card a-week'><div class='row'><h2 style='margin:0'>Эта неделя</h2><span class='spacer'></span><span class='small muted'>" + esc(E.weekTitle(Number(y), w)) + "</span></div>" +
     "<div class='mini-kpis'><div><span class='muted small'>приход</span><b class='pos'>" + eur(tin, { dec: 0 }) + "</b></div><div><span class='muted small'>расход</span><b>" + eur(-tout, { dec: 0 }) + "</b></div></div>" +
@@ -120,7 +123,6 @@ routes.home = function () {
 
   // месяц
   var monthName = E.MONTHS[wk.month - 1];
-  html += noteCard;
   html += "<section class='card a-month'><div class='row'><h2 style='margin:0'>" + monthName[0].toUpperCase() + monthName.slice(1) + "</h2><span class='spacer'></span><span class='small muted'>неделя " + wk.wim + " из 5</span></div>" +
     "<div class='month-bar' aria-hidden='true'>" + [1, 2, 3, 4, 5].map(function (n) { return "<span class='" + (n < wk.wim ? "past" : n === wk.wim ? "now" : "") + "'></span>"; }).join("") + "</div>" +
     "<table class='t'><tr><td>Доходы</td><td class='n pos'>" + eur(rnd(mon.income), { dec: 0 }) + "</td></tr>" +
@@ -146,6 +148,7 @@ routes.home = function () {
       ui.year = y; ui.week = w; go("#" + a);
     };
   });
+  var hs = $main.querySelector("#homeSync"); if (hs) hs.onclick = refreshAll;
   $main.querySelectorAll("[data-q]").forEach(function (el) {
     el.onclick = function () {
       var q = el.dataset.q; ui.year = y; ui.week = w;

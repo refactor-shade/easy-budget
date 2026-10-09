@@ -78,20 +78,3 @@ routes.help = function () {
   $main.innerHTML = html;
   $main.querySelector("#tourAgain").onclick = function () { showTour(0); };
 };
-
-// «Меню» в нижней панели на телефоне: разделы по смыслу
-document.getElementById("navMore").onclick = function () {
-  var groups = [
-    ["Каждую неделю", [["recon", "✓", "Сверка", "остатки на счетах и расхождение с планом"]]],
-    ["План", [["year", "▦", "Год", "весь план по неделям в одной таблице"], ["recurring", "↻", "Регулярные траты", "аренда, подписки, зарплата"]]],
-    ["Вместе", [["us", "♡", "Мы", "общий капитал, доходы и расходы вдвоём"], ["tolog", "⇄", "Общие → личный план", "общие траты, которых нет в твоём плане"]]],
-    ["Обзор", [["analysis", "◔", "Анализ", "доходы, расходы и капитал по месяцам"], ["insights", "✦", "Выводы", "короткие наблюдения по году"]]],
-    ["", [["settings", "⚙", "Настройки", "категории, счета, курс, доступ, данные"], ["help", "?", "Как это работает", "инструкция и словарь"]]],
-  ];
-  modal("<div class='m-body'><h2>Меню</h2>" + groups.map(function (g) {
-    return "<div class='menu-g'>" + g[0] + "</div><div class='more-list'>" + g[1].map(function (x) {
-      return "<a class='sec' href='#" + x[0] + "'><span class='ico'>" + x[1] + "</span><span><b>" + esc(x[2]) + "</b><small>" + esc(x[3]) + "</small></span></a>";
-    }).join("") + "</div>";
-  }).join("") + "</div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>",
-    function (m) { m.classList.add("sheet-menu"); var mb = m.querySelector(".m-body"); mb.tabIndex = -1; mb.style.outline = "none"; setTimeout(function () { mb.focus(); }, 40); m.querySelector("[data-act=x]").onclick = closeModal; m.querySelectorAll("a").forEach(function (a) { a.addEventListener("click", closeModal); }); });
-};

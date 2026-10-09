@@ -29,11 +29,12 @@ function refreshAll() {
   }).catch(function () { setSync("нет связи ↻", "warn"); });
 }
 function setSync(text, cls) {
-  var el = document.getElementById("sync");
-  if (!el) return;
-  el.className = "sync " + (cls || "");
-  el.querySelector(".sync-t").textContent = text;
-  el.setAttribute("aria-label", text + " — нажми, чтобы обновить");
+  document.querySelectorAll("[data-sync]").forEach(function (el) {
+    el.classList.remove("busy", "warn", "ok");
+    if (cls) el.classList.add(cls);
+    var t = el.querySelector(".sync-t"); if (t) t.textContent = text;
+    el.setAttribute("aria-label", text + " — нажми, чтобы обновить");
+  });
 }
 function save() {
   pending = true;
@@ -214,21 +215,86 @@ function switchTo(who) {
     render();
   }).catch(function (e) { toast("Не удалось загрузить: " + e.message); switchTo("me"); });
 }
+// Кого ещё можно посмотреть (партнёр открыл доступ): строки «Бюджет Риты ›»
+function viewablePeople() { return people.filter(function (p) { return p.theirLevel !== "hidden"; }); }
 function profileBar() {
   var bar = document.getElementById("profiles");
-  if (!bar) return;
-  var meName = (Store.user() && Store.user().name) || "Я";
-  var html = "<button class='chip" + (view.who === "me" ? " on" : "") + "' data-who='me'>" + esc(meName) + " · я</button>";
-  people.forEach(function (p) {
-    html += "<button class='chip" + (view.who === p.userId ? " on" : "") + "' data-who='" + esc(p.userId) + "'" + (p.theirLevel === "hidden" ? " title='закрыла доступ'" : "") + ">" +
-      esc(p.name) + (p.theirLevel === "totals" ? " · итоги" : p.theirLevel === "hidden" ? " · скрыто" : "") + "</button>";
-  });
-  bar.classList.toggle("solo", !people.length);
-  bar.innerHTML = (people.length ? html : "") + "<span class='spacer'></span><button type='button' id='sync' class='sync' title='Обновить: подтянуть свежие данные и новую версию'><i class='sync-dot' aria-hidden='true'></i><span class='sync-t'>" +
-    (Store.mode === "cloud" ? "обновить ↻" : "только в этом браузере") + "</span></button>";
-  bar.querySelector("#sync").onclick = refreshAll;
-  bar.querySelectorAll("[data-who]").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
+  if (bar) {
+    bar.innerHTML = RO() ? "<div class='ro-banner'><span class='ro-dot' aria-hidden='true'>◉</span><span>Бюджет " + esc(view.name) + " — только просмотр: видишь цифры, но изменить ничего нельзя.</span><button class='btn sm' id='roBack'>Вернуться к своему</button></div>" : "";
+    var rb = bar.querySelector("#roBack"); if (rb) rb.onclick = function () { switchTo("me"); };
+  }
+  var np = document.getElementById("navPeople");
+  if (np) {
+    np.innerHTML = viewablePeople().map(function (p) {
+      return "<button type='button' class='nav-person" + (view.who === p.userId ? " active" : "") + "' data-who='" + esc(p.userId) + "'>Бюджет " + esc(p.name) + " <small>" + (p.theirLevel === "totals" ? "итоги" : "просмотр") + "</small></button>";
+    }).join("") + (RO() ? "<button type='button' class='nav-person' data-who='me'>‹ Мой бюджет</button>" : "");
+    np.querySelectorAll("[data-who]").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
+  }
+  if (Store.mode !== "cloud") setSync("только в этом браузере", "");
 }
+
+// ---------- разделы: группы, вкладки внутри раздела ----------
+var GROUPS = {
+  home: ["home", "cash", "recon"],
+  plan: ["year", "recurring", "week"],
+  us: ["shared", "us", "tolog"],
+  analysis: ["insights", "analysis"],
+  settings: ["settings", "help"],
+};
+var SUBTABS = {
+  plan: [["year", "Таблица"], ["recurring", "Регулярные"], ["week", "Неделя"]],
+  us: [["shared", "Общие траты"], ["us", "Наши итоги"]],
+  analysis: [["insights", "Выводы"], ["analysis", "Графики"]],
+};
+function routeGroup(route) { for (var g in GROUPS) if (GROUPS[g].indexOf(route) >= 0) return g; return "home"; }
+function afterRender(route) {
+  var g = routeGroup(route), tabs = SUBTABS[g];
+  if (tabs) {
+    var html = "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
+      return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
+    }).join("") + "</nav>";
+    if (g === "us" && !RO()) html += viewablePeople().map(function (p) {
+      return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(p.name) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
+    }).join("");
+    $main.insertAdjacentHTML("afterbegin", html);
+    $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
+  }
+}
+
+// ---------- «+»: что вносим ----------
+function plusSheet() {
+  if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
+  var items = [
+    ["spend", "−", "Трата", "прошлая, новая или будущая"],
+    ["income", "+", "Доход", "зарплата, бонус, возврат"],
+    ["shared", "⇄", "Общая", "поделить на двоих"],
+    ["cash", "₵", "Наличка", "трата из кошелька или конверта"],
+    ["recon", "✓", "Сверка", "остатки на счетах за неделю"],
+  ];
+  modal("<div class='m-body'><h2>Внести</h2><div class='plus-list'>" + items.map(function (x) {
+    return "<button type='button' class='plus-item' data-p='" + x[0] + "'><span class='pi-ic' aria-hidden='true'>" + x[1] + "</span><span class='pi-tx'><b>" + x[2] + "</b><small>" + x[3] + "</small></span><span class='arr'>›</span></button>";
+  }).join("") + "</div></div><div class='m-foot'><button class='btn ghost' data-act='x'>Закрыть</button></div>", function (m) {
+    m.classList.add("sheet-menu");
+    m.querySelector("[data-act=x]").onclick = closeModal;
+    m.querySelectorAll("[data-p]").forEach(function (b) {
+      b.onclick = function () {
+        var p = b.dataset.p, d = defaultYearWeek(); closeModal();
+        if (d) { ui.year = d.year; ui.week = d.week; }
+        setTimeout(function () {
+          if (p === "spend") spendModal();
+          else if (p === "income") spendModal({ income: true });
+          else if (p === "shared") go("#shared", function () { var a = document.getElementById("addExpBtn") || document.getElementById("fab"); if (a) a.click(); });
+          else if (p === "cash") go("#cash", function () { var i = document.querySelector("#cashQ [name=q]"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } });
+          else { ui.recWeek = finishedWeek() || (d ? { year: d.year, week: d.week } : null); go("#recon"); }
+        }, 30);
+      };
+    });
+  });
+}
+(function () {
+  var p = document.getElementById("navPlus"); if (p) p.onclick = function () { plusSheet(); };
+  document.querySelectorAll(".nav-sync").forEach(function (b) { b.onclick = function () { refreshAll(); }; });
+})();
 
 // ---------- утилиты ----------
 function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -435,12 +501,13 @@ function spendModal(o) {
   if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
   o = o || {};
   var date = o.date || E.todayISO();
-  modal("<form class='m-body' id='spForm'><h2>Внести трату</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
+  var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = incCat || defaultCat();
+  modal("<form class='m-body' id='spForm'><h2>" + (o.income ? "Внести доход" : "Внести трату") + "</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
     "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
     "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
     "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
-    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + recentCats().map(function (c) { return "<button type='button' class='chip" + (c.id === defaultCat() ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
-    "<select name='cat' aria-label='Все категории'>" + catOptions(defaultCat()) + "</select></div>" +
+    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + recentCats().map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") + "</div>" +
+    "<select name='cat' aria-label='Все категории'>" + catOptions(dc) + "</select></div>" +
     "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' placeholder='например, шопинг'></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
     "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
