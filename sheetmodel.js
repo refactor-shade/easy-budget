@@ -69,7 +69,17 @@
       sh.style(hr, 1, 1, WN, { bold: true, bg: C.block });
       list.forEach(function (c) {
         var rs = rules[c.id] || [], one = rs.length === 1 && (!rs[0].from || rs[0].from <= Y + "-01-01") && !rs[0].to ? rs[0] : null;
-        var rowArr = [safeText(c.name) + (c.mandatory ? "" : ""), one ? exprCell(one.expr, one.cents) : "", one ? one.weeks : (rs.length ? "см. «Регулярные траты»" : "")];
+        // «регулярно»: как в приложении — действующая сумма и недели; если сумма менялась — история в заметке
+        var shown = one ? [one] : rs.filter(function (ru) { return !ru.to; });
+        if (!shown.length && rs.length) shown = [rs.slice().sort(function (a2, b2) { return (a2.from || "") < (b2.from || "") ? 1 : -1; })[0]];
+        var bCell = "", cCell = "";
+        if (shown.length === 1) { bCell = exprCell(shown[0].expr, shown[0].cents); cCell = shown[0].weeks; }
+        else if (shown.length > 1) { bCell = shown.map(function (ru) { return E.fmt(ru.cents) + " · " + ru.weeks; }).join("; "); }
+        var rowArr = [safeText(c.name), bCell, cCell];
+        var hist = !one && rs.length ? rs.slice().sort(function (a2, b2) { return (a2.from || "") < (b2.from || "") ? -1 : 1; }).map(function (ru) {
+          var d = function (x) { return x ? x.slice(8, 10) + "." + x.slice(5, 7) : ""; };
+          return E.fmt(ru.cents) + " · недели " + ru.weeks + (ru.from && ru.from > Y + "-01-01" ? " с " + d(ru.from) : "") + (ru.to ? " по " + d(ru.to) : "");
+        }).join("\n") : "";
         var cells = r.cells[c.id];
         for (var w = 0; w < 60; w++) {
           var x = cells[w];
@@ -86,6 +96,7 @@
         for (var w2 = 0; w2 < 60; w2++) { var x2 = cells[w2]; if (x2) sh.style(rn, W0 + w2, 1, 1, { color: x2.src === "manual" ? C.manual : C.rec }); }
         if (rs.length) sh.style(rn, 2, 1, 2, { color: C.rec });
         if (c.currency === "RUB") sh.notes.push([rn, 1, "Сумма в рублях"]);
+        if (hist) sh.notes.push([rn, 2, (rs.length > 1 ? "Регулярная сумма менялась в течение года:\n" : "Регулярная сумма действует не весь год:\n") + hist]);
         var noteW = []; for (var w3 = 0; w3 < 60; w3++) { var x3 = cells[w3]; if (x3 && x3.note) noteW.push([rn, W0 + w3, x3.note]); }
         sh.notes = sh.notes.concat(noteW);
       });
