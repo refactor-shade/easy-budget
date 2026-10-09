@@ -10,7 +10,8 @@
   var C = { manual: "#1f5fbf", rec: "#555555", block: "#eeede8", total: "#f4f3ef", now: "#e3f1e8", neg: "#c0392b", pos: "#2b7a4b", head: "#2f6f4f", headInk: "#ffffff", muted: "#8f8e87", warn: "#fbf1dc" };
 
   function col(n) { var s = ""; while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; } // 1 → A
-  function txt(s) { return "'" + String(s === null || s === undefined ? "" : s); } // текст как есть: «1-4» не станет датой, «2,4» — числом
+  // подпись недели «1-4» Google превращает в дату (апостроф при записи из скрипта не помогает) — пишем через короткое тире, как в приложении
+  function weekLabel(s) { return String(s || "").replace("-", "–"); }
   function eurs(c) { return c === null || c === undefined ? "" : Math.round(c) / 100; }
   function safeText(s) { s = String(s === null || s === undefined ? "" : s); return /^[=+\-@]/.test(s) ? "'" + s : s; }
   // запись ячейки: формула, если есть арифметика, иначе число
@@ -45,7 +46,7 @@
 
     // шапка: месяцы и подписи недель
     var r1 = [Number(Y), "регулярно", ""], r2 = ["", "сумма", "недели"];
-    weeks.forEach(function (wk) { r1.push(wk.wim === 1 ? E.MONTHS[wk.month - 1] : ""); r2.push(txt(wk.label)); });
+    weeks.forEach(function (wk) { r1.push(wk.wim === 1 ? E.MONTHS[wk.month - 1] : ""); r2.push(weekLabel(wk.label)); });
     sh.row(r1); sh.row(r2);
     for (var m = 0; m < 12; m++) sh.merges.push([1, W0 + m * 5, 1, 5]);
     sh.style(1, 1, 2, WN, { bold: true, bg: C.total });
@@ -68,7 +69,7 @@
       sh.style(hr, 1, 1, WN, { bold: true, bg: C.block });
       list.forEach(function (c) {
         var rs = rules[c.id] || [], one = rs.length === 1 && (!rs[0].from || rs[0].from <= Y + "-01-01") && !rs[0].to ? rs[0] : null;
-        var rowArr = [safeText(c.name) + (c.mandatory ? "" : ""), one ? exprCell(one.expr, one.cents) : "", one ? txt(one.weeks) : (rs.length ? "см. «Регулярные траты»" : "")];
+        var rowArr = [safeText(c.name) + (c.mandatory ? "" : ""), one ? exprCell(one.expr, one.cents) : "", one ? one.weeks : (rs.length ? "см. «Регулярные траты»" : "")];
         var cells = r.cells[c.id];
         for (var w = 0; w < 60; w++) {
           var x = cells[w];
@@ -326,7 +327,7 @@
     Object.keys(state.years).sort().forEach(function (y) {
       (state.years[y].recurring || []).slice().sort(function (a, b) { return ((cats[a.catId] || {}).sort || 0) - ((cats[b.catId] || {}).sort || 0); }).forEach(function (ru) {
         var c = cats[ru.catId]; if (!c) return;
-        sh.row([Number(y), safeText(c.name) + (c.currency === "RUB" ? " (₽)" : ""), eurs(ru.cents), txt(ru.weeks), ru.from || "", ru.to || ""]);
+        sh.row([Number(y), safeText(c.name) + (c.currency === "RUB" ? " (₽)" : ""), eurs(ru.cents), ru.weeks, ru.from || "", ru.to || ""]);
       });
     });
     if (sh.rows.length > 1) { sh.style(2, 3, sh.rows.length - 1, 1, { nf: "#,##0.00" }); sh.style(2, 5, sh.rows.length - 1, 2, { nf: "dd.mm.yyyy" }); }
@@ -353,7 +354,8 @@
   function settingsSheet(state, opts) {
     var s = state.settings || {}, sh = new Sheet(SETTINGS); sh.widths = { 1: 300, 2: 160 };
     var t = sh.row(["Easy Budget — копия бюджета"]); sh.style(t, 1, 1, 2, { bold: true, bg: C.total });
-    sh.row(["Обновлено", (opts.generatedAt || "").slice(0, 16).replace("T", " ")]);
+    var upd = sh.row(["Обновлено", (opts.generatedAt || "").slice(0, 16).replace("T", " ")]);
+    sh.style(upd, 2, 1, 1, { nf: "dd.mm.yyyy hh:mm", align: "left" });
     sh.row(["Эта таблица обновляется сама из приложения. Правки здесь перезапишутся при следующем обновлении — вноси их в приложении."]);
     sh.row(["Настройки"]);
     sh.row(["Курс: ₽ за 1 €", s.rate || 95]);
