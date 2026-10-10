@@ -19,6 +19,7 @@ routes.analysis = function () {
     kpi("Доля сбережений", t.rate === null ? "—" : pct(t.rate), "(доходы − расходы) / доходы") +
     kpi("Капитал на конец года", t.cap === null || t.cap === undefined ? "—" : eur(rnd(t.cap), { dec: 0 }), t.dcap ? "за год <span class='" + sign(t.dcap) + "'>" + eur(rnd(t.dcap), { dec: 0, plus: true }) + "</span>" : "") +
     "</div>";
+  html += spendCatsCard(y);
   var e100 = function (arr) { return arr.map(function (v) { return v / 100; }); };
   var fmtE = function (v) { return E.eur(Math.round(v * 100), { dec: 0 }); };
   html += "<div class='card'><h2>Доходы и расходы</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, fmt: fmtE, title: "Доходы и расходы по месяцам",
@@ -75,6 +76,7 @@ routes.analysis = function () {
   });
   html += "</tbody></table></div></div><div id='family'></div>";
   $main.innerHTML = html;
+  bindSpendCats();
   bindYearChips(function (yy) { ui.anYear = yy; render(); });
   if (!RO() && people.some(function (p) { return p.theirLevel !== "hidden"; })) familyOverview(y);
 };
@@ -160,3 +162,57 @@ routes.months = function () {
     };
   });
 };
+
+// «На что уходят деньги» — личные траты по категориям за неделю, месяц или год; ↑↓ — к тому же периоду прошлого года
+function spendCatsCard(y) {
+  var per = ui.anPer || "month", nowWk = E.weekOfDate(E.todayISO()), cur = nowWk && String(nowWk.year) === y;
+  var max = per === "week" ? 59 : per === "month" ? 11 : 0;
+  var idx = ui.anIdx !== undefined && ui.anIdxFor === y + per ? ui.anIdx : per === "week" ? (cur ? nowWk.idx : 59) : per === "month" ? (cur ? Math.floor(nowWk.idx / 5) : 11) : 0;
+  idx = Math.max(0, Math.min(max, idx));
+  var weeks = per === "week" ? [idx] : per === "month" ? [idx * 5, idx * 5 + 1, idx * 5 + 2, idx * 5 + 3, idx * 5 + 4] : Array.apply(null, Array(60)).map(function (_, i) { return i; });
+  var rate = state.settings.rate || 1, prevY = String(Number(y) - 1);
+  function sums(yy) {
+    if (!state.years[yy]) return null;
+    var r = E.compute(state, yy), out = {};
+    state.categories.forEach(function (c) {
+      if (c.block === "income" || c.block === "savings" || !r.cells[c.id]) return;
+      var t = 0; weeks.forEach(function (w) { var x = r.cells[c.id][w]; if (x && x.cents < 0) t -= x.cents; });
+      if (c.currency === "RUB") t = Math.round(t / rate);
+      if (t > 0) out[c.id] = t;
+    });
+    return out;
+  }
+  var a = sums(y), b = sums(prevY), ids = Object.keys(a).sort(function (p, q) { return a[q] - a[p]; });
+  var tot = ids.reduce(function (s2, k) { return s2 + a[k]; }, 0), mx = a[ids[0]] || 1, all = !!ui.anAll, shown = all ? ids : ids.slice(0, 8);
+  var label = per === "week" ? shortWeek(y, idx) + " " + y : per === "month" ? E.MONTHS[idx][0].toUpperCase() + E.MONTHS[idx].slice(1) + " " + y : "Весь " + y;
+  var cname = function (id) { var c = state.categories.find(function (x) { return x.id === id; }); return c ? c.name : id; };
+  var html = "<div class='card section an-cats'><div class='an-head'><h2>На что уходят деньги</h2><div class='seg an-seg' role='tablist'>" +
+    [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"]].map(function (x) { return "<button type='button' role='tab' data-anper='" + x[0] + "' class='" + (x[0] === per ? "on" : "") + "' aria-selected='" + (x[0] === per) + "'>" + x[1] + "</button>"; }).join("") + "</div></div>" +
+    "<div class='an-nav'>" + (per === "year" ? "" : "<button type='button' class='round-btn' data-anstep='-1' aria-label='Назад'" + (idx <= 0 ? " disabled" : "") + ">‹</button>") +
+    "<div><b>" + esc(label) + "</b><span class='small muted'>всего " + eur(rnd(tot), { dec: 0 }) + " · по плану и внесённым тратам</span></div>" +
+    (per === "year" ? "" : "<button type='button' class='round-btn' data-anstep='1' aria-label='Вперёд'" + (idx >= max ? " disabled" : "") + ">›</button>") + "</div>";
+  html += ids.length ? "<div class='ut-cats'>" + shown.map(function (id) {
+    var v = a[id], pv = b && b[id], tr = pv ? (v > pv * 1.15 ? "↑" : v < pv * 0.85 ? "↓" : "") : "";
+    return "<div class='uc-row'><span class='uc-n'>" + catIcon(cname(id)) + "<span>" + esc(cname(id)) + "</span></span><span class='uc-v'>" + eur(rnd(v), { dec: 0 }) + "</span>" +
+      "<span class='uc-tr " + (tr === "↑" ? "up" : tr ? "down" : "") + "'" + (tr ? " title='" + (tr === "↑" ? "больше" : "меньше") + ", чем в " + prevY + "'" : "") + ">" + tr + "</span>" +
+      "<span class='uc-track'><i style='width:" + Math.max(3, Math.round(v / mx * 100)) + "%'></i></span></div>";
+  }).join("") + "</div>" + (ids.length > 8 ? "<button type='button' class='btn ghost sm more' id='anAll'>" + (all ? "Свернуть" : "Все категории · ещё " + (ids.length - 8)) + "</button>" : "")
+    : "<p class='muted' style='margin:8px 0 0'>За этот период трат нет.</p>";
+  html += "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li>Расходы из плана за период: то, что запланировано, и то, что уже внесено фактом. Доходы и накопления не входят.</li>" +
+    "<li>Рубли — по курсу " + String(rate).replace(".", ",") + " ₽/€.</li><li>↑ / ↓ — больше или меньше, чем за тот же период " + prevY + ", если разница больше 15%.</li></ul></details></div>";
+  return html;
+}
+function bindSpendCats() {
+  var y = ui.anYear || ui.year;
+  $main.querySelectorAll("[data-anper]").forEach(function (b) { b.onclick = function () { ui.anPer = b.dataset.anper; ui.anIdx = undefined; ui.anAll = false; render(); }; });
+  $main.querySelectorAll("[data-anstep]").forEach(function (b) {
+    b.onclick = function () {
+      var per = ui.anPer || "month", cur = $main.querySelector(".an-cats");
+      var nowWk = E.weekOfDate(E.todayISO()), isCur = nowWk && String(nowWk.year) === y;
+      var base = ui.anIdx !== undefined && ui.anIdxFor === y + per ? ui.anIdx : per === "week" ? (isCur ? nowWk.idx : 59) : (isCur ? Math.floor(nowWk.idx / 5) : 11);
+      ui.anIdx = base + Number(b.dataset.anstep); ui.anIdxFor = y + per; render();
+      var c2 = $main.querySelector(".an-cats"); if (cur && c2) c2.scrollIntoView({ block: "nearest" });
+    };
+  });
+  var al = $main.querySelector("#anAll"); if (al) al.onclick = function () { ui.anAll = !ui.anAll; render(); };
+}
