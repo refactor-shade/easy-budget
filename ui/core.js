@@ -443,7 +443,59 @@ function signFor(catId, expr) {
 }
 // как показать сумму или формулу в поле: дробная часть через запятую, как везде в приложении («1001,6», «35+20,5»)
 // склонение: plural(3, "трата", "траты", "трат") → «траты»
+// Шаблон с автоэкранированием: tpl("<b>{name}</b> {!badge}", { name: …, badge: html }).
+// {x} — текст, всегда экранируется (данные из базы, ввод, имена); {!x} — готовый HTML, только из своего кода.
+// Новый код пишем через tpl — так правило «всё экранировать» держится само, а не на внимательности.
+function tpl(s, d) {
+  return s.replace(/\{(!?)([\w.]+)\}/g, function (m, raw, k) {
+    var v = k.split(".").reduce(function (o, p) { return o === null || o === undefined ? o : o[p]; }, d);
+    return raw ? (v === null || v === undefined ? "" : String(v)) : esc(v);
+  });
+}
 function plural(n, one, few, many) { return window.BudgetInsights.plural(n, one, few, many); }
+// курсы на сегодня (fx.js): строка для Настроек и «Поставить»
+var FX_SIGN = { RUB: "₽", USD: "$", GEL: "лари" };
+function fxNum(v) { return numShow(String(Math.round(v * 100) / 100)); }
+function fxLiveHtml() {
+  var v = window.BudgetFx && BudgetFx.live(); if (!v) return "<p class='small muted fx-live'>Курс на сегодня загрузится, когда будет сеть.</p>";
+  var dr = BudgetFx.drift(state.settings, v);
+  var cur = function (val, k, tag) { return tpl("<{!t} class='nw'>{n}&nbsp;{s}</{!t}>", { t: tag, n: fxNum(val), s: FX_SIGN[k] }); };
+  return tpl("<div class='fx-live'><p class='small muted' style='margin:0'>Рыночный курс на {d}: {!now} за&nbsp;1&nbsp;€.</p>{!act}</div>", {
+    d: v.date ? v.date.slice(8, 10) + "." + v.date.slice(5, 7) : "сегодня",
+    now: ["RUB", "USD", "GEL"].filter(function (k) { return v[k] > 0; }).map(function (k) { return cur(v[k], k, "b"); }).join(" · "),
+    act: dr.length ? tpl("<p class='small' style='margin:8px 0 0'>В бюджете {!mine} — разница больше {p}&nbsp;%.</p><button type='button' class='btn sm fx-btn' id='fxApply'>Поставить сегодняшний</button>", {
+      mine: dr.map(function (x) { return cur(x.mine, x.cur, "span"); }).join(", "), p: Math.round(BudgetFx.DRIFT * 100) })
+      : "<p class='small muted' style='margin:4px 0 0'>Курс в бюджете близок к сегодняшнему — менять не нужно.</p>",
+  });
+}
+function applyFx() {
+  if (!BudgetFx.apply(state.settings, null, E.todayISO())) return;
+  changed(false, "Курс обновлён"); toast("Курс " + fxNum(state.settings.rate) + " ₽");
+}
+// после запуска: взять курс на сегодня; если он заметно ушёл — показать пункт на Главной
+function loadFx() {
+  if (!window.BudgetFx) return;
+  var had = BudgetFx.live();
+  BudgetFx.load(E.todayISO()).then(function (v) {
+    if (!v || v === had || view.who !== "me" || document.querySelector("dialog[open]")) return;
+    var r = (location.hash || "#home").slice(1) || "home";
+    if (r === "home" && BudgetFx.drift(state.settings, v).length) render();
+    var box = $main.querySelector(".fx-live"); if (box) { box.outerHTML = fxLiveHtml(); bindFx(); }
+  });
+}
+function bindFx() { var b = $main.querySelector("#fxApply"); if (b) b.onclick = function () { applyFx(); if ((location.hash || "").slice(1) === "settings") render(); }; }
+// «Как делите по умолчанию» у категории общих трат. Настройка общая на двоих, поэтому хранится
+// не «моя / её» (у каждой это своё), а id участника: «p:<id>» — в основном платит он. «equal» — пополам.
+// Старые значения «mine»/«theirs» ставил создатель пространства (spaces.created_by) — считаем от него:
+// у второго участника они читаются наоборот. При следующем сохранении категория перейдёт на «p:<id>».
+function catSplitOf(cat) {
+  var v = ((sh && sh.space.settings.catSplit) || {})[cat];
+  if (!v) return "equal";
+  if (String(v).indexOf("p:") === 0) return v.slice(2) === String(sh.meId) ? "mine" : "theirs";
+  var by = sh.space.created_by, iAmCreator = !by || !sh.me || !sh.me.userId || sh.me.userId === by;
+  return iAmCreator ? v : v === "mine" ? "theirs" : v === "theirs" ? "mine" : v;
+}
+function catSplitValue(rel) { return rel === "mine" ? "p:" + sh.meId : rel === "theirs" && sh.partnerId ? "p:" + sh.partnerId : null; }
 function numShow(expr) { return String(expr === null || expr === undefined ? "" : expr).replace(/(\d)\.(\d)/g, "$1,$2"); }
 function absIfPlain(expr) { var v = String(expr || "").trim(); return /^-\d+([.,]\d+)?$/.test(v) ? v.slice(1) : v; }
 function cats() { return state.categories.slice().sort(function (a, b) { return a.sort - b.sort; }); }

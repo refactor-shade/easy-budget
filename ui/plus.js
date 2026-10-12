@@ -169,7 +169,7 @@ function plusModel() {
     md.paidByMe = o.paidByMe !== undefined ? o.paidByMe : !payP;
     md.desc = desc.join(" ");
     md.cat = o.cat || (md.desc ? S.catOf({ desc: md.desc }, sh.learned) : "Продукты");
-    var defSplit = (sh.space.settings.catSplit || {})[md.cat];
+    var defSplit = catSplitOf(md.cat);
     md.mode = o.mode || (full ? "full" : defSplit === "theirs" ? "theirs" : defSplit === "mine" ? "mine" : "equal");
   } else if (tab === "cash") {
     var c = cashState(), pockets = c.pockets.filter(function (x) { return !x.archived; });

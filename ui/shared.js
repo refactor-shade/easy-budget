@@ -270,12 +270,12 @@ routes.tolog = function () {
   var uc = utilitiesCard();
   var funOver = !!rr && catRows.some(function (x) { return !x.skip && x.pids.length && x.share - x.plan >= 500; });
   if (!fresh.length && !maybe.length && !gaps.length && !funOver) html += "<div class='card all-good'><span class='ic'>✓</span>Всё заметное из общих уже в личном плане.</div>";
-  if (fresh.length) html += "<div class='card'><h2>Нет в личном плане · " + fresh.length + "</h2><p class='small muted' style='margin-top:-6px'>Выбери категорию и нажми «Внести» — или «Уже есть», если учла по-другому.</p><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
+  if (fresh.length) html += "<div class='card'><h2>Нет в личном плане · " + fresh.length + "</h2><p class='small muted' style='margin-top:-6px'>За все месяцы, не только этот. Выбери категорию и нажми «Внести» — или «Уже есть», если учла по-другому.</p><ul class='lg-list'>" + fresh.map(row).join("") + "</ul></div>";
   if (gaps.length) html += "<div class='card'><h2>Общие выше личного плана</h2><p class='small muted' style='margin-top:-6px'>Кафе, рестораны и такси из общих считаются в развлечениях.</p><ul class='lg-list'>" + gaps.map(function (g) {
     return "<li class='lg' data-gap='" + g.key + "'><div class='lg-main'><b>" + (g.kind === "fun" ? "Развлечения" : "Еда домой") + " · " + E.MONTHS[g.month - 1] + " " + g.year + "</b><span class='small muted'>" + (g.kind === "fun" ? "события, кафе, рестораны, такси" : "продукты и доставка") + ": общие " + E.eur(rnd(g.shared), { dec: 0 }) + " (твоя доля) при личном плане " + E.eur(rnd(g.personal), { dec: 0 }) + "</span></div>" +
       "<div class='lg-val neg'>+" + E.eur(rnd(g.gap), { dec: 0 }) + "</div><div class='lg-act'><button class='btn sm primary' data-ga='add'>Довписать " + E.eur(rnd(g.gap), { dec: 0 }) + ((set.coverage || {})[g.kind] && set.coverage[g.kind][0] ? " в «" + esc(catName(set.coverage[g.kind][0])) + "»" : " в план") + "</button><button class='btn sm ghost' data-ga='skip'>Не нужно</button></div></li>";
   }).join("") + "</ul></div>";
-  if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b> <span class='small muted'>в нужной категории в тот месяц есть сумма не меньше</span></summary>" +
+  if (maybe.length) html += "<details class='card' style='margin-top:16px'><summary><b>Похоже, уже учтено · " + maybe.length + "</b><span class='small muted tl-sum-sub'>В нужной категории в тот месяц уже есть сумма не меньше.</span></summary>" +
     "<div class='row' style='margin:10px 0'><button class='btn sm' id='allHad'>Да, всё это уже учтено</button></div><ul class='lg-list'>" + maybe.map(row).join("") + "</ul></details>";
   // обзор по категориям, коммуналка и настройки — ниже, после того, что нужно сделать
   var pnames = function (ids) { return ids.map(function (id) { return "«" + catName(id) + "»"; }).join(", "); };
@@ -403,9 +403,10 @@ routes.us = function () {
   var low = function (over, liv) { return over !== null && over < Math.max(10000, (liv || 0) * 0.15); };
   var row = function (label, sub, v, cls) { return "<div class='kv" + (cls ? " " + cls : "") + "'><span>" + label + (sub ? " <small>" + sub + "</small>" : "") + "</span><b>" + (v === null ? "—" : eur(rnd(v), { dec: 0 })) + "</b></div>"; };
   html += "<div class='card ut-spend'><h2>Сколько тратим вдвоём · в месяц</h2><p class='small muted' style='margin:-6px 0 8px'>" + esc(period) + ", в среднем за месяц</p>" +
-    row("Общие траты", "Splitwise, целиком", sharedM) +
+    row("Общие траты", "целиком", sharedM) +
     row(esc(meName) + " сверх общих", "личное на жизнь − своя доля в общих", overMe) +
     row(esc(pName) + " сверх общих", "личное на жизнь − своя доля в общих", overThem) +
+    "<div class='kv ut-mute'><span>Переводы между вами</span><span>не считаются</span></div>" +
     row("Итого как семья", "", family, "ut-total") +
     [[meName, overMe, livMe], [pName, overThem, livThem]].filter(function (x) { return low(x[1], x[2]); }).map(function (x) {
       return "<p class='hint small ut-warn'>Похоже, в плане " + esc(nameGen(x[0])) + " учтены не все общие траты: личное на жизнь " + (x[1] < 0 ? "меньше" : "почти равно") + " доле в общих.</p>";
@@ -425,6 +426,7 @@ routes.us = function () {
   // 4. выводы про нас
   if (sh) {
     var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount(), toEur: toE });
+    if (pay.all > 0) tres.info = tres.info.filter(function (c) { return c.id !== "payer"; }); // уже есть карточкой выше
     if (both) {
       var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
       var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + "." };
@@ -448,7 +450,7 @@ routes.us = function () {
   // 6. твоя доля по категориям
   var msh = S.monthlyShares(sharedForCalc(), state.settings, y), shareRows = Object.keys(msh.byCat).map(function (c) { return { c: c, v: msh.byCat[c].reduce(function (a, b) { return a + b; }, 0) }; }).filter(function (x) { return Math.abs(x.v) >= 100; }).sort(function (a, b) { return b.v - a.v; });
   if (shareRows.length) html += "<div class='card section'><h2>Твоя доля по категориям</h2><p class='small muted' style='margin-top:-6px'>" + y + " · то, что приходится на тебя из общих трат</p>" +
-    shareRows.slice(0, 8).map(function (x) { return "<div class='kv'><span>" + esc(catLabel(x.c)) + "</span><b>" + eur(rnd(x.v), { dec: 0 }) + "</b></div>"; }).join("") + "</div>";
+    shareRows.slice(0, 8).map(function (x) { var ds = sh ? catSplitOf(x.c) : "equal"; return "<div class='kv'><span>" + esc(catLabel(x.c)) + (ds === "theirs" || ds === "mine" ? " <small class='muted'>в основном " + esc(ds === "theirs" ? pName : meName) + "</small>" : "") + "</span><b>" + eur(rnd(x.v), { dec: 0 }) + "</b></div>"; }).join("") + "</div>";
   // 7. коммуналка
   var uc = { html: "", bind: function () {} }; // коммуналка — в «Общие и план»; крупные счета каждый ведёт по-своему
   // 8. графики

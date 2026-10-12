@@ -20,12 +20,12 @@ routes.settings = function () {
   }
   html += "</div>";
   html += "<div class='card'><h2>Основное</h2><form id='setMain' class='form-grid'>" +
-    "<label class='f'>Курс: ₽ за 1 €<input type='text' name='rate' value='" + esc(s.rate) + "' inputmode='decimal'></label>" +
+    "<label class='f'>Курс: ₽ за 1 €<input type='text' name='rate' value='" + esc(numShow(String(s.rate))) + "' inputmode='decimal'></label>" +
     "<label class='f'>Расхождение, после которого тревожиться, €<input type='text' name='alert' value='" + esc(-s.diffAlert / 100) + "' inputmode='decimal'></label>" +
-    "<label class='f'>Курс GEL за 1 €<input type='text' name='gel' value='" + esc(s.fx.GEL) + "'></label>" +
-    "<label class='f'>Курс USD за 1 €<input type='text' name='usd' value='" + esc(s.fx.USD) + "'></label>" +
-    "<button class='btn primary' type='submit'>Сохранить</button></form>" +
-    (s.rateHistory && s.rateHistory.length ? "<p class='small muted'>История курса: " + s.rateHistory.slice(-5).map(function (h) { return esc(h.date) + " — " + esc(h.rate); }).join(" · ") + "</p>" : "") + "</div></div>";
+    "<label class='f'>Курс GEL за 1 €<input type='text' name='gel' value='" + esc(numShow(String(s.fx.GEL))) + "' inputmode='decimal'></label>" +
+    "<label class='f'>Курс USD за 1 €<input type='text' name='usd' value='" + esc(numShow(String(s.fx.USD))) + "' inputmode='decimal'></label>" +
+    "<button class='btn primary' type='submit'>Сохранить</button></form>" + fxLiveHtml() +
+    (s.rateHistory && s.rateHistory.length ? "<p class='small muted'>История курса: " + s.rateHistory.slice(-5).reverse().map(function (h) { return "<span class='nw'>" + esc(h.date.slice(8, 10) + "." + h.date.slice(5, 7) + "." + h.date.slice(2, 4)) + ": " + (h.prev ? esc(numShow(String(h.prev))) + "&nbsp;→&nbsp;" : "") + esc(numShow(String(h.rate))) + "</span>" + (h.src === "auto" ? " (рыночный)" : ""); }).join(" · ") + "</p>" : "") + "</div></div>";
 
   // старт годов
   html += "<div class='card section'><h2>Старт года</h2>";
@@ -85,11 +85,16 @@ routes.settings = function () {
     "<button class='btn ghost danger' id='wipe'>Начать с нуля</button></div><p class='small muted'>Google Sheets: Файл → Скачать → Microsoft Excel (.xlsx), затем «Импорт». Подходят листы «Мой_ГГГГ» и «ГГГГ_€ REAL».</p></div>";
   $main.innerHTML = html;
 
+  bindFx();
   $main.querySelector("#setMain").onsubmit = function (e) {
     e.preventDefault();
     var f = e.target, rate = Number(String(f.rate.value).replace(",", "."));
     if (!(rate > 0)) { toast("Курс должен быть числом"); return; }
-    if (rate !== s.rate) { s.rateHistory = s.rateHistory || []; s.rateHistory.push({ date: E.todayISO(), rate: rate, prev: s.rate }); s.rate = rate; s.fx.RUB = rate; }
+    if (rate !== s.rate) {
+      var hist = s.rateHistory = s.rateHistory || [], last = hist[hist.length - 1];
+      if (last && last.date === E.todayISO()) { last.rate = rate; delete last.src; } else hist.push({ date: E.todayISO(), rate: rate, prev: s.rate });
+      s.rate = rate; s.fx.RUB = rate;
+    }
     s.diffAlert = -Math.abs(Math.round(Number(String(f.alert.value).replace(",", ".")) * 100)) || -5000;
     s.fx.GEL = Number(String(f.gel.value).replace(",", ".")) || s.fx.GEL; s.fx.USD = Number(String(f.usd.value).replace(",", ".")) || s.fx.USD;
     changed(); toast("Сохранено");
@@ -443,14 +448,14 @@ function settingsHub() {
     var all = S.SHARED_CATS.filter(function (c) { return c !== "Сводные суммы"; }).concat(custom.filter(function (c) { return S.SHARED_CATS.indexOf(c) < 0; }));
     $main.insertAdjacentHTML("beforeend", "<div class='card section sc-card'><h2>Категории общих трат</h2><p class='small muted' style='margin-top:-6px'>Общие для вас обеих: изменения видят и ты, и " + esc(partnerName()) + ". Скрытая категория не показывается при вводе, старые траты в ней остаются. «Как делите» подставится сам при вводе одной фразой.</p>" +
       "<div class='sc-list'>" + all.map(function (c) {
-        var isHidden = hidden.indexOf(c) >= 0, sp = (sh.space.settings.catSplit || {})[c];
+        var isHidden = hidden.indexOf(c) >= 0, sp = catSplitOf(c);
         return "<button type='button' class='sc-row" + (isHidden ? " off" : "") + "' data-scedit='" + esc(c) + "'>" + catIcon(c) + "<span class='sc-n'>" + esc(catLabel(c)) + "</span>" +
           (isHidden ? "<span class='c2-b'>скрыта</span>" : sp === "theirs" ? "<span class='c2-b priv'>в основном " + esc(partnerName()) + "</span>" : sp === "mine" ? "<span class='c2-b priv'>в основном я</span>" : "<span class='c2-b'>½</span>") + "<span class='arr'>›</span></button>";
       }).join("") + "</div><button type='button' class='btn' id='scAdd'>+ Новая категория</button></div>");
     var saveSp = function () { Store.saveSpaceSettings(sh.space.id, sh.space.settings).catch(function (e) { toast("Не сохранилось: " + e.message); }); render(); };
     $main.querySelectorAll("[data-scedit]").forEach(function (b) {
       b.onclick = function () {
-        var c = b.dataset.scedit, isCustom = S.SHARED_CATS.indexOf(c) < 0, set2 = sh.space.settings, sp = (set2.catSplit || {})[c] || "equal", hid = (set2.hiddenCats || []).indexOf(c) >= 0;
+        var c = b.dataset.scedit, isCustom = S.SHARED_CATS.indexOf(c) < 0, set2 = sh.space.settings, sp = catSplitOf(c), hid = (set2.hiddenCats || []).indexOf(c) >= 0;
         modal("<form class='m-body' id='scF'><h2>Категория общих трат</h2><label class='f' style='margin-top:10px'>Название<input name='n' value='" + esc(catLabel(c)) + "' required></label>" + (catLabel(c) !== c ? "<p class='small muted' style='margin:4px 0 0'>Было: " + esc(c) + "</p>" : "") +
           "<div class='small muted' style='margin-top:12px'>Как делите по умолчанию</div><div class='tg-row' style='margin-top:6px'>" + [["equal", "пополам"], ["theirs", "в основном " + esc(partnerName())], ["mine", "в основном я"]].map(function (o) { return "<button type='button' class='tg" + (sp === o[0] ? " on" : "") + "' data-sp='" + o[0] + "'>" + (sp === o[0] ? "✓ " : "") + o[1] + "</button>"; }).join("") + "</div><button type='submit' hidden></button></form>" +
           "<div class='m-foot'><button class='btn ghost' data-act='hide'>" + (hid ? "Показать при вводе" : "Скрыть") + "</button><span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
@@ -461,7 +466,7 @@ function settingsHub() {
             if (e) e.preventDefault();
             var n = f.n.value.trim();
             if (n && n !== catLabel(c)) { if (isCustom) set2.customCats = (set2.customCats || []).map(function (x) { return x === c ? n : x; }); else { set2.catNames = set2.catNames || {}; if (n === c) delete set2.catNames[c]; else set2.catNames[c] = n; } }
-            set2.catSplit = set2.catSplit || {}; var key = isCustom && n ? n : c; if (chosen === "equal") delete set2.catSplit[key]; else set2.catSplit[key] = chosen;
+            set2.catSplit = set2.catSplit || {}; var key = isCustom && n ? n : c, sv = catSplitValue(chosen); delete set2.catSplit[c]; if (sv) set2.catSplit[key] = sv; else delete set2.catSplit[key];
             closeModal(); saveSp(); toast("Сохранено");
           };
           f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok;

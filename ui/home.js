@@ -36,6 +36,8 @@ routes.home = function () {
     else if (Store.mode === "cloud" && !state.settings.reminder.push && !state.settings.reminder.off && window.BudgetPush && window.BudgetPush.supported() && !reminderPushAsked()) todo.push({ ic: "◷", h: "Напоминание о сверке — уведомлением", p: "Теперь можно получать его прямо на телефон, а не только в календаре.", act: "reminder" });
     if (installHintNeeded()) todo.push({ ic: "⊕", h: "Добавить Easy Budget на экран «Домой»", p: "Откроется как приложение, без адресной строки, и сможет присылать напоминания.", act: "install" });
     if (minV < 0) todo.push({ k: "warn", ic: "↗", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(y, minW), p: "Остаток уходит в минус. Можно сдвинуть крупные траты или переложить из накоплений.", act: "year" });
+    var fxd = window.BudgetFx ? BudgetFx.drift(state.settings) : [];
+    if (fxd.length) todo.push({ ic: "€", h: "Курс " + fxd.map(function (x) { return FX_SIGN[x.cur]; }).join(" и ") + " сдвинулся", p: "Было → сегодня, за&nbsp;1&nbsp;€: " + fxd.map(function (x) { return FX_SIGN[x.cur] + "&nbsp;" + fxNum(x.mine) + "&nbsp;→&nbsp;" + fxNum(x.now); }).join(" · ") + ". Нажми — поставлю сегодняшний.", act: "fx" });
     if (!sh) todo.push({ ic: "⇄", h: "Подключить общие траты", p: "Траты на двоих: кто сколько заплатил и кто кому должен, как в Splitwise.", act: "shared" });
     else {
       if (sh.partner && !sh.partner.userId && Store.mode === "cloud") todo.push({ ic: "✉", h: esc(partnerName()) + " ещё не вошла", p: "Пришли ей ссылку на сайт — пусть войдёт с " + esc(sh.partner.email || "своим email") + ", пространство подключится само.", act: "shared" });
@@ -185,6 +187,7 @@ routes.home = function () {
       if (a === "month") return monthModal();
       if (a === "reminder") { try { localStorage.setItem("eb:pushAsked", "1"); } catch (e) { /* ок */ } return reminderModal(); }
       if (a === "install") return installModal();
+      if (a === "fx") { applyFx(); return render(); }
       if (a === "backup") { backupDownload(); return render(); }
       if (a === "recdraft") { ui.recWeek = td.rw; ui.recStep = 2; return go("#recon"); }
       if (a === "recon") ui.recWeek = td.rw || { year: y, week: w };
