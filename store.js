@@ -1,0 +1,587 @@
+/* Easy Budget — хранилище. Один интерфейс для облака (Supabase) и локального режима (IndexedDB).
+   Облако включается, если в config.js заданы SUPABASE_URL и SUPABASE_ANON_KEY. */
+(function (root) {
+  "use strict";
+  var E = root.BudgetEngine;
+  var cfg = root.EASY_BUDGET_CONFIG || {};
+
+  // ---------- IndexedDB (кэш и локальный режим) ----------
+  var DB = "easy-budget", KV = "kv";
+  var dbPromise = null;
+  function idb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (res, rej) {
+      if (!root.indexedDB) return rej(new Error("no idb"));
+      var r = indexedDB.open(DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(KV); };
+      r.onsuccess = function () {
+        var db = r.result;
+        db.onversionchange = function () { db.close(); dbPromise = null; };
+        res(db);
+      };
+      r.onerror = function () { dbPromise = null; rej(r.error); };
+    });
+    return dbPromise;
+  }
+  function kvGet(k) {
+    return idb().then(function (db) {
+      return new Promise(function (res) {
+        var q = db.transaction(KV).objectStore(KV).get(k);
+        q.onsuccess = function () { res(q.result === undefined ? null : q.result); };
+        q.onerror = function () { res(null); };
+      });
+    }).catch(function () { try { var s = localStorage.getItem(DB + ":" + k); return s ? JSON.parse(s) : null; } catch (e) { return null; } });
+  }
+  function kvSet(k, v) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var t = db.transaction(KV, "readwrite");
+        t.objectStore(KV).put(v, k);
+        t.oncomplete = function () { res(); };
+        t.onerror = function () { rej(t.error); };
+      });
+    }).catch(function () { localStorage.setItem(DB + ":" + k, JSON.stringify(v)); });
+  }
+  function kvDel(k) {
+    return idb().then(function (db) { db.transaction(KV, "readwrite").objectStore(KV).delete(k); }).catch(function () { localStorage.removeItem(DB + ":" + k); });
+  }
+
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  // ошибка сети (а не отказ сервера): такие изменения откладываем и отправим, когда связь вернётся
+  function isNetErr(err) {
+    if (root.navigator && root.navigator.onLine === false) return true;
+    var m = String((err && (err.message || err.details)) || err || "");
+    return /failed to fetch|load failed|networkerror|network request failed|fetch failed|err_internet|timeout/i.test(m);
+  }
+  function uuid() {
+    if (root.crypto && root.crypto.randomUUID) return root.crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); });
+  }
+
+  // ---------- слияние правок с двух устройств ----------
+  // base — версия, от которой ушли оба; local — это устройство; remote — то, что успели сохранить в облаке.
+  // Что поменяло только одно устройство — берём его. Одно и то же поле поменяли оба — побеждает это устройство.
+  // Списки объектов с id (регулярные, категории, счета, наличка) сливаются по id, остальное — по ключам.
+  function merge3(base, local, remote) {
+    var conflicts = 0;
+    function same(a, b) { return a === b || JSON.stringify(a) === JSON.stringify(b); }
+    function isObj(x) { return x && typeof x === "object" && !Array.isArray(x); }
+    function byId(arr) { return Array.isArray(arr) && arr.every(function (x) { return isObj(x) && x.id !== undefined; }); }
+    function m(b, l, r) {
+      if (same(l, r)) return l;
+      if (same(b, l)) return r;
+      if (same(b, r)) return l;
+      if (isObj(l) && isObj(r)) {
+        var out = {}, keys = Object.keys(r).concat(Object.keys(l).filter(function (k) { return !(k in r); }));
+        keys.forEach(function (k) { var v = m(isObj(b) ? b[k] : undefined, l[k], r[k]); if (v !== undefined) out[k] = v; });
+        return out;
+      }
+      if (byId(l) && byId(r) && (b === undefined || byId(b))) {
+        var map = function (a) { var o = {}; (a || []).forEach(function (x) { o[x.id] = x; }); return o; };
+        var bm = map(b), lm = map(l), rm = map(r), res = [];
+        var ids = r.map(function (x) { return x.id; }).concat(l.map(function (x) { return x.id; }).filter(function (id) { return !(id in rm); }));
+        ids.forEach(function (id) { var v = m(bm[id], lm[id], rm[id]); if (v !== undefined) res.push(v); });
+        return res;
+      }
+      conflicts++;
+      return l;
+    }
+    var data = m(base, local, remote);
+    if (data) delete data._ver;
+    return { data: data, conflicts: conflicts };
+  }
+
+  // ---------- приватные категории: отдельный документ, видит только владелец ----------
+  function splitPrivate(state) {
+    var data = clone(state);
+    delete data._ver;
+    var privIds = {};
+    data.categories.forEach(function (c) { if (c.private) privIds[c.id] = true; });
+    var priv = { categories: data.categories.filter(function (c) { return privIds[c.id]; }), years: {} };
+    data.categories = data.categories.filter(function (c) { return !privIds[c.id]; });
+    Object.keys(data.years).forEach(function (y) {
+      var yr = data.years[y], p = { entries: {}, recurring: [] };
+      Object.keys(yr.entries || {}).forEach(function (cid) { if (privIds[cid]) { p.entries[cid] = yr.entries[cid]; delete yr.entries[cid]; } });
+      yr.recurring = (yr.recurring || []).filter(function (r) { if (privIds[r.catId]) { p.recurring.push(r); return false; } return true; });
+      priv.years[y] = p;
+    });
+    // черновик незаконченной сверки — только владельцу (в нём могут быть и приватные строки)
+    if (data.recDraft) { priv.recDraft = data.recDraft; delete data.recDraft; }
+    data.hasPrivate = priv.categories.length > 0;
+    return { pub: data, priv: priv };
+  }
+  function mergePrivate(pub, priv) {
+    var s = clone(pub);
+    if (priv && priv.recDraft) s.recDraft = clone(priv.recDraft);
+    if (!priv || !priv.categories) return s;
+    s.categories = s.categories.concat(priv.categories);
+    Object.keys(priv.years || {}).forEach(function (y) {
+      if (!s.years[y]) return;
+      var p = priv.years[y], yr = s.years[y];
+      yr.entries = yr.entries || {};
+      Object.keys(p.entries || {}).forEach(function (cid) { yr.entries[cid] = p.entries[cid]; });
+      yr.recurring = (yr.recurring || []).concat(p.recurring || []);
+    });
+    return s;
+  }
+
+  // Итоги по месяцам для уровня «только итоги» (без приватных категорий)
+  function buildSummary(state) {
+    var pub = splitPrivate(state).pub;
+    pub._ver = 1;
+    var out = { years: {}, hasPrivate: pub.hasPrivate, rate: pub.settings.rate, updatedAt: new Date().toISOString() };
+    Object.keys(pub.years).forEach(function (y) {
+      try { var m = E.monthly(pub, y); out.years[y] = { months: m.months, total: m.total, archived: !!pub.years[y].archived }; } catch (e) { /* пропустить год */ }
+    });
+    return out;
+  }
+
+  // ---------- общие траты: строка базы ↔ «моя перспектива» ----------
+  function fromRow(row, meId) {
+    var cost = Number(row.amount_cents), share = Number((row.shares || {})[meId] || 0), mine = row.paid_by === meId;
+    return { id: row.id, ext: row.ext_id, date: String(row.date).slice(0, 10), desc: row.description, cost: cost, currency: row.currency,
+      net: (mine ? cost : 0) - share, share: share, paidByMe: mine, kind: row.kind, cat: row.category || null, swCat: row.sw_category || null,
+      method: row.method, source: row.source, paidBy: row.paid_by, shares: row.shares, createdBy: row.created_by, split: row.split || null, note: row.note || "", pending: !!row._pending };
+  }
+  function toRow(e, meId, partnerId, spaceId) {
+    var shares = {};
+    shares[meId] = e.share;
+    shares[partnerId] = e.cost - e.share;
+    var r = { space_id: spaceId, date: e.date, description: e.desc || "", amount_cents: e.cost, currency: e.currency || "EUR",
+      paid_by: e.paidByMe ? meId : partnerId, shares: shares, kind: e.kind || "expense", category: e.cat || null,
+      sw_category: e.swCat || null, method: e.method || null, source: e.source || "app", split: e.split || null, note: e.note || null };
+    if (e.source === "splitwise") r.ext_id = e.id;
+    return r;
+  }
+
+  // =====================================================================
+  // Локальный режим: один профиль, всё в IndexedDB этого браузера
+  // =====================================================================
+  function LocalStore() {
+    var listeners = [];
+    var me = { id: "local", email: "", name: "Я" };
+    var api = {
+      mode: "local",
+      init: function () { return Promise.resolve({ user: me }); },
+      user: function () { return me; },
+      signIn: function () { return Promise.resolve(me); }, signUp: function () { return Promise.resolve({ user: me }); },
+      signOut: function () { return Promise.resolve(); },
+      loadMyBudget: function () {
+        return kvGet("state").then(function (s) {
+          if (!s) return null;
+          if (s.shared && s.shared.expenses) { // перенос со старой версии
+            var sh = s.shared; delete s.shared;
+            return api._legacyShared(sh).then(function () { return kvSet("state", s); }).then(function () { return { data: s, version: 1 }; });
+          }
+          return { data: s, version: 1 };
+        });
+      },
+      remoteVersion: function () { return Promise.resolve(null); },
+      saveMyBudget: function (state) {
+        var d = clone(state); delete d._ver; d.savedAt = new Date().toISOString();
+        return kvSet("state", d).then(function () { return 1; });
+      },
+      updateProfileName: function (n) { me.name = n; return Promise.resolve(); },
+      listPeople: function () { return Promise.resolve([]); },
+      loadPending: function () { return Promise.resolve(null); },
+      saveSnapshot: function (data, reason) {
+        return kvGet("snapshots").then(function (l) { l = l || []; l.unshift({ id: "s" + Date.now(), created_at: new Date().toISOString(), reason: reason, data: data }); return kvSet("snapshots", l.slice(0, 12)); });
+      },
+      listSnapshots: function () { return kvGet("snapshots").then(function (l) { return (l || []).map(function (x) { return { id: x.id, created_at: x.created_at, reason: x.reason }; }); }); },
+      getSnapshot: function (id) { return kvGet("snapshots").then(function (l) { return ((l || []).find(function (x) { return x.id === id; }) || {}).data || null; }); },
+      deletePending: function () { return Promise.resolve(); },
+      savePendingFor: function () { return Promise.reject(new Error("Подготовить бюджет для партнёра можно только в облачной версии")); },
+      pendingFor: function () { return Promise.resolve(null); },
+      loadBudgetOf: function () { return Promise.resolve(null); },
+      loadSummaryOf: function () { return Promise.resolve(null); },
+      setVisibility: function () { return Promise.resolve(); },
+      myVisibility: function () { return Promise.resolve({}); },
+      // общее пространство
+      loadSpace: function () { return kvGet("space"); },
+      createSpace: function (name, myName, partnerName) {
+        var sp = { space: { id: "local-space", name: name || "Общие траты", settings: { learned: {} } },
+          people: [{ id: "p-me", name: myName || "Я", userId: "local" }, { id: "p-partner", name: partnerName || "Партнёр", userId: null }] };
+        return kvSet("space", sp).then(function () { return sp; });
+      },
+      saveSpaceSettings: function (spaceId, settings) {
+        return kvGet("space").then(function (sp) { sp.space.settings = settings; return kvSet("space", sp); });
+      },
+      learnWord: function (spaceId, k, v) {
+        return kvGet("space").then(function (sp) {
+          var l = sp.space.settings.learned = sp.space.settings.learned || {};
+          if (v) l[k] = v; else delete l[k];
+          return kvSet("space", sp);
+        });
+      },
+      loadShared: function () { return kvGet("shared_rows").then(function (r) { return r || []; }); },
+      insertShared: function (rows) {
+        return kvGet("shared_rows").then(function (all) {
+          all = all || [];
+          var ext = {}; all.forEach(function (r) { if (r.ext_id) ext[r.ext_id] = 1; });
+          var added = 0;
+          rows.forEach(function (r) {
+            if (r.ext_id && ext[r.ext_id]) return;
+            r.id = r.id || E.uid("x"); r.created_by = "local"; all.push(r); added++;
+          });
+          return kvSet("shared_rows", all).then(function () { listeners.forEach(function (f) { f(); }); return added; });
+        });
+      },
+      updateShared: function (id, patch) {
+        return kvGet("shared_rows").then(function (all) {
+          all.forEach(function (r) { if (r.id === id) Object.assign(r, patch); });
+          return kvSet("shared_rows", all);
+        });
+      },
+      deleteShared: function (id) {
+        return kvGet("shared_rows").then(function (all) { return kvSet("shared_rows", all.filter(function (r) { return r.id !== id; })); });
+      },
+      subscribeShared: function (spaceId, cb) { listeners.push(cb); },
+      _legacyShared: function (sh) {
+        return api.createSpace("Общие траты", "Я", "Партнёр").then(function (sp) {
+          sp.space.settings.learned = sh.learned || {};
+          return kvSet("space", sp).then(function () {
+            return api.insertShared(sh.expenses.map(function (e) { var r = toRow(e, "p-me", "p-partner", sp.space.id); if (!r.ext_id) r.id = e.id; return r; }));
+          });
+        });
+      },
+      wipe: function () { return Promise.all([kvDel("state"), kvDel("space"), kvDel("shared_rows")]); },
+      outboxCount: function () { return Promise.resolve(0); }, flushOutbox: function () { return Promise.resolve(); }, onOutbox: function () {},
+      sheetStatus: function () { return Promise.resolve(null); },
+      sheetConnect: function () { return Promise.reject(new Error("Google Таблица работает только в облачной версии")); },
+      sheetPush: function () { return Promise.resolve(); }, sheetDisconnect: function () { return Promise.resolve(); },
+    };
+    return api;
+  }
+
+  // =====================================================================
+  // Облако: Supabase (вход по коду из письма, RLS на сервере)
+  // =====================================================================
+  function CloudStore() {
+    var sb = root.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    });
+    var me = null, version = 0, channel = null, lastServer = null; // lastServer — последняя версия, совпадающая с облаком (база для слияния)
+    function must(res) { if (res.error) throw res.error; return res.data; }
+    function setUser(u) { me = u ? { id: u.id, email: u.email, name: "" } : null; return me; }
+    var api = {
+      mode: "cloud",
+      client: sb,
+      init: function () {
+        return sb.auth.getSession().then(function (r) {
+          var u = r.data && r.data.session && r.data.session.user;
+          if (!u) return { user: null };
+          setUser(u);
+          return api._afterLogin().then(function () { return { user: me }; });
+        });
+      },
+      user: function () { return me; },
+      onAuthChange: function (cb) { sb.auth.onAuthStateChange(function (ev, session) { cb(ev, session && session.user); }); },
+      _afterLogin: function () {
+        return sb.rpc("claim_invites").then(function () {
+          return sb.from("profiles").select("name").eq("id", me.id).maybeSingle();
+        }).then(function (r) {
+          if (r.data && r.data.name) { me.name = r.data.name; kvSet("name:" + me.id, me.name); }
+        }).catch(function (err) {
+          // без сети вход всё равно есть (сессия на устройстве) — имя берём из кэша
+          if (!isNetErr(err)) throw err;
+          return kvGet("name:" + me.id).then(function (n) { if (n) me.name = n; });
+        }).then(function () { api.flushOutbox(); });
+      },
+      signUp: function (email, password) {
+        return sb.auth.signUp({ email: email, password: password, options: { emailRedirectTo: location.origin + location.pathname } }).then(must).then(function (d) {
+          if (d.session) { setUser(d.user); return api._afterLogin().then(function () { return { user: me }; }); }
+          return { needsConfirm: true };
+        });
+      },
+      signIn: function (email, password) {
+        return sb.auth.signInWithPassword({ email: email, password: password }).then(must).then(function (d) {
+          setUser(d.user);
+          return api._afterLogin().then(function () { return me; });
+        });
+      },
+      sendLink: function (email) {
+        return sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname } }).then(must);
+      },
+      resetPassword: function (email) {
+        return sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }).then(must);
+      },
+      updatePassword: function (password) { return sb.auth.updateUser({ password: password }).then(must); },
+      signOut: function () { var id = me && me.id; return sb.auth.signOut().then(function () { me = null; return kvDel("cache:" + id); }); },
+      updateProfileName: function (name) {
+        me.name = name;
+        return sb.from("profiles").upsert({ id: me.id, name: name, email: me.email }).then(must);
+      },
+
+      loadMyBudget: function () {
+        return Promise.all([
+          sb.from("budgets").select("data,version").eq("owner_id", me.id).maybeSingle().then(must),
+          sb.from("budget_private").select("data").eq("owner_id", me.id).maybeSingle().then(must),
+        ]).then(function (r) {
+          if (!r[0]) { version = 0; return null; }
+          version = r[0].version;
+          var data = mergePrivate(r[0].data, r[1] && r[1].data);
+          kvSet("cache:" + me.id, { data: data, version: version });
+          lastServer = clone(data);
+          // есть изменения, сделанные без сети и ещё не отправленные?
+          return kvGet("outbox:budget:" + me.id).then(function (ob) {
+            if (!ob) return { data: data, version: version };
+            if (ob.base === version) return { data: ob.data, version: version, pendingLocal: true };
+            // бюджет успели изменить на другом устройстве — берём облачный, а свои изменения отдаём на сохранение копией
+            return kvDel("outbox:budget:" + me.id).then(function () { return { data: data, version: version, conflictLocal: ob }; });
+          });
+        }).catch(function (err) {
+          // нет сети — берём неотправленное или кэш с этого устройства
+          return Promise.all([kvGet("outbox:budget:" + me.id), kvGet("cache:" + me.id)]).then(function (x) {
+            var ob = x[0], c = x[1];
+            if (ob) { version = ob.base; lastServer = ob.baseData || null; return { data: ob.data, version: ob.base, offline: true, pendingLocal: true }; }
+            if (c) { version = c.version; lastServer = clone(c.data); c.offline = true; return c; }
+            throw err;
+          });
+        });
+      },
+      // резервные копии: в облаке (последние 12) и на этом устройстве — на случай без сети
+      saveSnapshot: function (data, reason) {
+        var local = kvGet("snapshots:" + me.id).then(function (l) { l = l || []; l.unshift({ id: "l" + Date.now(), created_at: new Date().toISOString(), reason: reason, data: data, local: true }); return kvSet("snapshots:" + me.id, l.slice(0, 6)); });
+        var cloud = sb.from("budget_snapshots").insert({ reason: reason, data: data }).then(must).then(function () {
+          return sb.from("budget_snapshots").select("id").eq("owner_id", me.id).order("created_at", { ascending: false }).then(must);
+        }).then(function (rows) { var old = rows.slice(12).map(function (r) { return r.id; }); return old.length ? sb.from("budget_snapshots").delete().in("id", old).then(must) : null; });
+        return Promise.all([local, cloud.catch(function () { return null; })]);
+      },
+      listSnapshots: function () {
+        return Promise.all([
+          sb.from("budget_snapshots").select("id,created_at,reason").eq("owner_id", me.id).order("created_at", { ascending: false }).limit(12).then(must).catch(function () { return []; }),
+          kvGet("snapshots:" + me.id).then(function (l) { return (l || []).map(function (x) { return { id: x.id, created_at: x.created_at, reason: x.reason, local: true }; }); }),
+        ]).then(function (r) { return r[0].length ? r[0] : r[1]; });
+      },
+      getSnapshot: function (id) {
+        if (String(id).charAt(0) === "l") return kvGet("snapshots:" + me.id).then(function (l) { return ((l || []).find(function (x) { return x.id === id; }) || {}).data || null; });
+        return sb.from("budget_snapshots").select("data").eq("id", id).single().then(must).then(function (r) { return r.data; });
+      },
+      // бюджет, подготовленный партнёром заранее (по моему email)
+      loadPending: function () {
+        return sb.from("pending_budgets").select("data,created_at").eq("email", (me.email || "").toLowerCase()).maybeSingle()
+          .then(function (r) { return r.error ? null : r.data; });
+      },
+      deletePending: function () { return sb.from("pending_budgets").delete().eq("email", (me.email || "").toLowerCase()).then(must); },
+      savePendingFor: function (email, data) {
+        return sb.from("pending_budgets").upsert({ email: String(email).toLowerCase(), data: data, created_by: me.id, created_at: new Date().toISOString() }).then(must);
+      },
+      pendingFor: function (email) {
+        return sb.from("pending_budgets").select("created_at").eq("email", String(email).toLowerCase()).maybeSingle().then(function (r) { return r.error ? null : r.data; });
+      },
+      remoteVersion: function () {
+        return sb.from("budgets").select("version").eq("owner_id", me.id).maybeSingle().then(function (r) { return r.data ? r.data.version : 0; });
+      },
+      localVersion: function () { return version; },
+      base: function () { return lastServer; },
+      saveMyBudget: function (state) {
+        var parts = splitPrivate(state), base = version, local = clone(state);
+        delete local._ver;
+        // сначала на устройство: если связь пропадёт или приложение закроют, изменения не потеряются
+        var stash = kvSet("outbox:budget:" + me.id, { data: local, base: base, baseData: lastServer, at: new Date().toISOString() });
+        return stash.then(function () { return sb.rpc("save_budget", { new_data: parts.pub, expected_version: base }); }).then(function (r) {
+          if (r.error) {
+            if (/version_conflict/.test(r.error.message)) { var e = new Error("conflict"); e.code = "conflict"; throw e; }
+            throw r.error;
+          }
+          version = r.data; lastServer = local;
+          kvDel("outbox:budget:" + me.id);
+          kvSet("cache:" + me.id, { data: mergePrivate(parts.pub, parts.priv), version: version });
+          return Promise.all([
+            sb.from("budget_private").upsert({ owner_id: me.id, data: parts.priv, updated_at: new Date().toISOString() }).then(must),
+            sb.from("budget_summaries").upsert({ owner_id: me.id, data: buildSummary(state), updated_at: new Date().toISOString() }).then(must),
+          ]).then(function () { return version; });
+        });
+      },
+
+      // люди, чьи бюджеты можно смотреть, и мой доступ для них
+      listPeople: function () {
+        return sb.from("visibility").select("owner_id,viewer_id,level").then(must).then(function (rows) {
+          var ids = {};
+          rows.forEach(function (r) { ids[r.owner_id === me.id ? r.viewer_id : r.owner_id] = 1; });
+          var list = Object.keys(ids);
+          if (!list.length) return [];
+          return sb.from("profiles").select("id,name,email").in("id", list).then(must).then(function (profs) {
+            return list.map(function (id) {
+              var p = profs.find(function (x) { return x.id === id; }) || {};
+              var theirs = rows.find(function (r) { return r.owner_id === id && r.viewer_id === me.id; });
+              var mine = rows.find(function (r) { return r.owner_id === me.id && r.viewer_id === id; });
+              return { userId: id, name: p.name || (p.email || "").split("@")[0] || "Партнёр", email: p.email, theirLevel: theirs ? theirs.level : "hidden", myLevel: mine ? mine.level : "hidden" };
+            });
+          });
+        });
+      },
+      loadBudgetOf: function (userId) {
+        return sb.from("budgets").select("data,version,updated_at").eq("owner_id", userId).maybeSingle().then(must);
+      },
+      loadSummaryOf: function (userId) {
+        return sb.from("budget_summaries").select("data,updated_at").eq("owner_id", userId).maybeSingle().then(must);
+      },
+      setVisibility: function (viewerId, level) {
+        return sb.from("visibility").upsert({ owner_id: me.id, viewer_id: viewerId, level: level, updated_at: new Date().toISOString() }).then(must);
+      },
+
+      // общее пространство
+      loadSpace: function () {
+        return api._loadSpace().then(function (sp) { kvSet("space:" + me.id, sp); return sp; }, function (err) {
+          if (!isNetErr(err)) throw err;
+          return kvGet("space:" + me.id);
+        });
+      },
+      _loadSpace: function () {
+        return sb.from("space_people").select("space_id").eq("user_id", me.id).limit(1).then(must).then(function (r) {
+          if (!r.length) return null;
+          var sid = r[0].space_id;
+          return Promise.all([
+            sb.from("spaces").select("id,name,settings").eq("id", sid).single().then(must),
+            sb.from("space_people").select("id,name,email,user_id").eq("space_id", sid).order("created_at").then(must),
+          ]).then(function (x) {
+            return { space: x[0], people: x[1].map(function (p) { return { id: p.id, name: p.name, email: p.email, userId: p.user_id }; }) };
+          });
+        });
+      },
+      createSpace: function (name, myName, partnerName, partnerEmail) {
+        return sb.rpc("create_space", { space_name: name, my_name: myName, partner_name: partnerName, partner_email: partnerEmail || "" }).then(must).then(api.loadSpace);
+      },
+      saveSpaceSettings: function (spaceId, settings) {
+        return api._try({ op: "settings", spaceId: spaceId, settings: settings });
+      },
+      // одна запись словаря категорий; сервер меняет только её (learn_word в shared_learn.sql)
+      learnWord: function (spaceId, k, v) {
+        return api._try({ op: "learn", spaceId: spaceId, k: k, v: v });
+      },
+      loadShared: function (spaceId) {
+        return api._loadShared(spaceId).then(function (rows) {
+          kvSet("shared:" + spaceId, rows);
+          return api._overlay(spaceId, rows);
+        }, function (err) {
+          if (!isNetErr(err)) throw err;
+          return kvGet("shared:" + spaceId).then(function (rows) { return api._overlay(spaceId, rows || []); });
+        });
+      },
+      _loadShared: function (spaceId) {
+        var all = [], page = 1000;
+        function next(from) {
+          return sb.from("shared_expenses").select("*").eq("space_id", spaceId).order("date").order("created_at").range(from, from + page - 1).then(must).then(function (rows) {
+            all = all.concat(rows);
+            return rows.length === page ? next(from + page) : all;
+          });
+        }
+        return next(0);
+      },
+      // Траты на двоих: пробуем отправить сразу, без сети — в очередь на устройстве
+      insertShared: function (rows) {
+        rows.forEach(function (r) { if (!r.ext_id && !r.id) r.id = uuid(); });
+        if (rows.length > 50) return api._insertShared(rows); // импорт CSV — только при связи
+        return api._try({ op: "insert", rows: rows }).then(function (n) { return typeof n === "number" ? n : rows.length; });
+      },
+      _insertShared: function (rows) {
+        var chunks = [];
+        for (var i = 0; i < rows.length; i += 500) chunks.push(rows.slice(i, i + 500));
+        var added = 0;
+        return chunks.reduce(function (p, ch) {
+          return p.then(function () {
+            var withExt = ch.filter(function (r) { return r.ext_id; }), plain = ch.filter(function (r) { return !r.ext_id; });
+            return Promise.all([
+              withExt.length ? sb.from("shared_expenses").upsert(withExt, { onConflict: "space_id,ext_id", ignoreDuplicates: true }).select("id").then(must) : [],
+              plain.length ? sb.from("shared_expenses").insert(plain).select("id").then(must) : [],
+            ]).then(function (r) { added += r[0].length + r[1].length; });
+          });
+        }, Promise.resolve()).then(function () { return added; });
+      },
+      updateShared: function (id, patch) { patch.updated_at = new Date().toISOString(); return api._try({ op: "update", id: id, patch: patch }); },
+      deleteShared: function (id) { return api._try({ op: "delete", id: id }); },
+      _run: function (o) {
+        if (o.op === "insert") return api._insertShared(o.rows);
+        if (o.op === "update") return sb.from("shared_expenses").update(o.patch).eq("id", o.id).then(must);
+        if (o.op === "delete") return sb.from("shared_expenses").delete().eq("id", o.id).then(must);
+        if (o.op === "settings") return sb.from("spaces").update({ settings: o.settings }).eq("id", o.spaceId).then(must);
+        if (o.op === "learn") return sb.rpc("learn_word", { sid: o.spaceId, k: o.k, v: o.v }).then(must);
+        return Promise.resolve();
+      },
+      _queue: function () { return kvGet("outbox:shared:" + me.id).then(function (q) { return q || []; }); },
+      // если очередь не пуста — новое действие встаёт за ней, чтобы порядок не нарушился
+      _try: function (o) {
+        return api._queue().then(function (q) {
+          if (q.length) return api._enqueue(o).then(function () { api.flushOutbox(); return null; });
+          return api._run(o).catch(function (err) {
+            if (!isNetErr(err)) throw err;
+            return api._enqueue(o).then(function () { return null; });
+          });
+        });
+      },
+      _enqueue: function (o) {
+        return api._queue().then(function (q) { o.at = new Date().toISOString(); q.push(o); return kvSet("outbox:shared:" + me.id, q); }).then(api._notify);
+      },
+      // неотправленные действия поверх загруженных строк — чтобы лента сразу показывала то, что внесено без сети
+      _overlay: function (spaceId, rows) {
+        return api._queue().then(function (q) {
+          if (!q.length) return rows;
+          var out = rows.slice();
+          q.forEach(function (o) {
+            if (o.op === "insert") o.rows.forEach(function (r) { if (r.space_id === spaceId && !out.some(function (x) { return (r.id && x.id === r.id) || (r.ext_id && x.ext_id === r.ext_id); })) out.push(Object.assign({ created_at: o.at, created_by: me.id, _pending: true }, r)); });
+            else if (o.op === "update") out = out.map(function (x) { return x.id === o.id ? Object.assign({}, x, o.patch, { _pending: true }) : x; });
+            else if (o.op === "delete") out = out.filter(function (x) { return x.id !== o.id; });
+          });
+          return out;
+        });
+      },
+      _listeners: [],
+      onOutbox: function (cb) { api._listeners.push(cb); },
+      _notify: function () { return api.outboxCount().then(function (n) { api._listeners.forEach(function (f) { f(n); }); }); },
+      outboxCount: function () {
+        if (!me) return Promise.resolve(0);
+        return Promise.all([api._queue(), kvGet("outbox:budget:" + me.id)]).then(function (x) { return x[0].length + (x[1] ? 1 : 0); });
+      },
+      // отправить очередь по порядку; на первой сетевой ошибке остановиться и подождать связи
+      flushOutbox: function () {
+        if (!me || api._flushing) return api._flushing || Promise.resolve();
+        api._flushing = api._queue().then(function (q) {
+          var dropped = 0, sent = 0;
+          function step() {
+            if (!q.length) return;
+            return api._run(q[0]).then(function () { q.shift(); sent++; return kvSet("outbox:shared:" + me.id, q).then(step); }, function (err) {
+              if (isNetErr(err)) return;
+              // сервер отказал (например, трату уже удалили) — убираем из очереди, чтобы не застрять
+              console.warn("outbox drop", q[0], err); q.shift(); dropped++;
+              return kvSet("outbox:shared:" + me.id, q).then(step);
+            });
+          }
+          return Promise.resolve(step()).then(function () { return { sent: sent, dropped: dropped, left: q.length }; });
+        }).then(function (res) {
+          api._flushing = null; api._notify();
+          if (res.sent || res.dropped) api._listeners.forEach(function (f) { f(null, res); });
+          return res;
+        }, function () { api._flushing = null; });
+        return api._flushing;
+      },
+      subscribeShared: function (spaceId, cb) {
+        if (channel) sb.removeChannel(channel);
+        channel = sb.channel("shared-" + spaceId)
+          .on("postgres_changes", { event: "*", schema: "public", table: "shared_expenses", filter: "space_id=eq." + spaceId }, function () { cb(); })
+          .subscribe();
+      },
+      wipe: function () { return Promise.resolve(); },
+
+      // Google Таблица: личный ключ + книга, которую забирает скрипт в таблице (функция sheet-feed)
+      sheetStatus: function () {
+        return sb.from("sheet_exports").select("token,updated_at").eq("owner_id", me.id).maybeSingle().then(must);
+      },
+      sheetConnect: function (model) {
+        var bytes = new Uint8Array(32); root.crypto.getRandomValues(bytes);
+        var token = Array.prototype.map.call(bytes, function (b) { return (b < 16 ? "0" : "") + b.toString(16); }).join("");
+        return sb.from("sheet_exports").upsert({ owner_id: me.id, token: token, model: model, updated_at: new Date().toISOString() }).then(must).then(function () { return token; });
+      },
+      sheetPush: function (model) {
+        return sb.from("sheet_exports").update({ model: model, updated_at: new Date().toISOString() }).eq("owner_id", me.id).then(must);
+      },
+      sheetDisconnect: function () { return sb.from("sheet_exports").delete().eq("owner_id", me.id).then(must); },
+    };
+    if (root.addEventListener) root.addEventListener("online", function () { api.flushOutbox(); });
+    return api;
+  }
+
+  var cloud = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && root.supabase);
+  root.BudgetStore = cloud ? CloudStore() : LocalStore();
+  root.BudgetStoreUtil = { merge3: merge3, splitPrivate: splitPrivate, mergePrivate: mergePrivate, buildSummary: buildSummary, fromRow: fromRow, toRow: toRow, kvGet: kvGet, kvSet: kvSet };
+})(window);
