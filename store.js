@@ -433,7 +433,7 @@
           if (!r.length) return null;
           var sid = r[0].space_id;
           return Promise.all([
-            sb.from("spaces").select("id,name,settings").eq("id", sid).single().then(must),
+            sb.from("spaces").select("id,name,settings,created_by").eq("id", sid).single().then(must),
             sb.from("space_people").select("id,name,email,user_id").eq("space_id", sid).order("created_at").then(must),
           ]).then(function (x) {
             return { space: x[0], people: x[1].map(function (p) { return { id: p.id, name: p.name, email: p.email, userId: p.user_id }; }) };

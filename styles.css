@@ -106,7 +106,7 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--ink-2); font-weight: 600; te
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); }
 .card + .card, .section + .section { margin-top: 16px; }
 .section { margin-top: 26px; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .spacer { flex: 1; }
 .hint { background: var(--warn-soft); border-radius: 10px; padding: 10px 14px; margin-top: 12px; }
@@ -1228,7 +1228,8 @@ body.scrolled::before { box-shadow: 0 1px 0 var(--line); }
 .ut-bar i:first-child { background: var(--accent); } .ut-bar i:last-child { background: #c98a3a; }
 .ut-leg { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; margin-top: 6px; }
 .ut-leg .d1 { color: var(--accent); } .ut-leg .d2 { color: #a86e24; }
-.ut-spend { margin-bottom: 14px; } .ut-spend h2 { margin-bottom: 4px; }
+.ut-spend { margin-bottom: 14px; } .ut-spend h2 { margin-bottom: 4px; font-size: 17px; }
+.ut-spend .kv.ut-mute { color: var(--muted); } .ut-spend .kv.ut-mute span:last-child { white-space: nowrap; }
 .ut-spend .kv small { color: var(--muted); font-size: 12px; }
 .ut-total b, .ut-total span { font-weight: 700; }
 .ut-sub span { color: var(--muted); font-size: 14px; }
@@ -1621,3 +1622,8 @@ a.us-plan .arr { color: var(--muted); font-size: 18px; flex: none; }
 .pw-plan-l input { width: 20px; height: 20px; accent-color: var(--accent); }
 .pw-plan select { flex: 1; min-width: 0; }
 .pw-plan.off select { opacity: .55; }
+/* графики на телефоне: viewBox 720 сжимается в ~0,43 — подписи 11 px становились 5 px */
+@media (max-width: 600px) { .chart text { font-size: 22px; } }
+.fx-live { margin-top: 12px; } .fx-live .fx-btn { margin-top: 8px; }
+.nw { white-space: nowrap; }
+.tl-sum-sub { display: block; margin: 4px 0 0; font-weight: 400; }
