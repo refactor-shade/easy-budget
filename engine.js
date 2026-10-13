@@ -150,7 +150,8 @@
     var dec = opts.dec !== undefined ? opts.dec : (Math.round(v) === v ? 0 : 2);
     var s = Math.abs(v).toFixed(dec).replace(".", ",");
     var parts = s.split(",");
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    // тысячи — обычным неразрывным пробелом: узкий (U+202F) в мелком тексте почти не виден («+1280»)
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, "\u00A0");
     s = parts.join(",");
     var sign = v < 0 && Math.abs(v) >= Math.pow(10, -dec) / 2 ? "−" : (opts.plus && v > 0 ? "+" : "");
     return sign + s + (opts.cur ? "\u00A0" + opts.cur : "");
