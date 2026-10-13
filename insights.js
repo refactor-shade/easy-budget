@@ -178,9 +178,9 @@
     var incY = incCats.reduce(function (s, c) { return s + sum(cm[c.id] || [], 0, 12); }, 0);
     if (incY > 0) {
       var vs = vol / incY;
-      if (vs > 0.3) improve.push({ id: "volatile", ic: "◑", rank: 6, h: "Нестабильный доход — " + pct(vs) + " (бонус, крипта, фриланс)", p: eur(vol) + " из " + eur(incY) + " за " + Y + ". Для плана лучше знать, хватит ли денег без них — это стоит заложить скромнее.", next: "В плане следующего года заложи бонус и крипту скромнее — и проверь, хватает ли без них." });
+      if (vs > 0.3) improve.push({ id: "volatile", ic: "◑", rank: 6, h: "Нестабильный доход — " + pct(vs) + " (бонус, крипта, фриланс)", p: eur(vol) + " из " + eur(incY) + " за " + Y + (today.slice(0, 4) === Y && today.slice(5, 7) !== "12" ? " (вместе с планом до конца года)" : "") + ". Для плана лучше знать, хватит ли денег без них — это стоит заложить скромнее.", next: "В плане следующего года заложи бонус и крипту скромнее — и проверь, хватает ли без них." });
       var topInc = incCats.map(function (c) { return { c: c, v: sum(cm[c.id] || [], 0, 12) }; }).sort(function (a, b) { return b.v - a.v; })[0];
-      if (topInc && topInc.v > 0) info.push({ id: "incomes", ic: "◑", rank: 34, h: "Доходы " + Y + ": " + eur(incY), p: "Главный источник — «" + topInc.c.name + "», " + pct(topInc.v / incY) + "." });
+      if (topInc && topInc.v > 0) info.push({ id: "incomes", ic: "◑", rank: 34, h: "Доходы " + Y + ": " + eur(incY) + (today.slice(0, 4) === Y && today.slice(5, 7) !== "12" ? " с планом" : ""), p: "Главный источник — «" + topInc.c.name + "», " + pct(topInc.v / incY) + "." });
     }
 
     // --- для справки: на жизнь, структура трат ---

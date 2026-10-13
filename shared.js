@@ -291,6 +291,21 @@
       state.categories.find(function (x) { return ok(x) && /коммун|utilit/i.test(x.name); });
     return c ? c.id : null;
   }
+  // Строка личного плана для категории общих — для «+» (трата фразой). В отличие от guessPersonalCat, слова регулярки
+  // идут по приоритету: «аптека» → «здоровье, медицина», а не первая в списке «спорт». Еда и развлечения — свои подсказки.
+  var PERSONAL_HINTS = { "Продукты": /продукт/i, "Доставка еды": /доставк|продукт/i, "Кафе и рестораны": /кафе|ресторан|развлеч/i,
+    "Развлечения и события": /развлеч|концерт|кино/i, "Такси и транспорт": /такси|проезд|транспорт/i };
+  function personalCatFor(state, sharedCat) {
+    var ok = function (x) { return !x.archived && x.block !== "income" && x.block !== "savings"; };
+    var g = MAP_GUESS.find(function (x) { return x[0] === sharedCat; }), re = PERSONAL_HINTS[sharedCat] || (g && g[1]);
+    if (!re) return null;
+    var alts = re.source.split("|");
+    for (var i = 0; i < alts.length; i++) {
+      var r = new RegExp(alts[i], "i"), c = state.categories.find(function (x) { return ok(x) && r.test(x.name); });
+      if (c) return c.id;
+    }
+    return null;
+  }
   function guessPersonalCat(state, sharedCat) {
     var g = MAP_GUESS.find(function (x) { return x[0] === sharedCat; });
     if (!g) return null;
@@ -355,6 +370,6 @@
   root.BudgetShared = {
     SHARED_CATS: SHARED_CATS, FOOD: FOOD, FUN: FUN, guessCategory: guessCategory, looksLikeTransfer: looksLikeTransfer, spreadGap: spreadGap, parseCSV: parseCSV,
     importSplitwise: importSplitwise, computeSplit: computeSplit, makeExpense: makeExpense, makeSettlement: makeSettlement, mergeExpenses: mergeExpenses, balance: balance, toEur: toEur, catOf: catOf,
-    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, isUtility: isUtility, utilityCat: utilityCat, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat, planCatsFor: planCatsFor,
+    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, isUtility: isUtility, utilityCat: utilityCat, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat, personalCatFor: personalCatFor, planCatsFor: planCatsFor,
   };
 })(typeof window !== "undefined" ? window : this);

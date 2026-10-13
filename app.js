@@ -2,12 +2,15 @@
 "use strict";
 // ---------- роутер ----------
 function render() {
+  if (typeof hideTip === "function") hideTip();
   var route = (location.hash || "#home").slice(1);
   if (!routes[route]) route = "home";
   document.body.classList.remove("auth");
   $main.classList.toggle("wide", route === "year");
   var grp = routeGroup(route);
-  document.querySelectorAll("#nav a[data-group]").forEach(function (a) { var on = a.dataset.group === grp; a.classList.toggle("active", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  // на телефоне пункта «Сверка» в панели нет — пока открыта сверка, подсвечена «Главная» (оттуда в неё и входят)
+  var recLink = document.querySelector("#nav a[data-group='recon']"), navGrp = grp === "recon" && recLink && !recLink.offsetParent ? "home" : grp;
+  document.querySelectorAll("#nav a[data-group]").forEach(function (a) { var on = a.dataset.group === navGrp; a.classList.toggle("active", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   profileBar();
   try {
     if (RO() && route !== "shared" && route !== "help" && route !== "tolog") {
@@ -221,6 +224,11 @@ document.addEventListener("mouseover", function (e) {
   if (!el) { $tip.classList.remove("on"); return; }
   $tip.textContent = el.getAttribute("data-tip"); $tip.classList.add("on");
 });
+// подсказка не остаётся висеть: прокрутка, уход мыши с окна, касание, перерисовка экрана
+function hideTip() { $tip.classList.remove("on"); }
+window.addEventListener("scroll", hideTip, { passive: true, capture: true });
+document.addEventListener("mouseout", function (e) { if (!e.relatedTarget) hideTip(); });
+document.addEventListener("pointerdown", function (e) { if (e.pointerType !== "mouse") hideTip(); });
 document.addEventListener("mousemove", function (e) {
   if (!$tip.classList.contains("on")) return;
   var x = e.clientX + 14, y = e.clientY + 14, w = $tip.offsetWidth, h = $tip.offsetHeight;
