@@ -142,8 +142,8 @@
     // неделя
     var open = !!ui.homeWeekOpen, shown = open ? items : items.slice(0, 5);
     html += tpl("<section class='card a-week'><div class='wk-head'><button type='button' class='round-btn' data-hw='-1' aria-label='Предыдущая неделя'>‹</button>" +
-      "<div class='wk-title'><h2>Неделя {wk}</h2><div class='small muted'>приход {tin} · расход {tout}</div></div><button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>{!list}{!more}</section>", {
-        wk: shortWeek(y, hw), tin: eur(tin, { dec: 0 }), tout: eur(-tout, { dec: 0 }),
+      "<div class='wk-title'><h2>Неделя {wk}</h2><div class='small muted'>{sum}</div></div><button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>{!list}{!more}</section>", {
+        wk: shortWeek(y, hw), sum: [tin ? "доходы " + eur(tin, { dec: 0 }) : "", tout ? "расходы " + eur(-tout, { dec: 0 }) : ""].filter(Boolean).join(" · "),
         list: items.length ? "<ul class='plan-list'>" + shown.map(function (x) {
           return tpl("<li><span class='name'>{n}</span><span class='val {c}'>{v}</span></li>", { n: x.c.name, c: sign(x.cell.cents), v: E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) });
         }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>",

@@ -445,7 +445,7 @@
         var sub = a.kind === "info" ? "для справки" + (lkT ? " · было " + lkT : "") : !active ? from : (lkT ? "было " + lkT : "") + (acur ? (lkT ? " · " : "") + "в " + acur + ", по курсу" : "");
         var dis = a.kind === "cash_flow" && !active ? " disabled" : "";
         return tpl("<div class='rcl-row{info}'><label for='rf_{id}' class='rc-name'><b>{n}{cur}</b><small>{sub}{!cash}</small></label>" +
-          "<span class='rc-inp'><span class='rc-ops'><button type='button' class='rc-sign' data-op='-' aria-label='Минус'{!dis}>−</button><button type='button' class='rc-sign' data-op='+' aria-label='Плюс'{!dis}>+</button></span>" +
+          "<span class='rc-inp'><span class='rc-ops'><button type='button' class='rc-sign' data-op='-' aria-label='Вставить «−» в сумму'{!dis}>−</button><button type='button' class='rc-sign' data-op='+' aria-label='Вставить «+» в сумму'{!dis}>+</button></span>" +
           "<input id='rf_{id}' type='text' inputmode='decimal' name='{id}' value='{v}' placeholder=''{!dis}></span></div>", {
             info: a.kind === "info" ? " info" : "", id: a.id, n: a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, ""), cur: acur && a.name.indexOf(acur) < 0 ? " " + acur : "", sub: sub, dis: dis, v: e ? numShow(e.expr) : "",
             cash: isCash ? tpl("{sep}<button type='button' class='linkish' data-cashfill='{id}'>в «Наличке» {sum}</button>", { sep: sub ? " · " : "", id: a.id, sum: E.fmt(Cash.cashEurTotal(), { dec: 0 }) }) : "" });

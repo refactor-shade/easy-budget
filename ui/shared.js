@@ -754,7 +754,8 @@
         var cc = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, learned);
         ic = catIcon(cc);
         sub = dd + " · " + (e.paidByMe ? "ты" : partner) + " · " + E.fmt(e.cost, { cur: c$ }) + (e.method === "cash" ? " · нал" : "");
-        amt = Math.abs(e.net) < 1 ? "<span class='fa even'>—</span>" : tpl("<span class='fa {c}'>{v}</span>", { c: e.net > 0 ? "lent" : "owe", v: e.net > 0 ? "+" + E.fmt(e.net, { cur: c$ }) : "−" + E.fmt(-e.net, { cur: c$ }) });
+        // как в Splitwise: мелкая подпись над суммой тем же цветом — «тебе должны» / «ты должна», без «+/−» (это долг, а не доход или расход)
+        amt = Math.abs(e.net) < 1 ? "<span class='fa even'>—</span>" : tpl("<span class='fa {c}'><small>{l}</small>{v}</span>", { c: e.net > 0 ? "lent" : "owe", l: e.net > 0 ? "тебе должны" : "ты должна", v: E.fmt(Math.abs(e.net), { cur: c$ }) });
       }
       // title и sub — текст; amt и ic — HTML из своего кода
       var title = (k === "settlement" || k === "refund") ? (e.paidByMe ? "Ты → " + partner : partner + " → тебе") : e.desc || "без описания";
