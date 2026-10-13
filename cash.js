@@ -88,8 +88,22 @@
     return res;
   }
 
-  // Наличные из общих трат: я платила, и способ «наличные» или в описании «нал / кеш / cash»
-  var CASH_RE = /(^|[^a-zа-яё])(нал|налом|налич\S*|кеш\S*|кэш\S*|cash)([^a-zа-яё]|$)/i;
+  // Наличные из общих трат: я платила, и способ «наличные» или в описании «нал / кеш / cash» (старые записи без способа).
+  // «кешбэк» — не наличные.
+  var CASH_RE = /(^|[^a-zа-яё])(нал|налом|налич\S*|кеш(?![бb])\S*|кэш(?![бb])\S*|cash)([^a-zа-яё]|$)/i;
+  // одно слово фразы — признак налички («нал», «наличкой», «кэшем»); слово уже в нижнем регистре
+  var CASH_WORD = /^(нал|налом|наличн[а-я]*|наличк[а-я]*|кеш|кешем|кэш|кэшем|cash)$/;
+  // какой карман назван во фразе («из конверта 1»): id или null. Как в findPlaces — по первому слову названия
+  function mentionedPocket(text, pockets) {
+    var tk = tokens(text), hit = findPlaces(tk, pockets || []).find(function (p) { return p.id !== "bank"; });
+    return hit ? hit.id : null;
+  }
+  // слова фразы, которые относятся к названию кармана — убрать из описания
+  function dropPocketWords(words, pocket) {
+    if (!pocket) return words;
+    var nt = tokens(pocket.name);
+    return words.filter(function (w) { var t = norm(w); return !nt.some(function (n) { return tokMatch(t, n); }); });
+  }
   function isCashExpense(e) { return e.kind === "expense" && (e.method === "cash" || CASH_RE.test((e.desc || "") + " " + (e.note || ""))); }
   // asPartner: смотрю чужой бюджет — «платила» значит платила она, а не я
   function sharedLines(cash, expenses, asPartner) {
@@ -112,5 +126,6 @@
     return b;
   }
 
-  root.BudgetCash = { KINDS: KINDS, parse: parse, tokens: tokens, isCashExpense: isCashExpense, sharedLines: sharedLines, balances: balances };
+  root.BudgetCash = { KINDS: KINDS, parse: parse, tokens: tokens, isCashExpense: isCashExpense, sharedLines: sharedLines, balances: balances,
+    CASH_WORD: CASH_WORD, mentionedPocket: mentionedPocket, dropPocketWords: dropPocketWords };
 })(typeof window !== "undefined" ? window : this);

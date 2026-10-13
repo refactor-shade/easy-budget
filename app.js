@@ -7,7 +7,7 @@ function render() {
   document.body.classList.remove("auth");
   $main.classList.toggle("wide", route === "year");
   var grp = routeGroup(route);
-  document.querySelectorAll("#nav a[data-group]").forEach(function (a) { a.classList.toggle("active", a.dataset.group === grp); });
+  document.querySelectorAll("#nav a[data-group]").forEach(function (a) { var on = a.dataset.group === grp; a.classList.toggle("active", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   profileBar();
   try {
     if (RO() && route !== "shared" && route !== "help" && route !== "tolog") {
