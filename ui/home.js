@@ -117,7 +117,7 @@
     // дела
     // пункты «Что сделать» — обычный текст (h, p), экранируется здесь
     if (!ro) html += tpl("<section class='card a-todo'><h2>Что сделать</h2>{!list}" +
-      "<div class='rc-row' role='link' tabindex='0' id='rcRow' aria-label='Открыть сверку'><span class='rc-l'>Сверки</span>{!cal}<span class='rc-go' aria-hidden='true'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg></span></div></section>", {
+      "<div class='rc-row' role='link' tabindex='0' id='rcRow' aria-label='Открыть сверку'><span class='rc-l'>Сверки</span>{!cal}<span class='rc-go' aria-hidden='true'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg></span></div><div class='rc-mini-leg small' aria-hidden='true'><span><i class='rc p2'></i>больше плана</span><span><i class='rc n2'></i>меньше</span><span><i class='rc miss'></i>не было</span></div></section>", {
         cal: reconCalendar(y, true),
         list: todo.length ? "<ul class='todo-list'>" + todoShown.map(function (x, j) {
           return tpl("<li class='{k}'><button type='button' class='td-main' data-todo='{j}'><span class='ic' aria-hidden='true'>{ic}</span><span class='tx'><b>{h}</b><span>{p}</span></span><span class='arr' aria-hidden='true'>›</span></button><button type='button' class='td-hide' data-tdhide='{j}' aria-label='Скрыть «{h}»' title='Скрыть'>×</button></li>", { k: x.k || "", j: j, ic: x.ic, h: x.h, p: x.p });
@@ -145,7 +145,7 @@
       "<div class='wk-title'><h2>Неделя {wk}</h2><div class='small muted'>{sum}</div></div><button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>{!list}{!more}</section>", {
         wk: shortWeek(y, hw), sum: [tin ? "доходы " + eur(tin, { dec: 0 }) : "", tout ? "расходы " + eur(-tout, { dec: 0 }) : ""].filter(Boolean).join(" · "),
         list: items.length ? "<ul class='plan-list'>" + shown.map(function (x) {
-          return tpl("<li><span class='name'>{n}</span><span class='val {c}'>{v}</span></li>", { n: x.c.name, c: sign(x.cell.cents), v: E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) });
+          return tpl("<li><span class='name'>{n}</span><span class='val {c}'>{v}</span></li>", { n: x.c.name, c: tone(x.cell.cents), v: E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) });
         }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>",
         more: items.length > 5 && !open ? tpl("<button type='button' class='btn ghost sm more' id='hwMore'>Ещё {n} · показать всю неделю</button>", { n: items.length - 5 }) : "" });
 

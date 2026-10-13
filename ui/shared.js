@@ -18,9 +18,9 @@
     child: "<circle cx='12' cy='7' r='3'/><path d='M6 21v-3a6 6 0 0 1 12 0v3'/>", swap: "<path d='M4 8h14l-3-3M20 16H6l3 3'/>", dot: "<circle cx='12' cy='12' r='3'/>",
   };
   var CAT_STYLE = [
-    [/жиль|счет/i, "home", "#e3ecf7", "#2c5a8f"], [/продукт/i, "cart", "#e6f0ea", "#2f6f4f"], [/кафе|ресторан|доставк/i, "cup", "#f7ebe0", "#9a5520"],
+    [/жиль|счет|квартир|аренд|utilit|коммун/i, "home", "#e3ecf7", "#2c5a8f"], [/продукт/i, "cart", "#e6f0ea", "#2f6f4f"], [/кафе|ресторан|доставк/i, "cup", "#f7ebe0", "#9a5520"],
     [/путеш/i, "plane", "#e5eef3", "#2d6278"], [/подар|праздн/i, "gift", "#f6e7ee", "#94406a"], [/развлеч|событ/i, "star", "#efe9f7", "#5f4a96"],
-    [/такси|транспорт/i, "car", "#eef0e4", "#5b6526"], [/аптек|здоров|уход/i, "heart", "#f8e6e4", "#a3433a"], [/документ|налог/i, "doc", "#efede7", "#4d4c47"],
+    [/такси|транспорт|проезд|bicing/i, "car", "#eef0e4", "#5b6526"], [/аптек|здоров|уход|медиц|психолог|спорт/i, "heart", "#f8e6e4", "#a3433a"], [/документ|налог|social|seguridad|соцстрах|бухгалт|xolo|страхов|долг|кредит/i, "doc", "#efede7", "#4d4c47"],
     [/дом|быт|уборк/i, "box", "#f2ede2", "#7a5d2a"], [/одежд/i, "shirt", "#eaeef6", "#3f5788"], [/ребён|ребен|школ|няня/i, "child", "#f3e6f2", "#8a3f83"],
   ];
   function catIcon(name) {
@@ -472,12 +472,12 @@
     var uc = { html: "", bind: function () {} }; // коммуналка — в «Общие и план»; крупные счета каждый ведёт по-своему
     // 8. графики
     var capVals = mine.months.map(function (m, i) { return { me: m.cap, them: both ? theirs.months[i].cap : null }; });
-    html += tpl("<div class='grid2 section'><div class='card'><h2>{t} по месяцам</h2>", { t: both ? "Капитал вместе" : "Капитал" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам",
+    html += tpl("<div class='grid2 section'><div class='card'><h2>{t} по месяцам</h2>", { t: both ? "Капитал вместе" : "Капитал" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам", status: E.MONTHS.map(function (_, m) { return monthStatus(y, m); }),
       fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
       series: [{ name: meName, color: "var(--series-1)", values: capVals.map(function (c) { return c.me === null ? 0 : c.me / 100; }) }].concat(both ? [{ name: pName, color: "var(--series-2)", values: capVals.map(function (c) { return c.them === null ? 0 : c.them / 100; }) }] : []) }) + "</div>";
-    html += tpl("<div class='card'><h2>Доходы и расходы{b}</h2>", { b: both ? " вдвоём" : "" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам",
+    html += tpl("<div class='card'><h2>Доходы и расходы{b}</h2>", { b: both ? " вдвоём" : "" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам", status: E.MONTHS.map(function (_, m) { return monthStatus(y, m); }),
       fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
-      series: [{ name: "доходы", color: "var(--series-3)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
+      series: [{ name: "доходы", color: "var(--series-1)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
     if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть её бюджет целиком</button></div>";
     $main.innerHTML = html;
     $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });

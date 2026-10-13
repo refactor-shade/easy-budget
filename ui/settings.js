@@ -353,7 +353,7 @@
       var cell = function (v) {
         if (v === null || v === undefined) return "<td class='n'></td>";
         if (k === "rate") return tpl("<td class='n'>{v}</td>", { v: pct(v) });
-        return tpl("<td class='n {c}'>{v}</td>", { c: (k === "net" || k === "dcap") ? sign(v) : "", v: E.fmt(rnd(v)) });
+        return tpl("<td class='n {c}'>{v}</td>", { c: k === "net" ? sign(v) : k === "dcap" ? tone(v) : "", v: E.fmt(rnd(v)) });
       };
       html += tpl("<tr class='{c}'><td>{name}</td>{!cells}</tr>", { c: d[2] ? "total" : "", name: d[0], cells: ms.map(function (m) { return cell(m[k]); }).join("") + cell(t[k]) });
     });

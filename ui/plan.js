@@ -256,7 +256,7 @@
         }
         if (c.currency !== "RUB") btot += tot;
         rowsHtml += tpl("<tr><td class='sticky{cn}' title='{n}'{!dc}>{n}{rub}</td>{!tds}<td class='v ro'><b>{tot}</b></td></tr>", {
-          cn: RO() ? "" : " cname", n: c.name, dc: RO() ? "" : tpl(" data-cname='{id}'", { id: c.id }), rub: c.currency === "RUB" ? " (₽)" : "", tds: tds, tot: E.fmt(rnd(tot)) });
+          cn: RO() ? "" : " cname", n: c.name, dc: RO() ? "" : tpl(" data-cname='{id}'", { id: c.id }), rub: c.currency === "RUB" && c.name.indexOf("₽") < 0 ? " (₽)" : "", tds: tds, tot: E.fmt(rnd(tot)) });
       });
       var isOpen = !!openB[b.id];
       body += tpl("<tr class='blk tog' data-blk='{id}'><td class='sticky'>{arr}{n}</td>{!cells}<td class='v ro'>{tot}</td></tr>", {
@@ -274,11 +274,11 @@
     var num = function (v) { return v === null || v === undefined ? "" : E.fmt(rnd(v)); };
     body += tpl("<tr class='tot'><td class='sticky'>По сверке</td>{!cells}<td></td></tr>", { cells: mon.map(function (row, m) { return mc(m, num(lastFact(m))); }).join("") });
     var savT = savTotal(r);
-    var foot = frow("В обращении <button type='button' class='q-btn qd' data-explain='obr' aria-label='Что такое «в обращении»'>?</button>", function (row, m) { return num(r.base[m * 5 + 4]); }) +
+    var foot = frow("В обращении <button type='button' class='q-btn qd' data-explain='obr' aria-label='Что такое «в обращении»'>?</button><small class='foot-sub'>на конец месяца</small>", function (row, m) { return num(r.base[m * 5 + 4]); }) +
       // как в Google Таблице: капитал = в обращении + накопления + рубли по курсу
       frow("Накопления", function (row, m) { return num(savT[m * 5 + 4]); }) +
       (r.rubEur.some(function (v) { return v; }) ? frow("Рубли в €", function (row, m) { var v = r.rubEur[m * 5 + 4]; return v ? E.fmt(rnd(v)) : ""; }) : "") +
-      frow("Капитал", function (row) { return num(row.cap); });
+      frow("Капитал<small class='foot-sub'>на конец месяца</small>", function (row) { return num(row.cap); });
     html += tpl("<div class='grid-wrap' id='gridWrap'><table class='g g-months'><thead>{!head}</thead><tbody>{!body}</tbody><tfoot class='plan-foot'>{!foot}</tfoot></table></div>", { head: head, body: body, foot: foot });
     $main.innerHTML = html;
     bindYearHead();
@@ -404,10 +404,10 @@
         if (cf) { tot += E.accToEur(state, a, e.cents); if (was === null) wasOk = false; else totWas += E.accToEur(state, a, was); }
         rows += tpl("<tr{!m}><td>{n}</td><td class='n'>{was}</td><td class='n'><b>{now}</b></td><td class='n {c}'>{d}</td></tr>", {
           m: cf ? "" : " class='muted'", n: a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, ""), was: was === null ? "—" : E.fmt(was, { dec: 0, cur: ac }), now: E.fmt(e.cents, { dec: 0, cur: ac }),
-          c: was === null ? "" : sign(e.cents - was), d: was === null ? "" : E.fmt(e.cents - was, { dec: 0, plus: true, cur: ac }) });
+          c: was === null ? "" : tone(e.cents - was), d: was === null ? "" : E.fmt(e.cents - was, { dec: 0, plus: true, cur: ac }) });
       });
       rows += tpl("<tr class='rs-tot'><td>в обращении, €</td><td class='n'>{was}</td><td class='n'><b>{now}</b></td><td class='n {c}'>{d}</td></tr>", {
-        was: wasOk ? E.fmt(rnd(totWas), { dec: 0 }) : "—", now: E.fmt(rnd(tot), { dec: 0 }), c: wasOk ? sign(rnd(tot - totWas)) : "", d: wasOk ? E.fmt(rnd(tot - totWas), { dec: 0, plus: true }) : "" });
+        was: wasOk ? E.fmt(rnd(totWas), { dec: 0 }) : "—", now: E.fmt(rnd(tot), { dec: 0 }), c: wasOk ? tone(rnd(tot - totWas)) : "", d: wasOk ? E.fmt(rnd(tot - totWas), { dec: 0, plus: true }) : "" });
       // накопления и инвестиции: «было» — расчёт на конец прошлой недели (прошлая сверка + переводы по плану)
       var savKeys = E.CAPITAL_ROWS.filter(function (cr) { return srec[cr.key] !== undefined; });
       if (savKeys.length) rows += "<tr class='rs-grp'><td colspan='4'>Накопления и инвестиции</td></tr>";
@@ -415,7 +415,7 @@
         var was = w > 0 ? r.rows[cr.key][w - 1] : (r.start ? r.start[cr.key] : null), now = srec[cr.key];
         was = was === undefined ? null : Math.round(was);
         rows += tpl("<tr><td>{n}</td><td class='n'>{was}</td><td class='n'><b>{now}</b></td><td class='n {c}'>{d}</td></tr>", {
-          n: cr.name, was: was === null ? "—" : E.fmt(was, { dec: 0 }), now: E.fmt(now, { dec: 0 }), c: was === null ? "" : sign(now - was), d: was === null ? "" : E.fmt(now - was, { dec: 0, plus: true }) });
+          n: cr.name, was: was === null ? "—" : E.fmt(was, { dec: 0 }), now: E.fmt(now, { dec: 0 }), c: was === null ? "" : tone(now - was), d: was === null ? "" : E.fmt(now - was, { dec: 0, plus: true }) });
       });
       return tpl("<details class='rs-bal'{!o}><summary>Остатки по счетам</summary><div class='tbl-wrap'><table class='t'><thead><tr><th>Счёт</th><th class='n'>было</th><th class='n'>стало</th><th class='n'>±</th></tr></thead><tbody>{!rows}</tbody></table></div></details>", { o: ui.recBalOpen ? " open" : "", rows: rows });
     }
@@ -444,11 +444,15 @@
         var lkT = lk !== null ? E.fmt(lk, { dec: 0, cur: acur || undefined }) : null;
         var sub = a.kind === "info" ? "для справки" + (lkT ? " · было " + lkT : "") : !active ? from : (lkT ? "было " + lkT : "") + (acur ? (lkT ? " · " : "") + "в " + acur + ", по курсу" : "");
         var dis = a.kind === "cash_flow" && !active ? " disabled" : "";
-        return tpl("<div class='rcl-row{info}'><label for='rf_{id}' class='rc-name'><b>{n}{cur}</b><small>{sub}{!cash}</small></label>" +
+        // R02: «было 3 570» — кнопка «вписать как было». Значение видно в поле, подтверждает сама кнопкой «Дальше»
+        var wasBtn = lkT && active && a.kind !== "info" && !RO() ? tpl("<button type='button' class='linkish rc-was' data-wasfill='{id}' data-v='{v}' aria-label='Вписать как было: {t}'>было {t}</button>", { id: a.id, v: String(lk / 100).replace(".", ","), t: lkT }) : "";
+        if (wasBtn) sub = acur ? " · в " + acur + ", по курсу" : "";
+        return tpl("<div class='rcl-row{info}'><label for='rf_{id}' class='rc-name'><b>{n}{cur}</b><small>{!was}{sub}{!cash}</small></label>" +
           "<span class='rc-inp'><span class='rc-ops'><button type='button' class='rc-sign' data-op='-' aria-label='Вставить «−» в сумму'{!dis}>−</button><button type='button' class='rc-sign' data-op='+' aria-label='Вставить «+» в сумму'{!dis}>+</button></span>" +
           "<input id='rf_{id}' type='text' inputmode='decimal' name='{id}' value='{v}' placeholder=''{!dis}></span></div>", {
             info: a.kind === "info" ? " info" : "", id: a.id, n: a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, ""), cur: acur && a.name.indexOf(acur) < 0 ? " " + acur : "", sub: sub, dis: dis, v: e ? numShow(e.expr) : "",
-            cash: isCash ? tpl("{sep}<button type='button' class='linkish' data-cashfill='{id}'>в «Наличке» {sum}</button>", { sep: sub ? " · " : "", id: a.id, sum: E.fmt(Cash.cashEurTotal(), { dec: 0 }) }) : "" });
+            was: wasBtn,
+            cash: isCash ? tpl("{sep}<button type='button' class='linkish' data-cashfill='{id}'>в «Наличке» {sum}</button>", { sep: sub || wasBtn ? " · " : "", id: a.id, sum: E.fmt(Cash.cashEurTotal(), { dec: 0 }) }) : "" });
       };
       html += "<p class='small muted rc-hint'>Впиши остатки на счетах. Можно формулой: 2000+200</p>";
       if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 12px'>Неделя ещё идёт — траты могут прийти до её конца." +
@@ -491,8 +495,10 @@
       if (hasRec) {
         var d3 = r.diff[w], b3 = ui.recBefore && ui.recBefore.key === y + ":" + w ? ui.recBefore.diff : null;
         left += tpl("<div class='card rs-sum'><div class='rs-sumh'><h2>Итог недели</h2><span class='small muted'>{st}</span></div>{!nums}{!was}" +
-          "<button type='button' class='rs-cap' data-capb='1'><span>Капитал на {to}</span><b>{cap}</b><small>{!dw} за неделю</small><span class='rs-cap-arr' aria-hidden='true'>›</span></button>{!bal}<button type='button' class='btn sm rs-fix' data-step='1'>Поправить остатки</button></div>", {
-            st: Home.RS_TEXT[Home.reconStatus(y, w, r)], to: dayGen(r.weeks[w].to), nums: nums(r.fact[w], r.obr[w], d3), cap: eur(rnd(r.cap[w]), { dec: 0 }), dw: trendHtml(r.dweek[w]), bal: balancesHtml(),
+          "<button type='button' class='rs-cap' data-capb='1'><span>Капитал на {to}</span><b>{cap}</b><small>{!dw} за неделю</small><span class='rs-cap-arr' aria-hidden='true'>›</span></button>{!why}{!bal}<button type='button' class='btn sm rs-fix' data-step='1'>Поправить остатки</button></div>", {
+            st: Home.RS_TEXT[Home.reconStatus(y, w, r)], to: dayGen(r.weeks[w].to),
+            // «+223 € к плану», а капитал «−261 €» — не противоречие: план предполагал траты (F18)
+            why: d3 !== null && d3 > 0 && r.dweek[w] < 0 ? "<p class='small muted rs-why'>Денег больше плана, а капитал за неделю меньше — это траты по плану, а не потеря.</p>" : "", nums: nums(r.fact[w], r.obr[w], d3), cap: eur(rnd(r.cap[w]), { dec: 0 }), dw: trendHtml(r.dweek[w]), bal: balancesHtml(),
             was: b3 !== null && b3 !== d3 ? tpl("<p class='small muted rs-was'>до правок {a} → после {b}</p>", { a: eur(rnd(b3), { dec: 0, plus: true }), b: eur(rnd(d3), { dec: 0, plus: true }) }) : "" });
       } else if (weekDone(y, w)) {
         left += "<div class='card rs-sum'><h2>Сверки за эту неделю нет</h2><button type='button' class='btn primary' data-step='1'>Сделать сверку</button></div>";
@@ -555,6 +561,7 @@
           try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) { /* ок */ }
         };
       });
+      $main.querySelectorAll("[data-wasfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.wasfill + "]"); i.value = b.dataset.v; liveResult(); i.focus(); }; });
       $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(Cash.cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
       liveResult();
       $main.querySelector("#recNext").onclick = function () {
@@ -670,7 +677,7 @@
     }).slice(0, 8);
     if (!items.length) return "";
     return tpl("<div class='card'><h2>{t}</h2><p class='small muted' style='margin-top:-6px'>Не было — убери или перенеси на потом.</p><ul class='plan-list'>{!li}</ul></div>", { t: title || "Что из плана не потратила?",
-      li: items.map(function (x) { return tpl("<li data-unsp='{id}'><span class='name'>{n}</span><span class='val neg'>{v}</span><span class='small muted rs-act'><span class='rs-act-t'>убрать / перенести </span>›</span></li>", { id: x.c.id, n: x.c.name, v: E.fmt(x.v, { cur: cur(x.c) }) }); }).join("") });
+      li: items.map(function (x) { return tpl("<li data-unsp='{id}'><span class='name'>{n}</span><span class='val'>{v}</span><span class='small muted rs-act'><span class='rs-act-t'>убрать / перенести </span>›</span></li>", { id: x.c.id, n: x.c.name, v: E.fmt(x.v, { cur: cur(x.c) }) }); }).join("") });
   }
 
   // ===== РЕГУЛЯРНЫЕ ТРАТЫ =====
@@ -702,7 +709,7 @@
       cands.map(function (c, i) {
         var cat = state.categories.find(function (x) { return x.id === c.catId; }) || { name: c.catId, currency: "EUR" };
         return tpl("<li><label><input type='checkbox' checked data-rp='{i}'><span class='name'>{n}</span><span class='muted small'>{wk} · {m}</span><span class='val {c}'>{v}</span></label><button type='button' class='rp-x sm' data-rpno='{i}' aria-label='Не предлагать эту'>×</button></li>", {
-          i: i, n: cat.name, wk: ruleWeeksText(c.weeks), m: mText(c), c: sign(c.cents), v: E.fmt(c.cents, { cur: cur(cat) }) });
+          i: i, n: cat.name, wk: ruleWeeksText(c.weeks), m: mText(c), c: tone(c.cents), v: E.fmt(c.cents, { cur: cur(cat) }) });
       }).join("") + "</ul><div class='row' style='margin-top:12px'><button class='btn primary' id='rpGo'>Сделать регулярными</button><button class='btn ghost' id='rpBackup'>Сначала скачать бэкап</button><button class='btn ghost' id='rpNo2'>Не предлагать</button></div></div>";
     // по категориям, периоды по порядку
     var byCat = {};
@@ -722,7 +729,7 @@
           var n = weeks.filter(function (wk) { return E.ruleMatches(ru, wk); }).length;
           return tpl("<button type='button' class='rg-p' data-edit='{id}'{!dis}><span class='rg-when'>{when}</span><span class='rg-wk small muted'>{wk}{!none}</span><span class='rg-v {c}'>{v}</span>{!arr}</button>", {
             id: ru.id, dis: ro ? " disabled" : "", when: rulePeriod(ru, y), wk: ruleWeeksText(ru.weeks), none: n ? "" : " · <span class='neg'>ни одной недели — поправь недели или период</span>",
-            c: sign(ru.cents), v: E.fmt(ru.cents, { cur: cur(c) }), arr: ro ? "" : "<span class='arr'>›</span>" });
+            c: tone(ru.cents), v: E.fmt(ru.cents, { cur: cur(c) }), arr: ro ? "" : "<span class='arr'>›</span>" });
         }).join("") });
     }).join("") : "<p class='empty'>Регулярных трат пока нет — добавь первую: например, аренду.</p>";
     html += tpl("<p class='small muted rg-foot'>Когда создашь план на {y}, регулярные перенесутся туда сами.</p>", { y: Number(y) + 1 });

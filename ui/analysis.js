@@ -12,7 +12,7 @@
       if (!prev || !pr) return "";
       var d = (cur - pr) / Math.abs(pr);
       var good = invert ? d < 0 : d > 0;
-      return tpl("<span class='{c}'>{s}{v}% к {y}</span>", { c: Math.abs(d) < 0.02 ? "" : good ? "pos" : "neg", s: d > 0 ? "+" : "−", v: Math.abs(Math.round(d * 100)), y: prevY });
+      return tpl("<span class='{c}'>{s}{v}% к {y}</span>", { c: Math.abs(d) < 0.02 ? "" : good ? "pos" : "", s: d > 0 ? "+" : "−", v: Math.abs(Math.round(d * 100)), y: prevY });
     }
     html += "<div class='kpis'>" +
       Plan.kpi("Доходы за год", eur(rnd(t.income), { dec: 0 }), delta(t.income, prev && prev.total.income)) +
@@ -20,29 +20,31 @@
       Plan.kpi("На жизнь в месяц", eur(rnd(t.living / 12), { dec: 0 }), "без налогов, соцстраха, бухгалтерии") +
       Plan.kpi("Доля сбережений", t.rate === null ? "—" : pct(t.rate), "(доходы − расходы) / доходы") +
       Plan.kpi("Капитал на конец года", t.cap === null || t.cap === undefined ? "—" : eur(rnd(t.cap), { dec: 0 }), t.dcap ? tpl("за год {!t}", { t: trendHtml(t.dcap) }) : "") +
-      "</div>";
+      "</div>" + (yearMixNote(y) ? tpl("<p class='small muted kpi-note'>Итоги года: {n}.</p>", { n: yearMixNote(y) }) : "");
     html += spendCatsCard(y);
     var e100 = function (arr) { return arr.map(function (v) { return v / 100; }); };
     var fmtE = function (v) { return E.eur(Math.round(v * 100), { dec: 0 }); };
-    html += "<div class='card'><h2>Доходы и расходы</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, fmt: fmtE, title: "Доходы и расходы по месяцам",
+    var mst = E.MONTHS.map(function (_, m) { return monthStatus(y, m); });
+    html += "<div class='card'><h2>Доходы и расходы</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, fmt: fmtE, title: "Доходы и расходы по месяцам", status: mst,
       series: [{ name: "Доходы", color: "var(--series-1)", values: e100(ms.map(function (m) { return m.income; })) }, { name: "Расходы", color: "var(--series-2)", values: e100(ms.map(function (m) { return m.total; })) }] }) + "</div>";
-    html += "<div class='card section'><h2>Расходы по блокам</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, fmt: fmtE, stacked: true, title: "Расходы по блокам",
+    html += "<div class='card section'><h2>Расходы по блокам</h2>" + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, fmt: fmtE, stacked: true, title: "Расходы по блокам", status: mst,
       series: [{ name: "Базовые", color: "var(--series-1)", values: e100(ms.map(function (m) { return m.base; })) },
         { name: "Периодические", color: "var(--series-2)", values: e100(ms.map(function (m) { return m.periodic; })) },
         { name: "Подписки ES", color: "var(--series-3)", values: e100(ms.map(function (m) { return m.subs_es; })) },
         { name: "Подписки RU", color: "var(--series-4)", values: e100(ms.map(function (m) { return m.subs_ru; })) }] }) + "</div>";
     // капитал за все годы
-    var capLabels = [], capVals = [], capShort = [], marks = [];
+    var capLabels = [], capVals = [], capShort = [], marks = [], capPlanFrom = null;
     years().forEach(function (yy) {
       var r = E.compute(state, yy);
       marks.push({ i: capLabels.length, label: yy });
       for (var m = 0; m < 12; m++) {
         capLabels.push(E.MONTHS[m] + " " + yy + (state.years[yy].archived ? "" : Number(yy) > new Date().getFullYear() || (Number(yy) === new Date().getFullYear() && m > new Date().getMonth()) ? " (план)" : ""));
         capShort.push(E.MONTHS_SHORT[m]);
+        if (capPlanFrom === null && monthStatus(yy, m) !== "fact") capPlanFrom = capLabels.length - 1;
         var v = r.capMonth[m]; capVals.push(v === null || v === undefined ? null : v / 100);
       }
     });
-    html += "<div class='card section'><h2>Капитал на конец месяца</h2>" + C.line({ labels: capLabels, short: capShort, values: capVals, marks: marks, fmt: fmtE, title: "Капитал по месяцам" }) + "</div>";
+    html += "<div class='card section'><h2>Капитал на конец месяца</h2>" + C.line({ labels: capLabels, short: capShort, values: capVals, marks: marks, fmt: fmtE, title: "Капитал по месяцам", planFrom: capPlanFrom }) + "</div>";
 
     // таблица по месяцам
     var rowsDef = [["Доходы", "income"], ["Базовые расходы", "base"], ["Периодические", "periodic"], ["Подписки ES", "subs_es"], ["Подписки RU (в €)", "subs_ru"],
@@ -54,7 +56,7 @@
       var cell = function (v) {
         if (v === null || v === undefined) return "<td class='n'></td>";
         if (k === "rate") return tpl("<td class='n'>{v}</td>", { v: pct(v) });
-        return tpl("<td class='n {c}'>{v}</td>", { c: (k === "net" || k === "dcap") ? sign(v) : "", v: E.fmt(rnd(v)) });
+        return tpl("<td class='n {c}'>{v}</td>", { c: k === "net" ? sign(v) : k === "dcap" ? tone(v) : "", v: E.fmt(rnd(v)) });
       };
       html += tpl("<tr class='{c}'><td>{name}</td>{!cells}</tr>", { c: d[2] ? "total" : "", name: d[0], cells: ms.map(function (m) { return cell(m[k]); }).join("") + cell(t[k]) });
     });
@@ -77,7 +79,7 @@
       html += tpl("<tr><td>{name}{!badge}</td>{!cells}{!diff}<td class='n'>{share}</td></tr>", {
         name: x.c.name, badge: x.c.mandatory ? " <span class='badge'>обяз.</span>" : "",
         cells: x.v.map(function (v) { return tpl("<td class='n'>{v}</td>", { v: Math.abs(v) >= 100 ? E.fmt(rnd(v)) : "" }); }).join(""),
-        diff: yi > 0 ? tpl("<td class='n {c}'>{v}</td>", { c: d > 10000 ? "neg" : d < -10000 ? "pos" : "", v: Math.abs(d) >= 100 ? E.fmt(rnd(d), { plus: true }) : "" }) : "",
+        diff: yi > 0 ? tpl("<td class='n {c}'>{v}</td>", { c: d < -10000 ? "pos" : "", v: Math.abs(d) >= 100 ? E.fmt(rnd(d), { plus: true }) : "" }) : "",
         share: totalY ? pct(Math.max(0, x.v[yi]) / totalY, 1) : "" });
     });
     html += "</tbody></table></div></div><div id='family'></div>";
@@ -159,7 +161,7 @@
         var nb = INS.month(state, y, m, insightCtx()).numbers;
         html += tpl("<button type='button' class='ms-row' data-mm='{m}'><span class='ms-tx'><b>{name}</b><small>расходы {tot} · осталось {net}</small></span><span class='ms-cap {c}'>{cap}</span><span class='arr'>›</span></button>", {
           m: m, name: E.MONTHS[m][0].toUpperCase() + E.MONTHS[m].slice(1), tot: eur(rnd(nb.total), { dec: 0 }), net: eur(rnd(nb.net), { dec: 0, plus: true }),
-          c: sign(nb.dcap || 0), cap: nb.dcap === null ? "" : eur(rnd(nb.dcap), { dec: 0, plus: true }) });
+          c: tone(nb.dcap || 0), cap: nb.dcap === null ? "" : eur(rnd(nb.dcap), { dec: 0, plus: true }) });
       }
       html += "</section>";
     }
@@ -204,9 +206,9 @@
         label: label, tot: eur(rnd(tot), { dec: 0 }) });
     html += ids.length ? "<div class='ut-cats'>" + shown.map(function (id) {
       var v = a[id], pv = b && b[id], tr = pv ? (v > pv * 1.15 ? "↑" : v < pv * 0.85 ? "↓" : "") : "";
-      return tpl("<div class='uc-row'><span class='uc-n'>{!ic}<span>{name}</span></span><span class='uc-v'>{v}</span><span class='uc-tr {c}'{!title}>{tr}</span>" +
+      return tpl("<div class='uc-row'><span class='uc-n'>{!ic}<span>{name}</span></span><span class='uc-v'>{v}</span><span class='uc-tr {c}'{!title}>{tr}<span class='vh'>{srt}</span></span>" +
         "<span class='uc-track'><i style='width:{w}%'></i></span></div>", {
-          ic: Us.catIcon(cname(id)), name: cname(id), v: eur(rnd(v), { dec: 0 }), c: tr === "↑" ? "up" : tr ? "down" : "", tr: tr, w: Math.max(3, Math.round(v / mx * 100)),
+          ic: Us.catIcon(cname(id)), name: cname(id), v: eur(rnd(v), { dec: 0 }), c: tr === "↑" ? "up" : tr ? "down" : "", tr: tr, srt: tr ? (tr === "↑" ? " больше, чем в " : " меньше, чем в ") + prevY : "", w: Math.max(3, Math.round(v / mx * 100)),
           title: tr ? tpl(" title='{t}, чем в {y}'", { t: tr === "↑" ? "больше" : "меньше", y: prevY }) : "" });
     }).join("") + "</div>" + (ids.length > 8 ? tpl("<button type='button' class='btn ghost sm more' id='anAll'>{t}</button>", { t: all ? "Свернуть" : "Все категории · ещё " + (ids.length - 8) }) : "")
       : "<p class='muted' style='margin:8px 0 0'>За этот период трат нет.</p>";

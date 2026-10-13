@@ -53,6 +53,13 @@
     }
     return null;
   }
+  // Трата: сначала свои слова и названия строк (phCat), потом общий словарь («аптека» → «Аптека, здоровье, уход» → «здоровье, медицина»)
+  function spendCat(words) {
+    var ci = phCat(words, false); if (ci) return ci;
+    if (!words.length) return null;
+    var sc = S.guessCategory(words.join(" "), null, sh ? sh.learned : null), id = sc && sc !== "Прочее" ? S.personalCatFor(state, sc) : null;
+    return id ? { id: id, used: -1 } : null;
+  }
 
   // Наличка от порога (по умолчанию 20 €) — предложить внести в план. null — не спрашиваем, "" — не вносить, иначе id категории.
   function cashPlanCat(md) {
@@ -72,7 +79,7 @@
   function cashPlanGuess(md) {
     var cc = md.cash, min = state.settings.cashPlanMin !== undefined ? state.settings.cashPlanMin : 2000;
     if (!cc || cc.kind !== "spend" || !md.cents || md.cents < min || Cash.pocketCur(cc.from) !== "€") return null;
-    var ci = phCat(phParse(cc.note || "").words, false), cat = plusUi.over.cashPlanCat || (ci ? ci.id : defaultCat());
+    var ci = spendCat(phParse(cc.note || "").words), cat = plusUi.over.cashPlanCat || (ci ? ci.id : defaultCat());
     var wk = E.weekOfDate(md.date), ys = wk && String(wk.year), planned = 0;
     if (wk && state.years[ys]) { var cell = (E.compute(state, ys).cells[cat] || [])[wk.idx]; if (cell && cell.cents < 0) planned = -cell.cents; }
     return { cat: cat, planned: planned, unknown: !ci && !plusUi.over.cashPlanCat };
@@ -139,17 +146,18 @@
     plusUi.tab = tab || "spend"; // без явной вкладки всегда начинаем с «Траты» — угаданная в прошлый раз не залипает
     plusUi.text = ""; plusUi.over = {};
     plusUi.manual = !!tab && !soft; plusUi.base = plusUi.tab; // вкладку угадываем по фразе, пока её не выбрали руками
-    modal(tpl("<div class='m-body plus'><div class='plus-head'><h2>Внести</h2></div><div class='plus-tabs' role='tablist'>{!tabs}</div><div id='plusBody'></div></div>", {
-      tabs: [["spend", "Трата"], ["income", "Доход"], ["shared", "Общая"], ["cash", "Наличка"], ["recon", "Сверка ›"]].map(function (x) { return tpl("<button type='button' role='tab' data-pt='{0}'>{1}</button>", x); }).join("") }), function (m) {
+    // «Сверка ›» — переход на другой экран, поэтому ссылкой в шапке, а не вкладкой среди типов записи (B13)
+    modal(tpl("<div class='m-body plus'><div class='plus-head'><h2>Внести</h2><button type='button' class='linkish plus-rec'>Сверка ›</button></div><div class='plus-tabs' role='tablist' aria-label='Что вносишь'>{!tabs}</div><div id='plusBody'></div></div>", {
+      tabs: [["spend", "Трата"], ["income", "Доход"], ["shared", "Общая"], ["cash", "Наличка"]].map(function (x) { return tpl("<button type='button' role='tab' data-pt='{0}'>{1}</button>", x); }).join("") }), function (m) {
       m.classList.add("sheet-plus");
 
       m.querySelectorAll("[data-pt]").forEach(function (b) {
         b.onclick = function () {
-          if (b.dataset.pt === "recon") { closeModal(); var d = defaultYearWeek(); ui.recWeek = finishedWeek() || (d ? { year: d.year, week: d.week } : null); go("#recon"); return; }
           if (b.dataset.pt === "shared" && !sh) { closeModal(); go("#shared"); return; }
           plusUi.tab = b.dataset.pt; plusUi.over = {}; plusUi.text = ""; plusUi.manual = true; drawPlus(m);
         };
       });
+      m.querySelector(".plus-rec").onclick = function () { closeModal(); var d = defaultYearWeek(); ui.recWeek = finishedWeek() || (d ? { year: d.year, week: d.week } : null); go("#recon"); };
       drawPlus(m);
     });
   }
@@ -183,8 +191,9 @@
   function plusModel() {
     var tab = plusUi.tab, p = phParse(plusUi.text), o = plusUi.over, md = { tab: tab, cents: o.cents !== undefined ? o.cents : p.cents, date: o.date || p.date || E.todayISO() };
     if (tab === "spend" || tab === "income") {
-      var ci = phCat(p.words, tab === "income");
+      var ci = tab === "income" ? phCat(p.words, true) : spendCat(p.words);
       md.cat = o.cat || (ci ? ci.id : (tab === "income" ? ((cats().find(function (c) { return c.block === "income" && !c.archived; }) || {}).id) : defaultCat()));
+      md.catSure = !!(o.cat || ci); // false — категорию не узнала, подставлена последняя или «продукты»
       md.note = p.words.filter(function (w, i) { return !ci || i !== ci.used; }).join(" ");
       md.word = ci ? null : p.words[0];
     } else if (tab === "shared") {
@@ -250,7 +259,7 @@
     if (!plusUi.text.trim()) { chips.innerHTML = ""; where.innerHTML = ""; return; }
     if (md.tab === "spend" || md.tab === "income") {
       html += plusChip(md.cents ? (md.tab === "income" ? "+" : "−") + E.fmt(md.cents, { cur: "€" }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
-      html += plusChip(catName(md.cat) + " ▾", "", tpl("<select data-o='cat'>{!o}</select>", { o: catOptions(md.cat, md.tab === "income" ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) }));
+      html += plusChip(catName(md.cat) + " ▾", md.catSure ? "" : "ask", tpl("<select data-o='cat' aria-label='{a}'>{!o}</select>", { a: md.catSure ? "Категория" : "Категорию не узнала — выбери", o: catOptions(md.cat, md.tab === "income" ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) }));
       html += dateChip;
       var rep = plusUi.over.rep || "no";
       html += plusChip({ no: "не повторять", month: "каждый месяц", week: "каждую неделю" }[rep] + " ▾", rep === "no" ? "soft" : "", "<select data-o='rep'>" +
@@ -259,7 +268,8 @@
       if (!wk || !state.years[ys] || state.years[ys].archived) wh = tpl("<div class='pw-err'>Плана на {y} нет — создай его в «Плане».</div>", { y: ys || "эту дату" });
       else if (md.cents) {
         var r = E.compute(state, ys), cell = r.cells[md.cat][wk.idx], before = cell ? cell.cents : 0, v = md.tab === "income" ? md.cents : -md.cents;
-        wh = tpl("<div class='pw-row'><span>План · {wk} · {cat}</span><b>{a} → {b}</b></div><div class='pw-sub'>В обращении на {to}: {o1} → {o2}</div>", {
+        wh = tpl("<div class='pw-row'><span>План · {wk} · {cat}</span><b>{a} → {b}</b></div><div class='pw-sub'>В обращении на {to}: {o1} → {o2}</div>{!ask}", {
+          ask: md.catSure || md.tab === "income" ? "" : tpl("<div class='pw-sub pw-ask'>Категорию не узнала — поставила «{c}». Можно выбрать другую.</div>", { c: catName(md.cat) }),
           wk: shortWeek(ys, wk.idx).replace(/([а-я]{3})[а-я]+$/, "$1"), cat: catName(md.cat), a: E.fmt(before, { cur: "€", dec: 0 }), b: E.fmt(before + v, { cur: "€", dec: 0 }),
           to: dayGen(r.weeks[wk.idx].to), o1: E.fmt(rnd(r.base[wk.idx]), { cur: "€", dec: 0 }), o2: E.fmt(rnd(r.base[wk.idx] + v), { cur: "€", dec: 0 }) });
       }

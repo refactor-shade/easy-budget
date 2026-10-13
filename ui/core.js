@@ -360,7 +360,7 @@ var GROUPS = {
 var SUBTABS = {
   plan: [["year", "Таблица"], ["recurring", "Регулярные"]],
   us: [["shared", "Общие траты"], ["us", "Наши итоги"]],
-  analysis: [["insights", "Выводы"], ["months", "Итоги месяцев"], ["analysis", "Графики"]],
+  analysis: [["insights", "Мои выводы"], ["months", "Итоги месяцев"], ["analysis", "Графики"]],
 };
 function routeGroup(route) { for (var g in GROUPS) if (GROUPS[g].indexOf(route) >= 0) return g; return "home"; }
 var GROUP_TITLE = { plan: "План", us: "Мы", analysis: "Анализ" };
@@ -438,6 +438,23 @@ function trendHtml(c, opts) {
   return tpl("<span class='chg {c}'>{a}{t}</span>{!after}", { c: c > 0 ? "up" : "down", a: c > 0 ? "↗ " : "↘ ", t: t, after: opts.after ? " " + opts.after : "" });
 }
 function sign(c) { return c > 0 ? "pos" : c < 0 ? "neg" : ""; }
+// Для сумм плана и изменений: плюс — зелёным, минус — обычным цветом. Красный (sign) — только когда нужно действие (BACKLOG, правила UI)
+function tone(c) { return c > 0 ? "pos" : ""; }
+// Месяц года: "fact" — прошёл, "mixed" — идёт сейчас (факт + план), "plan" — впереди. Для графиков и подписей итогов (B01, B02)
+function monthStatus(y, m) {
+  var t = E.todayISO(), ty = Number(t.slice(0, 4)), tm = Number(t.slice(5, 7)) - 1;
+  if (state.years[y] && state.years[y].archived) return "fact";
+  return Number(y) < ty || (Number(y) === ty && m < tm) ? "fact" : Number(y) === ty && m === tm ? "mixed" : "plan";
+}
+// «факт за янв–сен и план на окт–дек» — для итогов года; "" если год прошёл
+function yearMixNote(y) {
+  var st = E.MONTHS_SHORT.map(function (_, m) { return monthStatus(y, m); }), f = st.lastIndexOf("fact"), p = st.indexOf("plan"), mx = st.indexOf("mixed");
+  if (p < 0 && mx < 0) return "";
+  if (f < 0 && mx < 0) return "весь год — план";
+  var a = f >= 0 ? "факт за " + E.MONTHS_SHORT[0] + (f > 0 ? "–" + E.MONTHS_SHORT[f] : "") : "";
+  var b = mx >= 0 ? E.MONTHS[mx] + " — факт и план" : "", c = p >= 0 ? "план на " + E.MONTHS_SHORT[p] + (p < 11 ? "–" + E.MONTHS_SHORT[11] : "") : "";
+  return [a, b, c].filter(Boolean).join(", ");
+}
 // В расходах минус можно не ставить: 50 → −50. «+50» — оставить плюсом (вернули деньги).
 function signFor(catId, expr) {
   var v = String(expr || "").trim(), c = state.categories.find(function (x) { return x.id === catId; });
@@ -590,6 +607,9 @@ function modal(html, onReady) {
   var ownHead = /class='sheet-head'/.test(html);
   $modal.innerHTML = html + (ownHead ? "" : "<button type='button' class='m-x' aria-label='Закрыть' title='Закрыть'>×</button>");
   if (!ownHead) $modal.querySelector(".m-x").onclick = closeModal;
+  // имя окна для диктора — его заголовок
+  var mh = $modal.querySelector("h2");
+  if (mh) { mh.id = mh.id || "mTitle"; $modal.setAttribute("aria-labelledby", mh.id); } else $modal.removeAttribute("aria-labelledby");
   if (!$modal.open) $modal.showModal();
   var f = $modal.querySelector("[autofocus]") || $modal.querySelector("input,select");
   if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
