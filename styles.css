@@ -1713,3 +1713,8 @@ table.g td[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-o
 /* правило: область нажатия значка ≥ 40×40 */
 .ll-row .ch-del { width: 40px; height: 40px; }
 .ll-row { padding-top: 6px; padding-bottom: 6px; }
+/* «История записей»: строка целиком — кнопка «изменить» */
+.ll-edit { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; border: 0; background: transparent; padding: 4px 0; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 8px; }
+.ll-edit:disabled { cursor: default; }
+.ll-edit:not(:disabled):hover .ll-tx b { text-decoration: underline; text-decoration-color: var(--line-strong); }
+.sp-lead { margin: 2px 0 0; }
