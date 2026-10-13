@@ -11,10 +11,10 @@ function render() {
   profileBar();
   try {
     if (RO() && route !== "shared" && route !== "help" && route !== "tolog") {
-      if (view.level === "totals" && view.summary) return partnerTotals();
-      if (!state) { $main.innerHTML = "<div class='card'><h2>" + esc(view.name) + " закрыла доступ к своему бюджету</h2><p class='muted'>Она может открыть его в своих настройках.</p></div>"; return; }
+      if (view.level === "totals" && view.summary) return Settings.partnerTotals();
+      if (!state) { $main.innerHTML = tpl("<div class='card'><h2>{n} закрыла доступ к своему бюджету</h2><p class='muted'>Она может открыть его в своих настройках.</p></div>", { n: view.name }); return; }
       if (/^(recon|recurring|settings)$/.test(route)) {
-        $main.innerHTML = "<div class='card'><h2>Это раздел для своего бюджета</h2><p class='muted'>Сейчас открыт чужой бюджет (" + esc(view.name) + ") — только просмотр.</p><button class='btn primary' id='backMe'>Вернуться к своему</button></div>";
+        $main.innerHTML = tpl("<div class='card'><h2>Это раздел для своего бюджета</h2><p class='muted'>Сейчас открыт чужой бюджет ({n}) — только просмотр.</p><button class='btn primary' id='backMe'>Вернуться к своему</button></div>", { n: view.name });
         $main.querySelector("#backMe").onclick = function () { switchTo("me"); };
         return;
       }
@@ -22,7 +22,7 @@ function render() {
     routes[route]();
     afterRender(route);
   }
-  catch (err) { console.error(err); $main.innerHTML = "<div class='alert'>Этот экран не открылся: " + esc(err.message) + ". Обнови страницу — данные не пропали.</div>"; }
+  catch (err) { console.error(err); $main.innerHTML = tpl("<div class='alert'>Этот экран не открылся: {m}. Обнови страницу — данные не пропали.</div>", { m: err.message }); }
 }
 window.addEventListener("hashchange", function (e) {
   // откуда пришла и где была прокрутка — для «‹ Назад» (ADR-1)
@@ -43,8 +43,8 @@ function showLogin(msg, mode) {
   mode = mode || "in";
   document.body.classList.add("auth");
   var titles = { "in": "Вход", up: "Регистрация", reset: "Новый пароль", forgot: "Забыла пароль" };
-  var html = "<div class='login card'><div class='brand'><span class='brand-mark'>€</span><span class='brand-name'>Easy Budget</span></div><h1>" + titles[mode] + "</h1>" +
-    (msg ? "<div class='" + (/^✓/.test(msg) ? "ok-box" : "alert") + " small'>" + esc(msg) + "</div>" : "");
+  var html = tpl("<div class='login card'><div class='brand'><span class='brand-mark'>€</span><span class='brand-name'>Easy Budget</span></div><h1>{t}</h1>{!msg}", {
+    t: titles[mode], msg: msg ? tpl("<div class='{c} small'>{m}</div>", { c: /^✓/.test(msg) ? "ok-box" : "alert", m: msg }) : "" });
   if (mode === "reset") {
     html += "<form id='lf' class='form-grid' style='margin-top:12px'><label class='f' style='grid-column:1/-1'>Новый пароль (от 8 символов)<input type='password' name='pw' autocomplete='new-password' minlength='8' required autofocus></label>" +
       "<button class='btn primary' type='submit'>Сохранить пароль</button></form>";
@@ -52,8 +52,8 @@ function showLogin(msg, mode) {
     html += (mode === "up" ? "<p class='muted'>После регистрации придёт письмо — подтверди адрес один раз, потом входи с паролем на любом устройстве.</p>" : "") +
       (mode === "forgot" ? "<p class='muted'>Пришлю письмо со ссылкой для нового пароля.</p>" : "") +
       "<form id='lf' class='form-grid' style='margin-top:12px'><label class='f' style='grid-column:1/-1'>Email<input type='email' name='email' autocomplete='email' required autofocus></label>" +
-      (mode !== "forgot" ? "<label class='f' style='grid-column:1/-1'>Пароль" + (mode === "up" ? " (от 8 символов)" : "") + "<input type='password' name='pw' autocomplete='" + (mode === "up" ? "new-password" : "current-password") + "' minlength='" + (mode === "up" ? 8 : 6) + "' required></label>" : "") +
-      "<button class='btn primary' type='submit'>" + (mode === "in" ? "Войти" : mode === "up" ? "Зарегистрироваться" : "Отправить письмо") + "</button></form>" +
+      (mode !== "forgot" ? tpl("<label class='f' style='grid-column:1/-1'>Пароль{h}<input type='password' name='pw' autocomplete='{ac}' minlength='{min}' required></label>", { h: mode === "up" ? " (от 8 символов)" : "", ac: mode === "up" ? "new-password" : "current-password", min: mode === "up" ? 8 : 6 }) : "") +
+      tpl("<button class='btn primary' type='submit'>{t}</button></form>", { t: mode === "in" ? "Войти" : mode === "up" ? "Зарегистрироваться" : "Отправить письмо" }) +
       "<div class='row small' style='margin-top:14px'>" +
       (mode === "in" ? "<button class='btn ghost sm' data-m='up'>Впервые здесь? Регистрация</button><span class='spacer'></span><button class='btn ghost sm' data-m='forgot'>Забыла пароль</button>"
         : "<button class='btn ghost sm' data-m='in'>‹ Ко входу</button>") + "</div>";
@@ -90,9 +90,9 @@ function showPending(p) {
   document.body.classList.add("auth");
   var d = p.data, ys = Object.keys(d.years || {}).sort();
   $main.innerHTML = "<div class='login card' style='max-width:560px'><div class='brand'><span class='brand-mark'>€</span><span class='brand-name'>Easy Budget</span></div>" +
-    "<h1>Твой бюджет уже здесь</h1><p class='muted'>Таблицу загрузили заранее: " + (ys.length ? "годы " + ys.join(", ") + ", " : "") + d.categories.filter(function (c) { return !c.archived; }).length + " категорий, " +
-    d.accounts.length + " счетов. Проверь цифры на «Главной» — если что-то не так, таблицу можно загрузить заново в «Настройках».</p>" +
-    "<form id='pnF' class='form-grid' style='margin-top:12px'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='" + esc((Store.user() || {}).name || "") + "' required></label>" +
+    tpl("<h1>Твой бюджет уже здесь</h1><p class='muted'>Таблицу загрузили заранее: {ys}{nc} категорий, {na} счетов. Проверь цифры на «Главной» — если что-то не так, таблицу можно загрузить заново в «Настройках».</p>" +
+      "<form id='pnF' class='form-grid' style='margin-top:12px'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='{n}' required></label>", {
+        ys: ys.length ? "годы " + ys.join(", ") + ", " : "", nc: d.categories.filter(function (c) { return !c.archived; }).length, na: d.accounts.length, n: (Store.user() || {}).name || "" }) +
     "<button class='btn primary' type='submit'>Начать с этим бюджетом</button></form>" +
     "<div class='row small' style='margin-top:12px'><button class='btn ghost sm' id='pnOther'>Начать по-другому</button></div></div>";
   $main.querySelector("#pnF").onsubmit = function (e) {
@@ -115,10 +115,11 @@ function preparePartnerBudget(email, name, file) {
       var res;
       try { res = window.BudgetImporter.importArrayBuffer(buf); } catch (err) { toast("Не получилось прочитать: " + err.message); return; }
       var st = res.state, ys = Object.keys(st.years).sort();
-      modal("<div class='m-body'><h2>Бюджет партнёра: " + esc(name) + "</h2><p class='muted'>Нашла: годы " + ys.join(", ") + "; категорий " + st.categories.filter(function (c) { return !c.archived; }).length + "; счетов " + st.accounts.length + "; курс " + String(st.settings.rate).replace(".", ",") + " ₽/€.</p>" +
-        (res.warnings.length ? "<div class='hint small'>" + res.warnings.map(esc).join("<br>") + "</div>" : "") +
-        "<p class='small muted'>Когда " + esc(name) + " войдёт с <b>" + esc(email) + "</b>, приложение предложит начать с этим бюджетом. До этого его видишь только ты.</p></div>" +
-        "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить бюджет</button></div>", function (m) {
+      modal(tpl("<div class='m-body'><h2>Бюджет партнёра: {n}</h2><p class='muted'>Нашла: годы {ys}; категорий {nc}; счетов {na}; курс {rate} ₽/€.</p>{!warn}" +
+        "<p class='small muted'>Когда {n} войдёт с <b>{email}</b>, приложение предложит начать с этим бюджетом. До этого его видишь только ты.</p></div>" +
+        "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить бюджет</button></div>", {
+          n: name, email: email, ys: ys.join(", "), nc: st.categories.filter(function (c) { return !c.archived; }).length, na: st.accounts.length, rate: String(st.settings.rate).replace(".", ","),
+          warn: res.warnings.length ? tpl("<div class='hint small'>{!w}</div>", { w: res.warnings.map(esc).join("<br>") }) : "" }), function (m) {
         m.querySelector("[data-act=cancel]").onclick = closeModal;
         m.querySelector("[data-act=ok]").onclick = function () {
           st.settings.myName = name; st.settings.tourDone = false;
@@ -134,7 +135,7 @@ function showOnboarding() {
   document.body.classList.add("auth");
   var u = Store.user() || {};
   $main.innerHTML = "<div class='login card' style='max-width:620px'><h1>Добро пожаловать</h1><p class='muted'>Бюджета пока нет. С чего начнём?</p>" +
-    "<form id='obName' class='form-grid'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='" + esc(u.name || "") + "' required placeholder='Аня'></label></form>" +
+    tpl("<form id='obName' class='form-grid'><label class='f' style='grid-column:1/-1'>Как тебя зовут<input name='name' value='{n}' required placeholder='Аня'></label></form>", { n: u.name || "" }) +
     "<div class='grid2' style='margin-top:12px'><label class='card' style='cursor:pointer'><b>Импорт таблицы</b><p class='small muted'>Excel или Google Sheets (Файл → Скачать → .xlsx). Подходят листы «Мой_ГГГГ» и «ГГГГ_€ REAL».</p>" +
     "<span class='btn primary'>Выбрать .xlsx</span><input type='file' id='obX' accept='.xlsx' hidden></label>" +
     "<div class='card'><b>С чистого листа</b><p class='small muted'>Пустой год с базовыми категориями — настроишь под себя.</p><button class='btn' id='obBlank'>Начать</button>" +
@@ -196,7 +197,7 @@ function start() {
         "Пока не было связи, бюджет изменили на другом устройстве. Взяла свежую версию, а твои изменения сохранила в резервных копиях (Настройки)");
     }
   }).catch(function (err) {
-    $main.innerHTML = "<div class='alert'>Не удалось загрузить: " + esc(err.message) + "</div>";
+    $main.innerHTML = tpl("<div class='alert'>Не удалось загрузить: {m}</div>", { m: err.message });
   });
 }
 

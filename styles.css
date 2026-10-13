@@ -1627,3 +1627,7 @@ a.us-plan .arr { color: var(--muted); font-size: 18px; flex: none; }
 .fx-live { margin-top: 12px; } .fx-live .fx-btn { margin-top: 8px; }
 .nw { white-space: nowrap; }
 .tl-sum-sub { display: block; margin: 4px 0 0; font-weight: 400; }
+/* Настройки → Данные: длинные подписи кнопок переносятся, а не растягивают страницу на узком телефоне */
+.data-acts .btn { white-space: normal; text-align: center; max-width: 100%; }
+.us-bal .ub-more { color: var(--ink-2); margin-top: 4px; }
+.fx-miss { margin: 0 0 12px; } .fx-miss .btn { margin-left: 6px; }

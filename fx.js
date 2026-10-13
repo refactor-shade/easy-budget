@@ -16,7 +16,9 @@
   function parse(j) {
     var e = j && j.eur;
     if (!e || !(e.rub > 0) || !(e.usd > 0)) return null;
-    return { date: String(j.date || ""), RUB: round(e.rub, 2), USD: round(e.usd, 4), GEL: e.gel > 0 ? round(e.gel, 4) : null };
+    // all — курсы всех валют (для тех, что встретились в общих тратах): { CHF: 0.94, … }
+    var all = {}; Object.keys(e).forEach(function (k) { if (/^[a-z]{3}$/.test(k) && e[k] > 0) all[k.toUpperCase()] = round(e[k], 4); });
+    return { date: String(j.date || ""), RUB: round(e.rub, 2), USD: round(e.usd, 4), GEL: e.gel > 0 ? round(e.gel, 4) : null, all: all };
   }
   function readCache() { try { var s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function writeCache(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* без хранилища — просто не кэшируем */ } }
@@ -24,7 +26,7 @@
   // сегодняшний курс: из кэша, если брали сегодня, иначе из сети (по очереди два адреса)
   function load(today) {
     var c = readCache();
-    if (c && c.fetched === today) { live = c; return Promise.resolve(c); }
+    if (c && c.fetched === today && c.all) { live = c; return Promise.resolve(c); } // без all — кэш старого формата, берём заново
     if (pending) return pending;
     var i = 0;
     var next = function () {

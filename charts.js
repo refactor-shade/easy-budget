@@ -3,7 +3,8 @@
   "use strict";
   var W = 720, PAD = { l: 52, r: 12, t: 12, b: 26 };
 
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  // атрибуты здесь в одинарных кавычках (data-tip='…'), поэтому экранируем и «'» — иначе имя вроде «D'Arcy» ломает разметку
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function niceMax(v) {
     if (v <= 0) return 1;
     var p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p;
