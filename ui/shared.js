@@ -686,11 +686,11 @@
         " Её таблицу можно загрузить заранее — тогда бюджет будет ждать её готовым.</span><label class='btn sm' id='prepPartner'><span>Загрузить её таблицу</span><input type='file' id='prepFile' accept='.xlsx' hidden></label></div>", { p: partner, email: sh.partner.email || "" }) : "";
 
     // открыт профиль партнёра: лента всё равно с моей стороны — говорим об этом прямо
-    var sideNote = RO() ? tpl("<div class='hint small' style='margin:0 0 14px'>Лента показана с твоей стороны: зелёным — что должны тебе, оранжевым — что должна ты. У {n} в её профиле цвета наоборот.</div>", { n: view.name }) : "";
+    var sideNote = RO() ? tpl("<div class='hint small' style='margin:0 0 14px'>Лента — с твоей стороны: «тебе должны» и «ты должна» — про тебя. У {n} в её профиле — наоборот.</div>", { n: nameGen(view.name) }) : "";
     // баланс по каждой валюте: крупно — основной (евро, если по нему есть долг), остальные — строками ниже
     var balK = Object.keys(bal).filter(function (k) { return Math.abs(bal[k]) >= 1; }).sort(function (a, b) { return (b === "EUR") - (a === "EUR"); });
     var sign$ = curSign;
-    var whoOwes = function (v) { return v > 0 ? partner + " должна тебе" : "Ты должна " + partner; };
+    var whoOwes = function (v) { return v > 0 ? partner + " должна тебе" : "Ты должна " + nameDative(partner); };
     var bv = balK.length ? bal[balK[0]] : 0;
     var html = sideNote + invite + tpl("<div class='card us-bal'><div class='ub-tx'><div class='small muted'>{who}</div><div class='ub-sum'>{sum}</div>{!more}</div>{!btn}</div>", {
       who: Math.abs(bv) < 1 ? "Вы в расчёте" : whoOwes(bv), sum: E.fmt(Math.abs(bv), { cur: balK.length ? sign$(balK[0]) : "€", dec: 2 }),
@@ -933,7 +933,7 @@
     }
     function owesLine(paidByMe, mode) {
       var c = d.cost || 0, sp = mode === "full" ? { me: paidByMe ? 0 : c, partner: paidByMe ? c : 0 } : S.computeSplit(c, "equal");
-      return paidByMe ? tpl("<span class='pos'>{p} должна тебе {v}</span>", { p: partner, v: money(sp.partner) }) : tpl("<span class='neg'>Ты должна {p} {v}</span>", { p: partner, v: money(sp.me) });
+      return paidByMe ? tpl("<span class='pos'>{p} должна тебе {v}</span>", { p: partner, v: money(sp.partner) }) : tpl("<span class='neg'>Ты должна {p} {v}</span>", { p: nameDative(partner), v: money(sp.me) });
     }
     function draw() {
       var html;

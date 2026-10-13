@@ -363,11 +363,9 @@
       if (md.word && plusUi.over.cat) { state.settings.phraseCats = state.settings.phraseCats || {}; state.settings.phraseCats[phStem(md.word)] = md.cat; }
       closeModal(); toast((md.tab === "income" ? "Доход " : "") + E.fmt(md.cents, { cur: "€" }) + " → «" + catName(md.cat) + "», " + (rep === "month" ? "каждый месяц с " + shortWeek(ys, wk.idx) : rep === "week" ? "каждую неделю с " + shortWeek(ys, wk.idx) : shortWeek(ys, wk.idx))); changed();
     } else if (md.tab === "shared") {
-      if (!md.desc) { toast("Добавь, что это было: например «ужин»"); return; }
       saveShared(m, md, md.method, md.method === "cash" && md.paidByMe ? md.pocket : null);
     } else if (md.tab === "cash" && md.share !== "no") {
       // общая трата наличными — одна запись в «Мы»; из кармана её списывает сама наличка (sharedLines), отдельной записи налички нет
-      if (!md.desc) { toast("Добавь, что это было: например «кофе»"); return; }
       saveShared(m, md, "cash", md.cash.from);
     } else if (md.tab === "cash") {
       var c = Cash.cashState(), cur = md.cash, k = cur.kind;
@@ -386,8 +384,8 @@
   // Общая трата из «+». pocket — карман, если платила я наличными: запоминаем его для этой траты (cash.sharedMap)
   function saveShared(m, md, method, pocket) {
     var mine = plusMine(md);
-    var ex = S.makeExpense({ date: md.date, desc: md.desc.charAt(0).toUpperCase() + md.desc.slice(1), cost: md.cents, currency: "EUR", paidByMe: md.paidByMe, myShare: mine, cat: md.cat, method: method, note: "", kind: "expense", split: splitOf(md.mode, md.cents, mine) });
-    if (md.cat) learn(ex.desc, md.cat);
+    var ex = S.makeExpense({ date: md.date, desc: md.desc ? md.desc.charAt(0).toUpperCase() + md.desc.slice(1) : "", cost: md.cents, currency: "EUR", paidByMe: md.paidByMe, myShare: mine, cat: md.cat, method: method, note: "", kind: "expense", split: splitOf(md.mode, md.cents, mine) });
+    if (md.cat && ex.desc) learn(ex.desc, md.cat); // одно число без описания — можно, категория из чипа
     var btn = m.querySelector("#plusGo"); btn.disabled = true;
     var row = SU.toRow(ex, sh.meId, sh.partnerId, sh.space.id), pName = sh.partner ? sh.partner.name : "партнёр", net = md.paidByMe ? md.cents - mine : -mine;
     Store.insertShared([row]).then(function () { closeModal(); return loadShared(); })

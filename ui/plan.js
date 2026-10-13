@@ -41,7 +41,7 @@
       o: ys.map(function (yy) { return tpl("<option value='{y}'{!s}>{y}{a}</option>", { y: yy, s: yy === y ? " selected" : "", a: state.years[yy].archived ? " · архив" : "" }); }).join(""),
       nw: RO() ? "" : tpl("<option value='new'>+ план на {n}</option>", { n: last + 1 }) });
     var html = tpl("<div class='plan-head'><h1>План</h1></div><div class='plan-tools'>{!sw}<span class='spacer'></span>{!sel}</div>", { sw: modeSw, sel: yearSel }) +
-      (mode === "weeks" && !ro ? "<p class='small muted plan-hint'>Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. На название строки — переименовать. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную.</p>" : "");
+      (mode === "weeks" && !ro ? "<p class='small muted plan-hint'>Нажми на ячейку, чтобы изменить: Enter — вниз, Tab — вправо. С клавиатуры: стрелки — по ячейкам, Enter — изменить. На название строки — переименовать. <span style='color:var(--rec)'>Серым</span> — регулярные, <span style='color:var(--manual)'>синим</span> — вписано вручную.</p>" : "");
     if (mode === "months") return yearByMonths(y, r, html);
 
     var head1 = tpl("<tr><th class='sticky'>{y}</th><th class='sticky2'>регулярно</th>", { y: y }), head2 = "<tr><th class='sticky'></th><th class='sticky2'>сумма · недели</th>";
@@ -152,9 +152,29 @@
       if (td.dataset.recon !== undefined && !RO()) { ui.recWeek = { year: y, week: Number(td.dataset.recon) }; location.hash = "#recon"; return; }
       if (td.dataset.rules && !RO()) { ui.recYear = y; location.hash = "#recurring"; return; }
       if (ro || td.querySelector("input")) return;
+      if (td.dataset.c !== undefined || td.dataset.acc !== undefined || td.dataset.sr !== undefined) ui.gridCursor = cellSel(td);
       if (td.dataset.c !== undefined) inlineEdit(td, y);
       else if (td.dataset.acc !== undefined || td.dataset.sr !== undefined) inlineEditRecon(td, y);
     });
+    // клавиатура: одна остановка Tab на всю таблицу, дальше стрелки; Enter или F2 — изменить ячейку, Escape — выйти из правки
+    if (!ro) {
+      var gcells = wrap.querySelectorAll("td[data-c],td[data-acc],td[data-sr]");
+      gcells.forEach(function (c) { c.tabIndex = -1; });
+      var gstart = (ui.gridCursor && wrap.querySelector(ui.gridCursor)) || wrap.querySelector("td.now[data-c],td.now[data-acc],td.now[data-sr]") || gcells[0];
+      if (gstart) { gstart.tabIndex = 0; if (ui.gridCursor && !ui.gridFocus) gstart.focus({ preventScroll: true }); }
+      ui.gridCursor = null;
+      wrap.addEventListener("keydown", function (e) {
+        var td = e.target; if (!td.matches || !td.matches("td[data-c],td[data-acc],td[data-sr]")) return;
+        var nx = null;
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") nx = gridNext(td, "Tab", e.key === "ArrowLeft");
+        else if (e.key === "ArrowDown" || e.key === "ArrowUp") nx = gridNext(td, "Enter", e.key === "ArrowUp");
+        else if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); ui.gridCursor = cellSel(td); if (td.dataset.c !== undefined) inlineEdit(td, y); else inlineEditRecon(td, y); return; }
+        else return;
+        e.preventDefault();
+        if (!nx) return;
+        td.tabIndex = -1; nx.tabIndex = 0; nx.focus(); nx.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    }
     // переход клавишами: после сохранения открыть следующую ячейку
     var fc = ui.gridFocus; ui.gridFocus = null;
     if (fc && !ro) { var t = wrap.querySelector(fc); if (t) { if (t.dataset.c !== undefined) inlineEdit(t, y); else inlineEditRecon(t, y); } }
@@ -188,7 +208,7 @@
         if (nx) ui.gridFocus = cellSel(nx);
         var changedIt = finish(true);
         if (!changedIt && nx) { ui.gridFocus = null; if (nx.dataset.c !== undefined) inlineEdit(nx, y); else inlineEditRecon(nx, y); }
-      } else if (e.key === "Escape") { ui.gridFocus = null; finish(false); }
+      } else if (e.key === "Escape") { ui.gridFocus = null; finish(false); td.focus(); }
     });
   }
   // остаток счёта или сверка накоплений прямо в таблице

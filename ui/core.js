@@ -330,6 +330,8 @@ function switchTo(who) {
 }
 // Кого ещё можно посмотреть (партнёр открыл доступ): строки «Бюджет Ани ›»
 // «Бюджет Саши»: имя в родительном падеже (простое правило для женских имён)
+// «ты должна Саше»: дательный падеж для женских имён (Мария → Марии); латиница и прочее — как есть
+function nameDative(n) { n = String(n || ""); if (/ия$/i.test(n)) return n.slice(0, -1) + "и"; if (/[ая]$/i.test(n)) return n.slice(0, -1) + "е"; return n; }
 function nameGen(n) { n = String(n || ""); if (/[кгхжшщч]а$/i.test(n)) return n.slice(0, -1) + "и"; if (/а$/i.test(n)) return n.slice(0, -1) + "ы"; if (/я$/i.test(n)) return n.slice(0, -1) + "и"; return n; }
 function viewablePeople() { return people.filter(function (p) { return p.theirLevel !== "hidden"; }); }
 function profileBar() {
@@ -551,6 +553,10 @@ function toast(msg) {
   var ub = document.getElementById("undoBar");
   if (ub && ub.classList.contains("on") && Date.now() - (pushUndo.at || 0) < 400 && !/^Отменено/.test(msg)) { ub.querySelector("span").textContent = msg; return; }
   var t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); t.setAttribute("aria-live", "polite"); document.body.appendChild(t); }
+  // при открытом окне подсказка — внутри окна (верхний слой), иначе окно её закрывает и кажется, что кнопка «не работает».
+  // modal() и closeModal() возвращают её в body, чтобы перерисовка окна её не стёрла
+  var host = $modal && $modal.open ? $modal : document.body; if (t.parentElement !== host) host.appendChild(t);
   toast.last = { msg: msg, at: Date.now() };
   t.textContent = msg; t.classList.add("on");
   clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove("on"); }, 2600);
@@ -601,7 +607,9 @@ function textModal(title, value, onOk, placeholder) {
   });
 }
 // Любое окно: ✕ в углу (закрыть без изменений), на телефоне шторку можно смахнуть вниз — ADR-1
+function toastHome() { var t = document.getElementById("toast"); if (t && t.parentElement !== document.body) document.body.appendChild(t); }
 function modal(html, onReady) {
+  toastHome();
   $modal.className = "modal";
   // у окон со своей шапкой «Отмена · заголовок · Сохранить» ✕ не нужен — он встал бы вплотную к «Сохранить»
   var ownHead = /class='sheet-head'/.test(html);
@@ -615,7 +623,7 @@ function modal(html, onReady) {
   if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
   if (onReady) onReady($modal);
 }
-function closeModal() { if ($modal.open) $modal.close(); }
+function closeModal() { toastHome(); if ($modal.open) $modal.close(); }
 // Подтверждение в окне приложения (вместо системного confirm с «site says» и английскими кнопками).
 // Вопрос — заголовком, пояснение — текстом; кнопка — действием («Удалить», «Не сохранять»). opts.danger === false — зелёная кнопка
 function askConfirm(text, okLabel, onOk, opts) {

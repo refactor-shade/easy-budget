@@ -42,7 +42,7 @@
       else {
         if (sh.partner && !sh.partner.userId && Store.mode === "cloud") todo.push({ ic: "✉", h: partnerName() + " ещё не вошла", p: "Пришли ей ссылку на сайт — пусть войдёт с " + (sh.partner.email || "своим email") + ", пространство подключится само.", act: "shared" });
         // долг в евро — от 50 €; в других валютах — любой ненулевой (их легко не заметить)
-        var balAll = S.balance(sh.expenses), bal = balAll.EUR || 0, owe = function (v, cur) { return v > 0 ? partnerName() + " должна тебе " + E.fmt(v, { cur: cur }) : "Ты должна " + partnerName() + " " + E.fmt(-v, { cur: cur }); };
+        var balAll = S.balance(sh.expenses), bal = balAll.EUR || 0, owe = function (v, cur) { return v > 0 ? partnerName() + " должна тебе " + E.fmt(v, { cur: cur }) : "Ты должна " + nameDative(partnerName()) + " " + E.fmt(-v, { cur: cur }); };
         var otherCur = Object.keys(balAll).filter(function (k) { return k !== "EUR" && Math.abs(balAll[k]) >= 1; });
         if (Math.abs(bal) >= 5000 || otherCur.length) todo.push({ ic: "€", h: Math.abs(bal) >= 5000 ? owe(bal, "€") : owe(balAll[otherCur[0]], curSign(otherCur[0])),
           p: (Math.abs(bal) >= 5000 ? otherCur : otherCur.slice(1)).map(function (k) { return "Ещё: " + owe(balAll[k], curSign(k)).replace(/^Ты/, "ты") + ". "; }).join("") + "Рассчитаться в «Мы».", act: "shared" });
@@ -117,12 +117,19 @@
     // дела
     // пункты «Что сделать» — обычный текст (h, p), экранируется здесь
     if (!ro) html += tpl("<section class='card a-todo'><h2>Что сделать</h2>{!list}" +
-      "<div class='rc-row' role='link' tabindex='0' id='rcRow' aria-label='Открыть сверку'><span class='rc-l'>Сверки</span>{!cal}<span class='rc-go' aria-hidden='true'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg></span></div><div class='rc-mini-leg small' aria-hidden='true'><span><i class='rc p2'></i>больше плана</span><span><i class='rc n2'></i>меньше</span><span><i class='rc miss'></i>не было</span></div></section>", {
-        cal: reconCalendar(y, true),
+      "</section>", {
         list: todo.length ? "<ul class='todo-list'>" + todoShown.map(function (x, j) {
           return tpl("<li class='{k}'><button type='button' class='td-main' data-todo='{j}'><span class='ic' aria-hidden='true'>{ic}</span><span class='tx'><b>{h}</b><span>{p}</span></span><span class='arr' aria-hidden='true'>›</span></button><button type='button' class='td-hide' data-tdhide='{j}' aria-label='Скрыть «{h}»' title='Скрыть'>×</button></li>", { k: x.k || "", j: j, ic: x.ic, h: x.h, p: x.p });
         }).join("") + "</ul>" + (todo.length > 4 ? tpl("<button type='button' class='btn ghost sm more' id='todoAll'>{t}</button>", { t: ui.todoAll ? "Свернуть" : "Ещё " + (todo.length - 4) }) : "")
           : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>" });
+
+    // сверки — своя карточка рядом с «Наличкой»: история и точность плана, а не дело (задача «Сверка за …» — в «Что сделать»)
+    if (!ro) {
+      var recLast = -1; for (var ri = w; ri >= 0; ri--) if (r.fact[ri] !== null) { recLast = ri; break; }
+      html += tpl("<section class='card a-recon'><div class='ar-head'><small>Сверки</small><b>{last}</b></div><div class='rc-row' role='link' tabindex='0' id='rcRow' aria-label='Открыть сверку'><span class='rc-l'>Сверки</span>{!cal}<span class='rc-go' aria-hidden='true'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg></span></div><div class='rc-mini-leg small' aria-hidden='true'><span><i class='rc p2'></i>больше плана</span><span><i class='rc n2'></i>меньше</span><span><i class='rc miss'></i>не было</span></div></section>", {
+        cal: reconCalendar(y, true),
+        last: recLast >= 0 ? "Последняя — " + shortWeek(y, recLast) + ", " + RS_TEXT[reconStatus(y, recLast, r)] : "Сверок ещё не было" });
+    }
 
     // наличка: карманы и вход в историю
     var cs = state.cash;
