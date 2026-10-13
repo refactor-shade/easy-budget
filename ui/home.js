@@ -29,7 +29,7 @@
       var yrH = state.years[y], planEmpty = !(yrH.recurring || []).length && !Object.keys(yrH.entries || {}).some(function (k) { return Object.keys(yrH.entries[k]).length; });
       if (planEmpty) todo.unshift({ ic: "↻", h: "Заполнить план на " + y, p: "Начни с того, что повторяется: зарплата, аренда, подписки. Один раз — и суммы встанут во все недели.", act: "recurring" });
       var nLog = Us.toLogCount();
-      if (nLog) todo.push({ ic: "⇄", h: nLog + " " + plural(nLog, "общая трата", "общие траты", "общих трат") + " не в личном плане", p: "Внеси их в свой план одной кнопкой или отметь, что уже есть.", act: "tolog" });
+      if (nLog) todo.push({ ic: "⇄", h: nLog + " " + plural(nLog, "общая трата", "общие траты", "общих трат") + " не в личном плане", p: nLog === 1 ? "Внеси её в свой план одной кнопкой или отметь, что она там уже есть." : "Внеси их в свой план одной кнопкой или отметь, что уже есть.", act: "tolog" });
       if (!state.settings.reminder) todo.push({ ic: "◷", h: "Поставить напоминание о сверке", p: Store.mode === "cloud" ? "Уведомление на телефон или событие в календаре раз в неделю — чтобы не забывать." : "Событие в календаре раз в неделю — чтобы не забывать.", act: "reminder" });
       else if (Store.mode === "cloud" && !state.settings.reminder.push && !state.settings.reminder.off && window.BudgetPush && window.BudgetPush.supported() && !reminderPushAsked()) todo.push({ ic: "◷", h: "Напоминание о сверке — уведомлением", p: "Теперь можно получать его прямо на телефон, а не только в календаре.", act: "reminder" });
       if (installHintNeeded()) todo.push({ ic: "⊕", h: "Добавить Easy Budget на экран «Домой»", p: "Откроется как приложение, без адресной строки, и сможет присылать напоминания.", act: "install" });
@@ -102,13 +102,13 @@
 
     // главный блок
     var ok = minV >= 0;
-    html += tpl("<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении сейчас{!qObr}</div>" +
+    html += tpl("<section class='hero card'><div class='hero-main'><div class='hero-label'>В обращении на {to}{!qObr}</div>" +
       "<button class='hero-value' data-ob='1' title='Из чего складывается'>{obr}</button>" +
       "<div class='hero-status {st}'><span class='dot'></span>Самый низкий остаток — {min}</div>" +
       "<div class='hero-min'>{minW}, если всё пойдёт по плану<br>{by} · <button class='linkish' data-ob='1'>из чего складывается</button></div></div>" +
-      "<div class='hero-side'><div class='hero-label'>Капитал{!qCap}</div><button type='button' class='hero-cap' data-capb='1' title='Из чего складывается'>{cap}</button>" +
+      "<div class='hero-side'><div class='hero-label'>Капитал на {to}{!qCap}</div><button type='button' class='hero-cap' data-capb='1' title='Из чего складывается'>{cap}</button>" +
       "<div class='hero-dcap'>{!dcap} с начала {mon}</div><div class='hero-chart'>{!spark}</div></div></section>", {
-        qObr: qb("obr", "Что такое «в обращении»"), obr: eur(rnd(r.base[w]), { dec: 0 }), st: ok ? "good" : "bad", min: eur(rnd(minV), { dec: 0 }), minW: shortWeek(y, minW),
+        qObr: qb("obr", "Что такое «в обращении»"), to: dayGen(wk.to), obr: eur(rnd(r.base[w]), { dec: 0 }), st: ok ? "good" : "bad", min: eur(rnd(minV), { dec: 0 }), minW: shortWeek(y, minW),
         by: r.fact[w] === null ? (lastRec >= 0 ? "По сверке " + shortWeek(y, lastRec) : "По плану, сверок ещё не было") : "По сверке этой недели",
         qCap: qb("cap", "Что такое капитал"), cap: eur(rnd(r.cap[w]), { dec: 0 }), dcap: trendHtml(dCap), mon: E.MONTHS_GEN[wk.month - 1], spark: spark(r.cap, w, y) });
 
@@ -120,7 +120,7 @@
       "<div class='rc-row' role='link' tabindex='0' id='rcRow' aria-label='Открыть сверку'><span class='rc-l'>Сверки</span>{!cal}<span class='rc-go' aria-hidden='true'><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg></span></div></section>", {
         cal: reconCalendar(y, true),
         list: todo.length ? "<ul class='todo-list'>" + todoShown.map(function (x, j) {
-          return tpl("<li class='{k}' data-todo='{j}'><span class='ic'>{ic}</span><span class='tx'><b>{h}</b><span>{p}</span></span><button type='button' class='td-hide' data-tdhide='{j}' aria-label='Скрыть' title='Скрыть'>×</button><span class='arr'>›</span></li>", { k: x.k || "", j: j, ic: x.ic, h: x.h, p: x.p });
+          return tpl("<li class='{k}'><button type='button' class='td-main' data-todo='{j}'><span class='ic' aria-hidden='true'>{ic}</span><span class='tx'><b>{h}</b><span>{p}</span></span><span class='arr' aria-hidden='true'>›</span></button><button type='button' class='td-hide' data-tdhide='{j}' aria-label='Скрыть «{h}»' title='Скрыть'>×</button></li>", { k: x.k || "", j: j, ic: x.ic, h: x.h, p: x.p });
         }).join("") + "</ul>" + (todo.length > 4 ? tpl("<button type='button' class='btn ghost sm more' id='todoAll'>{t}</button>", { t: ui.todoAll ? "Свернуть" : "Ещё " + (todo.length - 4) }) : "")
           : "<p class='all-good'><span class='ic'>✓</span>Всё сделано. Можно ничего не трогать до следующей недели.</p>" });
 
@@ -153,7 +153,7 @@
     var monthName = E.MONTHS[wk.month - 1];
     html += tpl("<section class='card a-month'><div class='row'><h2 style='margin:0'>{m}</h2><span class='spacer'></span><span class='small muted'>неделя {wim} из 5</span></div>" +
       "<div class='month-bar' aria-hidden='true'>{!bar}</div><div class='kv'><span>Доходы</span><b class='pos'>{inc}</b></div><div class='kv'><span>Расходы</span><b>{tot}</b></div>" +
-      "<div class='kv'><span>Отложить в накопления</span><b>{sav}</b></div><button class='btn ghost sm more' data-go='year'>весь год ›</button></section>", {
+      "<div class='kv'><span>Переводы в накопления</span><b>{sav}</b></div><button class='btn ghost sm more' data-go='year'>весь год ›</button></section>", {
         m: monthName[0].toUpperCase() + monthName.slice(1), wim: wk.wim, inc: eur(rnd(mon.income), { dec: 0 }), tot: eur(rnd(mon.total), { dec: 0 }), sav: eur(rnd(mon.saved), { dec: 0 }),
         bar: [1, 2, 3, 4, 5].map(function (n) { return tpl("<span class='{c}'></span>", { c: n < wk.wim ? "past" : n === wk.wim ? "now" : "" }); }).join("") });
     html += "</div>";
@@ -241,11 +241,12 @@
       var lim = Math.abs(state.settings.diffAlert || -5000) || 5000, t = r.diff[w] / lim;
       return t <= -6 ? "n4" : t <= -3 ? "n3" : t <= -1 ? "n2" : t < -0.3 ? "n1" : t <= 0.3 ? "z" : t <= 1 ? "p1" : t <= 3 ? "p2" : "p3";
     }
+    if (draftOf(y, w)) return "draft";
     if (isNow(y, w)) return "now";
     return weekDone(y, w) ? "miss" : "future";
   }
   var RS_TEXT = { n4: "сильно меньше плана", n3: "заметно меньше плана", n2: "меньше плана — за порогом", n1: "чуть меньше плана", z: "точно по плану",
-    p1: "чуть больше плана", p2: "больше плана", p3: "сильно больше плана", miss: "сверки не было", now: "идёт сейчас", future: "впереди" };
+    p1: "чуть больше плана", p2: "больше плана", p3: "сильно больше плана", miss: "сверки не было", draft: "сверка не закончена", now: "идёт сейчас", future: "впереди" };
   function rcCell(y, w, r, sel) {
     var st = reconStatus(y, w, r), d = r.diff[w];
     var txt = E.weekTitle(Number(y), w) + " — " + RS_TEXT[st] + (d !== null ? ": " + E.eur(rnd(d), { dec: 0, plus: true }) : "");
@@ -261,7 +262,7 @@
     var head = E.MONTHS_SHORT.map(function (m) { return tpl("<span>{m}</span>", { m: m }); }).join("");
     for (var wim = 0; wim < 5; wim++) for (var m = 0; m < 12; m++) cells += rcCell(y, m * 5 + wim, r, m * 5 + wim === selW);
     var done = 0, miss = 0;
-    for (var k = 0; k < 60; k++) { var t = reconStatus(y, k, r); if (t === "miss") miss++; else if (t !== "now" && t !== "future") done++; }
+    for (var k = 0; k < 60; k++) { var t = reconStatus(y, k, r); if (t === "miss") miss++; else if (t !== "now" && t !== "future" && t !== "draft") done++; }
     return tpl("<div class='rc-wrap'><div class='rc-head'>{!head}</div><div class='rc-grid'>{!cells}</div></div><div class='rc-cap small muted' id='rcCap'>{cap}</div>" +
       "<div class='rc-legend small'><span class='rc-sc'><span>меньше</span><span class='rc-scale'>{!scale}</span><span>больше плана</span></span>" +
       "<span class='rc-sep'><i class='rc miss'></i>пропущена</span><span class='muted'>сверок {done} · пропущено {miss}</span></div>", {

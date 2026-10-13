@@ -419,12 +419,13 @@
       });
       return tpl("<details class='rs-bal'{!o}><summary>Остатки по счетам</summary><div class='tbl-wrap'><table class='t'><thead><tr><th>Счёт</th><th class='n'>было</th><th class='n'>стало</th><th class='n'>±</th></tr></thead><tbody>{!rows}</tbody></table></div></details>", { o: ui.recBalOpen ? " open" : "", rows: rows });
     }
-    var back = backHref("recon", "home");
+    var back = backHref("recon", "home"), realY = myState.years[y] || {}, realR = inDraft() ? E.compute(myState, y) : r;
     var html = tpl("<div class='rs'><div class='rc-top'><a class='back-link' href='{href}'>‹ {label}</a>{!hist}</div>" +
       "<div class='rc-title'><h1>Сверка за {wk}</h1><select id='recW' class='rc-wsel' aria-label='Другая неделя'>{!wopts}</select></div><ol class='rs-steps'>{!steps}</ol>{!draft}", {
         href: back[0], label: back[1], wk: shortWeek(y, w),
         hist: step !== 3 && !draft ? "<button type='button' class='linkish' data-step='3'>История сверок ›</button>" : "",
-        wopts: weekOpts(y, w, function (i) { return !!yr.recon[i] && r.fact[i] !== null; }),
+        // ✓ — только сверки, которые уже в бюджете; внутри сверки state — черновик, поэтому смотрим в myState
+        wopts: weekOpts(y, w, function (i) { return draftOf(y, i) ? "· черновик" : !!((realY.recon || {})[i]) && realR.fact[i] !== null; }),
         steps: [[1, "Остатки"], [2, "Проверка"], [3, "Итог"]].map(function (s) {
           var can = (s[0] !== 2 || hasRec) && !(draft && s[0] === 3);
           return tpl("<li><button type='button' class='rs-step{c}' data-step='{n}'{!dis}{!cur}><span class='rs-n'>{n}</span>{l}</button></li>", {
@@ -490,8 +491,8 @@
       if (hasRec) {
         var d3 = r.diff[w], b3 = ui.recBefore && ui.recBefore.key === y + ":" + w ? ui.recBefore.diff : null;
         left += tpl("<div class='card rs-sum'><div class='rs-sumh'><h2>Итог недели</h2><span class='small muted'>{st}</span></div>{!nums}{!was}" +
-          "<button type='button' class='rs-cap' data-capb='1'><span>Капитал</span><b>{cap}</b><small>{!dw} за неделю</small><span class='rs-cap-arr' aria-hidden='true'>›</span></button>{!bal}<button type='button' class='btn sm rs-fix' data-step='1'>Поправить остатки</button></div>", {
-            st: Home.RS_TEXT[Home.reconStatus(y, w, r)], nums: nums(r.fact[w], r.obr[w], d3), cap: eur(rnd(r.cap[w]), { dec: 0 }), dw: trendHtml(r.dweek[w]), bal: balancesHtml(),
+          "<button type='button' class='rs-cap' data-capb='1'><span>Капитал на {to}</span><b>{cap}</b><small>{!dw} за неделю</small><span class='rs-cap-arr' aria-hidden='true'>›</span></button>{!bal}<button type='button' class='btn sm rs-fix' data-step='1'>Поправить остатки</button></div>", {
+            st: Home.RS_TEXT[Home.reconStatus(y, w, r)], to: dayGen(r.weeks[w].to), nums: nums(r.fact[w], r.obr[w], d3), cap: eur(rnd(r.cap[w]), { dec: 0 }), dw: trendHtml(r.dweek[w]), bal: balancesHtml(),
             was: b3 !== null && b3 !== d3 ? tpl("<p class='small muted rs-was'>до правок {a} → после {b}</p>", { a: eur(rnd(b3), { dec: 0, plus: true }), b: eur(rnd(d3), { dec: 0, plus: true }) }) : "" });
       } else if (weekDone(y, w)) {
         left += "<div class='card rs-sum'><h2>Сверки за эту неделю нет</h2><button type='button' class='btn primary' data-step='1'>Сделать сверку</button></div>";

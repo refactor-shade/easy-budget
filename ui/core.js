@@ -329,7 +329,7 @@ function switchTo(who) {
   }).catch(function (e) { toast("Не удалось загрузить: " + e.message); switchTo("me"); });
 }
 // Кого ещё можно посмотреть (партнёр открыл доступ): строки «Бюджет Ани ›»
-// «Бюджет Риты»: имя в родительном падеже (простое правило для женских имён)
+// «Бюджет Саши»: имя в родительном падеже (простое правило для женских имён)
 function nameGen(n) { n = String(n || ""); if (/[кгхжшщч]а$/i.test(n)) return n.slice(0, -1) + "и"; if (/а$/i.test(n)) return n.slice(0, -1) + "ы"; if (/я$/i.test(n)) return n.slice(0, -1) + "и"; return n; }
 function viewablePeople() { return people.filter(function (p) { return p.theirLevel !== "hidden"; }); }
 function profileBar() {
@@ -539,9 +539,11 @@ function toast(msg) {
   clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove("on"); }, 2600);
 }
 function blockName(b) { var x = E.BLOCKS.find(function (k) { return k.id === b; }); return x ? x.name : b; }
+// mark(i): true — «✓», строка — своя пометка («· черновик»), иначе без пометки
 function weekOpts(year, sel, mark) {
   return E.genWeeks(Number(year)).map(function (w) {
-    return tpl("<option value='{v}'{!s}>{m} · {l}{ok}</option>", { v: w.idx, s: w.idx === sel ? " selected" : "", m: E.MONTHS_SHORT[w.month - 1], l: w.label, ok: mark && mark(w.idx) ? " ✓" : "" });
+    var mk = mark ? mark(w.idx) : null;
+    return tpl("<option value='{v}'{!s}>{m} · {l}{ok}</option>", { v: w.idx, s: w.idx === sel ? " selected" : "", m: E.MONTHS_SHORT[w.month - 1], l: w.label, ok: mk === true ? " ✓" : mk ? " " + mk : "" });
   }).join("");
 }
 function catOptions(sel, filter) {
@@ -775,6 +777,8 @@ function finishedWeek() {
   }
   return null;
 }
+// «18 октября» — день из ISO-даты, для подписей «на …» у сумм
+function dayGen(iso) { return Number(iso.slice(8, 10)) + " " + E.MONTHS_GEN[Number(iso.slice(5, 7)) - 1]; }
 function shortWeek(y, w) { return E.weekTitle(Number(y), w).replace(/ \d{4}$/, ""); }
 
 // Внести трату в любую дату: прошлую или будущую

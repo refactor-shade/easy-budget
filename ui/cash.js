@@ -74,6 +74,14 @@
     if (!ro) {
       var np = cashNotInPlan(E.addDays(E.todayISO(), -60) > c.since ? E.addDays(E.todayISO(), -60) : c.since, E.todayISO());
       html += np.length ? cashPlanCardHtml(np) : "<div class='us-plan us-plan-ok cash-np-ok'><span><b>Наличка и твой план</b><span class='small muted'>всё заметное (от 20 €) уже в плане ✓</span></span></div>";
+      var sc = sharedCandidates();
+      if (sc.length) html += tpl("<div class='card cash-np cash-sc'><h2>Похоже на общие</h2><p class='small muted' style='margin:-4px 0 10px'>Записаны только в наличку — в «Мы» их нет, и в баланс с {p} они не попали.</p><ul class='lg-list'>{!li}</ul></div>", {
+        p: sh.partner ? sh.partner.name : "партнёр",
+        li: sc.map(function (t) {
+          return tpl("<li class='lg' data-sc='{id}'><div class='lg-main'><b>{note}</b><span class='small muted'>{date} · {pocket}</span></div><div class='lg-val'>{sum}</div><div class='lg-act'>" +
+            "<button type='button' class='btn sm primary' data-sca='move'>Перенести в общие</button><button type='button' class='btn sm ghost' data-sca='skip'>Это личная</button></div></li>", {
+              id: t.id, note: t.note || "без описания", date: t.date.slice(8, 10) + "." + t.date.slice(5, 7), pocket: pocketName(t.from), sum: E.fmt(t.cents, { cur: "€" }) });
+        }).join("") });
     }
     html += "<h2 class='cash-h2'>История</h2>" + (all.length ? "<ul class='card cash-hist'>" + all.slice(0, ui.cashLimit || 60).map(function (t) {
       var flow = t.kind === "move" ? "из " + pocketName(t.from) + " в " + pocketName(t.to) : t.kind === "in" ? "с карты в " + pocketName(t.to) : t.kind === "out" ? "из " + pocketName(t.from) + " на карту" :
@@ -179,6 +187,11 @@
       li.onkeydown = function (e) { if (e.key === "Enter") li.onclick(e); };
     });
     bindCashPlanRows();
+    $main.querySelectorAll("[data-sc]").forEach(function (li) {
+      var t = c.tx.find(function (x) { return x.id === li.dataset.sc; }); if (!t) return;
+      li.querySelector("[data-sca=skip]").onclick = function () { t.sharedSkip = true; changed(); };
+      li.querySelector("[data-sca=move]").onclick = function () { moveToShared(t); };
+    });
     $main.querySelectorAll("[data-edtx]").forEach(function (li) {
       li.onclick = function (e) { if (e.target.closest("button,select")) return; cashEditModal(c.tx.find(function (x) { return x.id === li.dataset.edtx; })); };
       li.onkeydown = function (e) { if (e.key === "Enter") li.onclick(e); };
@@ -300,11 +313,44 @@
     E.setEntry(state, year, catId, String(w), baseExpr ? baseExpr + add : add.replace(/^\+/, ""), n);
   }
 
+  // Записи налички, похожие на общие («пополам», «с Сашей»): только трата из евро-кармана после начала учёта,
+  // иначе после переноса карман бы не сошёлся (общие до начала учёта в наличку не попадают)
+  function looksShared(t) { var c = state.cash; return !!(sh && c && c.since && !t.sharedSkip && t.date >= c.since && pocketCur(t.from) === "€" && Plus.sharedSignal(t.note || "")); }
+  function sharedCandidates() {
+    var c = state.cash; if (!sh || !c || !c.tx || !c.since) return [];
+    return c.tx.filter(function (t) { return t.kind === "spend" && looksShared(t); })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  }
+  // Перенести запись налички в общие: одна общая трата «наличными» из того же кармана, запись налички удаляется — остаток кармана тот же.
+  // Если запись уже была в личном плане целиком — в плане остаётся твоя доля
+  function moveToShared(t) {
+    var c = cashState(), f = Plus.sharedFromNote(t.note, t.cents), pName = sh.partner ? sh.partner.name : "партнёр", owe = t.cents - f.mine;
+    var how = { equal: "пополам", theirs: "всё на " + pName, mine: "всё на тебе" }[f.mode] || "пополам";
+    var planOk = t.plan && state.years[t.plan.year] && !state.years[t.plan.year].archived;
+    // «Перенести «Такси» в общие?» — описание уже без «пополам» и имени; карман и сумма не меняются
+    askConfirm("Перенести «" + f.desc + "» в общие? " + E.fmt(t.cents, { cur: "€" }) + " из «" + pocketName(t.from) + "», " + how + (owe > 0 ? ": " + pName + " должна " + E.fmt(owe, { cur: "€" }) : "") + "." +
+      (planOk && owe > 0 ? " В личном плане останется твоя доля — " + E.fmt(f.mine, { cur: "€" }) + " вместо " + E.fmt(t.cents, { cur: "€" }) + "." : ""), "Перенести", function () {
+      var ex = S.makeExpense({ date: t.date, desc: f.desc, cost: t.cents, currency: "EUR", paidByMe: true, myShare: f.mine, cat: f.cat, method: "cash", note: "", kind: "expense", split: f.split });
+      var row = SU.toRow(ex, sh.meId, sh.partnerId, sh.space.id);
+      Store.insertShared([row]).then(function () { return loadShared(); }).then(function () {
+        c.tx = c.tx.filter(function (x) { return x.id !== t.id; });
+        c.sharedMap = c.sharedMap || {}; if (row.id) c.sharedMap[row.id] = t.from;
+        if (planOk) {
+          if (owe > 0) shiftCell(t.plan.year, t.plan.cat, t.plan.week, owe, "общая: доля " + pName);
+          // доля уже в плане — «Общие траты и твой план» не предлагает её второй раз
+          if (row.id) { state.settings.sharedLog = state.settings.sharedLog || {}; state.settings.sharedLog[row.id] = "added"; }
+        }
+        changed(); toast("Перенесла в «Мы»" + (owe > 0 ? ": " + pName + " должна " + E.fmt(owe, { cur: "€" }) : ""));
+      }).catch(function (err) { toast("Не сохранилось: " + err.message); });
+    });
+  }
+
   // Траты наличными от порога (20 €), которых нет в плане: за период [from, to]
   function cashNotInPlan(from, to) {
     var c = state.cash; if (!c || !c.tx) return [];
     var min = state.settings.cashPlanMin !== undefined ? state.settings.cashPlanMin : 2000;
-    return c.tx.filter(function (t) { return t.kind === "spend" && !t.plan && !t.planSkip && t.cents >= min && t.date >= from && t.date <= to && pocketCur(t.from) === "€"; })
+    // похожие на общие ждут решения в карточке «Похоже на общие» — в план их долю внесут уже как общую
+    return c.tx.filter(function (t) { return t.kind === "spend" && !t.plan && !t.planSkip && t.cents >= min && t.date >= from && t.date <= to && pocketCur(t.from) === "€" && !looksShared(t); })
       .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
   }
   function cashPlanCardHtml(list, title) {
