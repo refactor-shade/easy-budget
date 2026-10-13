@@ -146,11 +146,21 @@
         "<span class='small muted cc-line'>Сколько где лежит наличными — минута, чтобы начать</span><span class='cc-more'>Начать ›</span></span><span class='arr'>›</span></a>";
     }
 
+    // последнее внесённое — вход в «История записей» с Главной (иначе его не найти)
+    function lastLoggedHtml() {
+      if (ro) return "";
+      var all = [];
+      Object.keys(state.years).forEach(function (yy) { (state.years[yy].log || []).forEach(function (l) { all.push(l); }); });
+      if (!all.length) return "<a class='wk-log' href='#log'><span class='muted'>История записей</span><span class='wk-log-all'>все ›</span></a>";
+      var l = all.sort(function (p, q) { return (q.ts || 0) - (p.ts || 0); })[0], c = state.categories.find(function (x) { return x.id === l.cat; });
+      return tpl("<a class='wk-log' href='#log'><span><span class='muted'>Внесла {d}:</span> {n} <b class='wk-log-v'>{v}</b></span><span class='wk-log-all'>все ›</span></a>", {
+        n: l.note || (c ? c.name : ""), v: eur(Math.abs(l.cents), { dec: Math.abs(l.cents) % 100 ? 2 : 0 }), d: l.date === E.todayISO() ? "сегодня" : dayGen(l.date) });
+    }
     // неделя
     var open = !!ui.homeWeekOpen, shown = open ? items : items.slice(0, 5);
     html += tpl("<section class='card a-week'><div class='wk-head'><button type='button' class='round-btn' data-hw='-1' aria-label='Предыдущая неделя'>‹</button>" +
-      "<div class='wk-title'><h2>Неделя {wk}</h2><div class='small muted'>{sum}</div></div><button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>{!list}{!more}</section>", {
-        wk: shortWeek(y, hw), sum: [tin ? "доходы " + eur(tin, { dec: 0 }) : "", tout ? "расходы " + eur(-tout, { dec: 0 }) : ""].filter(Boolean).join(" · "),
+      "<div class='wk-title'><h2>Неделя {wk}</h2><div class='small muted'>{sum}</div></div><button type='button' class='round-btn' data-hw='1' aria-label='Следующая неделя'>›</button></div>{!list}{!more}{!last}</section>", {
+        wk: shortWeek(y, hw), last: lastLoggedHtml(), sum: [tin ? "доходы " + eur(tin, { dec: 0 }) : "", tout ? "расходы " + eur(-tout, { dec: 0 }) : ""].filter(Boolean).join(" · "),
         list: items.length ? "<ul class='plan-list'>" + shown.map(function (x) {
           return tpl("<li><span class='name'>{n}</span><span class='val {c}'>{v}</span></li>", { n: x.c.name, c: tone(x.cell.cents), v: E.fmt(x.cell.cents, { cur: cur(x.c), dec: 0 }) });
         }).join("") + "</ul>" : "<p class='empty'>На эту неделю ничего не запланировано.</p>",

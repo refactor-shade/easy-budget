@@ -354,7 +354,7 @@ function profileBar() {
 var GROUPS = {
   home: ["home", "cash"],
   recon: ["recon"],
-  plan: ["year", "recurring", "week"],
+  plan: ["year", "recurring", "week", "log"],
   us: ["shared", "us", "tolog", "other"],
   analysis: ["insights", "months", "analysis"],
   settings: ["settings", "help"],
@@ -367,8 +367,8 @@ var SUBTABS = {
 function routeGroup(route) { for (var g in GROUPS) if (GROUPS[g].indexOf(route) >= 0) return g; return "home"; }
 var GROUP_TITLE = { plan: "План", us: "Мы", analysis: "Анализ" };
 // «‹ Назад» ведёт туда, откуда пришла; если пришла по ссылке извне — в раздел по умолчанию
-var ROUTE_TITLE = { home: "Главная", year: "План", recurring: "Регулярные", recon: "Сверка", cash: "Наличка", us: "Мы", shared: "Мы", tolog: "Общие и план", other: "Прочее", insights: "Анализ", months: "Анализ", analysis: "Анализ", settings: "Настройки", help: "Справка" };
-var BACK_DEFAULT = { cash: "home", settings: "home", help: "settings", week: "year", tolog: "shared", other: "shared" }; // у Сверки своя ссылка в шапке
+var ROUTE_TITLE = { log: "История записей", home: "Главная", year: "План", recurring: "Регулярные", recon: "Сверка", cash: "Наличка", us: "Мы", shared: "Мы", tolog: "Общие и план", other: "Прочее", insights: "Анализ", months: "Анализ", analysis: "Анализ", settings: "Настройки", help: "Справка" };
+var BACK_DEFAULT = { log: "year", cash: "home", settings: "home", help: "settings", week: "year", tolog: "shared", other: "shared" }; // у Сверки своя ссылка в шапке
 function backHref(route, dflt) {
   dflt = dflt || BACK_DEFAULT[route];
   if (!dflt) return null;
@@ -378,10 +378,10 @@ function backHref(route, dflt) {
 }
 function afterRender(route) {
   var g = routeGroup(route), tabs = SUBTABS[g];
-  $main.classList.toggle("in-sec", !!tabs && route !== "week");
+  $main.classList.toggle("in-sec", !!tabs && route !== "week" && route !== "log");
   var href = backHref(route);
   if (href && !(route === "settings" && ui.setSec)) $main.insertAdjacentHTML("afterbegin", tpl("<a class='back-link' href='{0}'>‹ {1}</a>", href));
-  if (!tabs || route === "week" || route === "tolog" || route === "other") { $main.classList.remove("in-sec"); return; }
+  if (!tabs || route === "week" || route === "log" || route === "tolog" || route === "other") { $main.classList.remove("in-sec"); return; }
   // год: чипы старых экранов прячем, вместо них — список справа от заголовка
   var firstY = $main.querySelector(".chips [data-year], .chips [data-uy]"), chips = firstY ? Array.prototype.slice.call(firstY.parentNode.querySelectorAll("[data-year], [data-uy]")) : [], ysel = "";
   var yv = function (c) { return c.dataset.year || c.dataset.uy; };
@@ -395,7 +395,7 @@ function afterRender(route) {
   // адрес таблицы проверен выше (только https://docs.google.com/), в атрибут — экранированным
   var sheetA = g === "plan" && !RO() ? (hasUrl ? tpl("<a class='plan-sheet' href='{u}' target='_blank' rel='noopener'>Google Таблица ↗</a>", { u: state.settings.sheetUrl }) : "<button type='button' class='linkish plan-sheet' id='sheetAsk'>Google Таблица ↗</button>") : "";
   var html = tpl("<div class='sec-head'><h1>{t}</h1>{!right}</div><nav class='subtabs' aria-label='Раздел'>{!tabs}</nav>", {
-    t: GROUP_TITLE[g], right: g === "plan" ? tpl("<span class='sh-right'>{!y}{!a}</span>", { y: route !== "year" ? ysel : "", a: sheetA }) : ysel,
+    t: GROUP_TITLE[g], right: g === "plan" ? tpl("<span class='sh-right'>{!y}<a class='plan-sheet' href='#log'>История записей</a>{!a}</span>", { y: route !== "year" ? ysel : "", a: sheetA }) : ysel,
     tabs: tabs.map(function (t) { return tpl("<a href='#{0}'{!on}>{1}</a>", { 0: t[0], 1: t[1], on: t[0] === route ? " class='on' aria-current='page'" : "" }); }).join("") });
   if (route === "us" && !RO()) html += viewablePeople().map(function (p) {
     return tpl("<button type='button' class='person-row card' data-who='{id}'><span class='pr-ic' aria-hidden='true'>{ic}</span><span class='pr-tx'><b>Бюджет {n}</b><span>{lvl}</span></span><span class='arr'>›</span></button>", {
@@ -776,7 +776,8 @@ function moveSkipModal(y, catId, w, after) {
 }
 
 // Добавить трату к ячейке (складывается с тем, что уже стоит)
-function addToCell(year, catId, w, valueExpr, note) {
+// logSrc ({ src, date }) — записать в журнал «История записей» (свои траты и доходы: «+», «Заполнить по полям», фраза в сверке)
+function addToCell(year, catId, w, valueExpr, note, logSrc) {
   var c = state.categories.find(function (x) { return x.id === catId; });
   var v = E.exprCents(valueExpr);
   if (v === null) return;
@@ -788,6 +789,35 @@ function addToCell(year, catId, w, valueExpr, note) {
   var expr = baseExpr ? baseExpr + add : add.replace(/^\+/, "");
   var n = entry && entry.note ? entry.note + (note ? "; " + note : "") : (note || "");
   E.setEntry(state, year, catId, String(w), expr, n);
+  if (logSrc) {
+    var yl = state.years[year]; yl.log = yl.log || [];
+    // term — что дописано к формуле; base/fresh — какой была ячейка, чтобы при удалении вернуть как было
+    yl.log.push({ id: E.uid("l"), ts: Date.now(), date: logSrc.date || E.todayISO(), w: w, cat: catId, cents: v, term: add, base: baseExpr, fresh: !entry, note: note || "", src: logSrc.src || "plus" });
+  }
+}
+// Убрать запись журнала: снять её слагаемое из формулы ячейки (или удалить регулярную трату, если запись — правило)
+function removeLogged(year, id) {
+  var y = state.years[year], log = (y && y.log) || [], i = log.findIndex(function (x) { return x.id === id; });
+  if (i < 0) return false;
+  var e = log[i];
+  if (e.rule) { y.recurring = (y.recurring || []).filter(function (r) { return r.id !== e.rule; }); }
+  else {
+    var entry = (y.entries[e.cat] || {})[e.w];
+    if (entry) {
+      var ex = String(entry.expr), t = e.term, t0 = t.replace(/^\+/, ""), nx;
+      if (ex === t || ex === t0) nx = "";
+      else if (ex.slice(-t.length) === t) nx = ex.slice(0, -t.length);
+      else if (ex.indexOf(t0) === 0 && /^[+-]/.test(ex.slice(t0.length))) nx = ex.slice(t0.length).replace(/^\+/, "");
+      else if (ex.indexOf(t) > 0) nx = ex.replace(t, "");
+      else nx = ex + (e.cents < 0 ? "+" : "-") + String(Math.abs(e.cents) / 100);
+      if (e.fresh && nx === e.base) nx = ""; // ячейка была пустой или регулярной — возвращаем как было
+      var n = entry.note || "";
+      if (e.note) n = n === e.note ? "" : n.replace("; " + e.note, "").replace(e.note + "; ", "");
+      E.setEntry(state, year, e.cat, String(e.w), nx, n);
+    }
+  }
+  log.splice(i, 1);
+  return true;
 }
 
 // ---------- экраны ----------
@@ -808,6 +838,51 @@ function finishedWeek() {
 // «18 октября» — день из ISO-даты, для подписей «на …» у сумм
 function dayGen(iso) { return Number(iso.slice(8, 10)) + " " + E.MONTHS_GEN[Number(iso.slice(5, 7)) - 1]; }
 function shortWeek(y, w) { return E.weekTitle(Number(y), w).replace(/ \d{4}$/, ""); }
+
+// Период «Неделя / Месяц / Год» с ‹ › — один переключатель для карточек «Анализа» и «Мы».
+// key — своё состояние у каждой карточки; pers — какие периоды здесь уместны
+var PER_NAMES = { week: "Неделя", month: "Месяц", year: "Год" };
+function periodPick(key, y, pers, def) {
+  pers = pers || ["week", "month", "year"];
+  ui.per = ui.per || {};
+  var st = ui.per[key] || {}, per = pers.indexOf(st.per) >= 0 ? st.per : def || (pers.indexOf("month") >= 0 ? "month" : pers[0]);
+  var today = E.todayISO(), nowWk = E.weekOfDate(today), cur = !!nowWk && String(nowWk.year) === y, Y = Number(y), py = String(Y - 1);
+  var max = per === "week" ? 59 : per === "month" ? 11 : 0;
+  var idx = st.idx !== undefined && st.for === y + per ? st.idx : per === "week" ? (cur ? nowWk.idx : 59) : per === "month" ? (cur ? Math.floor(nowWk.idx / 5) : 11) : 0;
+  idx = Math.max(0, Math.min(max, idx));
+  var wk = per === "week" ? E.genWeeks(Y)[idx] : null, mm = (idx < 9 ? "0" : "") + (idx + 1);
+  var from = wk ? wk.from : per === "month" ? y + "-" + mm + "-01" : y + "-01-01", to = wk ? wk.to : per === "month" ? y + "-" + mm + "-31" : y + "-12-31";
+  var open = today >= from && today <= to;
+  // тот же период прошлого года; месяц и год, которые ещё идут, — до того же дня
+  var pwk = wk ? E.genWeeks(Y - 1)[idx] : null, pFrom = pwk ? pwk.from : py + from.slice(4), pTo = pwk ? pwk.to : py + to.slice(4);
+  if (!wk && open && py + today.slice(4) < pTo) pTo = py + today.slice(4);
+  var weeks = per === "week" ? [idx] : per === "month" ? [0, 1, 2, 3, 4].map(function (i) { return idx * 5 + i; }) : Array.apply(null, Array(60)).map(function (_, i) { return i; });
+  var label = per === "week" ? shortWeek(y, idx) + " " + y : per === "month" ? E.MONTHS[idx][0].toUpperCase() + E.MONTHS[idx].slice(1) + " " + y : "Весь " + y;
+  var seg = tpl("<div class='seg an-seg' role='tablist' aria-label='Период'>{!b}</div>", { b: pers.map(function (x) {
+    return tpl("<button type='button' role='tab' data-pkey='{k}' data-pper='{p}' class='{c}' aria-selected='{sel}'>{n}</button>", { k: key, p: x, c: x === per ? "on" : "", sel: x === per, n: PER_NAMES[x] });
+  }).join("") });
+  function nav(subHtml, title) {
+    var step = function (d, t, dis) { return tpl("<button type='button' class='round-btn' data-pkey='{k}' data-pcur='{pc}' data-pstep='{d}' aria-label='{t}'{!dis}>{a}</button>", { k: key, pc: per, d: d, t: t, a: d < 0 ? "‹" : "›", dis: dis ? " disabled" : "" }); };
+    // subHtml — HTML из своего кода (суммы уже через tpl)
+    return tpl("<div class='an-nav'>{!prev}<div><b>{label}</b><span class='small muted'>{!sub}</span></div>{!next}</div>", {
+      prev: per === "year" ? "" : step(-1, "Назад", idx <= 0), next: per === "year" ? "" : step(1, "Вперёд", idx >= max), label: title || label, sub: subHtml || "" });
+  }
+  return { key: key, per: per, idx: idx, y: y, from: from, to: to, pFrom: pFrom, pTo: pTo, prevY: py, open: open, weeks: weeks, label: label, seg: seg, nav: nav,
+    has: function (d) { return d >= from && d <= to; }, hadPrev: function (d) { return d >= pFrom && d <= pTo; } };
+}
+function bindPeriods(root) {
+  root.querySelectorAll("[data-pper]").forEach(function (b) {
+    b.onclick = function () { ui.per[b.dataset.pkey] = { per: b.dataset.pper }; ui.perFocus = b.dataset.pkey; render(); };
+  });
+  root.querySelectorAll("[data-pstep]").forEach(function (b) {
+    b.onclick = function () {
+      var k = b.dataset.pkey, card = b.closest(".card"), y = card && card.dataset.py, p = periodPick(k, y || "", [b.dataset.pcur]);
+      ui.per[k] = { per: p.per, idx: p.idx + Number(b.dataset.pstep), for: p.y + p.per }; ui.perFocus = k; render();
+    };
+  });
+  // после перерисовки карточка остаётся на месте экрана
+  if (ui.perFocus) { var c = root.querySelector(".card[data-pcard='" + ui.perFocus + "']"); if (c) c.scrollIntoView({ block: "nearest" }); ui.perFocus = null; }
+}
 
 // Внести трату в любую дату: прошлую или будущую
 function defaultCat() {
@@ -871,7 +946,7 @@ function spendModal(o) {
     function ok() {
       var t = target(); if (t.err) { toast(t.err); return; }
       if (!f.v.value.trim()) { f.v.focus(); return; }
-      try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
+      try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value, { src: "form", date: f.d.value }); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
       state.settings.lastCat = f.cat.value;
       state.settings.recentCats = [f.cat.value].concat((state.settings.recentCats || []).filter(function (x) { return x !== f.cat.value; })).slice(0, 6);
       closeModal(); if (o.after) o.after(t);

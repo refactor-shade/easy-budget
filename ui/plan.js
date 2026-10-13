@@ -629,7 +629,7 @@
           if (!cat) { toast("Нет категории для доходов — добавь её в «Настройках»"); return; }
           var note = ph.words.filter(function (x, i) { return !ci || i !== ci.used; }).join(" ");
           var dd = ph.date && E.weekOfDate(ph.date) && E.weekOfDate(ph.date).idx === w ? ph.date : wk.from, wk2 = E.weekOfDate(dd);
-          addToCell(String(wk2.year), cat, wk2.idx, String(ph.cents / 100), note);
+          addToCell(String(wk2.year), cat, wk2.idx, String(ph.cents / 100), note, { src: "recon", date: dd });
           toast((inc ? "+" : "") + E.fmt(ph.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(String(wk2.year), wk2.idx)); changed();
         };
       });
@@ -715,6 +715,40 @@
     return d(f) === d(t, true) ? "только " + E.MONTHS[Number(f.slice(5, 7)) - 1] : d(f) + "–" + d(t, true);
   }
   function ruleWeeksText(ws) { ws = String(ws || ""); return ws === "все" ? "каждую неделю" : ws.split(",").map(function (x) { return x.trim() + "-я"; }).join(", ") + (ws.indexOf(",") > 0 ? " недели" : " неделя"); }
+
+  // «История записей»: свои траты и доходы из «+», «Заполнить по полям» и фразы в сверке — с датой, можно убрать (запись снимается и из Плана)
+  routes.log = function () {
+    var ro = RO(), all = [];
+    years().forEach(function (yy) { ((state.years[yy] || {}).log || []).forEach(function (e) { all.push({ y: yy, e: e }); }); });
+    all.sort(function (a, b) { return a.e.date < b.e.date ? 1 : a.e.date > b.e.date ? -1 : (b.e.ts || 0) - (a.e.ts || 0); });
+    var html = "<div class='page-head'><div><h1>История записей</h1><div class='sub'>Траты и доходы, внесённые через «+», «Внести» и в сверке. Правки прямо в таблице сюда не попадают. Общие — в «Мы», наличка — в «Наличке».</div></div></div>";
+    if (!all.length) {
+      $main.innerHTML = html + "<div class='card'><p class='empty flush'>Пока пусто. Здесь появится всё, что ты вносишь через «+» и «Внести», — с датой, и любую запись можно будет убрать. История записей раньше уже в суммах Плана: поправить его можно в таблице.</p></div>";
+      return;
+    }
+    var today = E.todayISO(), lastD = null;
+    var dayT = function (d) { return d === today ? "Сегодня" : d === E.addDays(today, -1) ? "Вчера" : new Date(d + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }); };
+    html += "<ul class='card lg-log'>" + all.slice(0, ui.logLimit || 100).map(function (x) {
+      var e = x.e, head = e.date !== lastD ? tpl("<li class='ch-day'>{d}</li>", { d: dayT(e.date) }) : ""; lastD = e.date;
+      var what = e.note ? e.note.charAt(0).toUpperCase() + e.note.slice(1) : catName(e.cat);
+      var sub = (e.note ? catName(e.cat) + " · " : "") + shortWeek(x.y, e.w) + (e.rule ? " · " + (e.rep === "week" ? "каждую неделю" : "каждый месяц") : "") + (e.src === "recon" ? " · из сверки" : "");
+      return head + tpl("<li class='ll-row'><span class='ll-tx'><b>{w}</b><small>{sub}</small></span><span class='ll-v {c}'>{v}</span>{!del}</li>", {
+        w: what, sub: sub, c: e.cents > 0 ? "pos" : "", v: E.fmt(e.cents, { cur: "€", plus: e.cents > 0 }),
+        del: ro ? "" : tpl("<button type='button' class='ch-del' data-ldel='{y}:{id}' aria-label='Убрать «{w}»'>✕</button>", { y: x.y, id: e.id, w: what }) });
+    }).join("") + "</ul>" + (all.length > (ui.logLimit || 100) ? "<button class='btn ghost sm' id='logMore'>Показать ещё</button>" : "");
+    $main.innerHTML = html;
+    var lm = $main.querySelector("#logMore"); if (lm) lm.onclick = function () { ui.logLimit = (ui.logLimit || 100) + 200; render(); };
+    $main.querySelectorAll("[data-ldel]").forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.ldel.split(":"), yy = k[0], e = (state.years[yy].log || []).find(function (z) { return z.id === k[1]; }); if (!e) return;
+        var what = e.note || catName(e.cat), amt = E.fmt(Math.abs(e.cents), { cur: "€" });
+        askConfirm(e.rule ? "Убрать регулярную «" + what + "»? Сумма " + amt + " уйдёт из всех недель, где она стояла." :
+          "Убрать «" + what + "» " + amt + "? В Плане «" + catName(e.cat) + "», " + shortWeek(yy, e.w) + " станет на " + amt + (e.cents < 0 ? " меньше трат." : " меньше дохода."), "Убрать", function () {
+          if (removeLogged(yy, e.id)) { changed(false, "Запись убрана"); toast("Убрано из Плана"); }
+        });
+      };
+    });
+  };
 
   routes.recurring = function () {
     var y = ui.recYear && state.years[ui.recYear] && !state.years[ui.recYear].archived ? ui.recYear : ui.year, yr = state.years[y];

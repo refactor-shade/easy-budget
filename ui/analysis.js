@@ -177,11 +177,7 @@
 
   // «На что уходят деньги» — личные траты по категориям за неделю, месяц или год; ↑↓ — к тому же периоду прошлого года
   function spendCatsCard(y) {
-    var per = ui.anPer || "month", nowWk = E.weekOfDate(E.todayISO()), cur = nowWk && String(nowWk.year) === y;
-    var max = per === "week" ? 59 : per === "month" ? 11 : 0;
-    var idx = ui.anIdx !== undefined && ui.anIdxFor === y + per ? ui.anIdx : per === "week" ? (cur ? nowWk.idx : 59) : per === "month" ? (cur ? Math.floor(nowWk.idx / 5) : 11) : 0;
-    idx = Math.max(0, Math.min(max, idx));
-    var weeks = per === "week" ? [idx] : per === "month" ? [idx * 5, idx * 5 + 1, idx * 5 + 2, idx * 5 + 3, idx * 5 + 4] : Array.apply(null, Array(60)).map(function (_, i) { return i; });
+    var pp = periodPick("an", y), weeks = pp.weeks;
     var rate = state.settings.rate || 1, prevY = String(Number(y) - 1);
     function sums(yy) {
       if (!state.years[yy]) return null;
@@ -196,14 +192,9 @@
     }
     var a = sums(y), b = sums(prevY), ids = Object.keys(a).sort(function (p, q) { return a[q] - a[p]; });
     var tot = ids.reduce(function (s2, k) { return s2 + a[k]; }, 0), mx = a[ids[0]] || 1, all = !!ui.anAll, shown = all ? ids : ids.slice(0, 8);
-    var label = per === "week" ? shortWeek(y, idx) + " " + y : per === "month" ? E.MONTHS[idx][0].toUpperCase() + E.MONTHS[idx].slice(1) + " " + y : "Весь " + y;
     var cname = function (id) { var c = state.categories.find(function (x) { return x.id === id; }); return c ? c.name : id; };
-    var html = tpl("<div class='card section an-cats'><div class='an-head'><h2>На что уходят деньги</h2><div class='seg an-seg' role='tablist'>{!seg}</div></div>" +
-      "<div class='an-nav'>{!prev}<div><b>{label}</b><span class='small muted'>всего {tot} · по плану и внесённым тратам</span></div>{!next}</div>", {
-        seg: [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"]].map(function (x) { return tpl("<button type='button' role='tab' data-anper='{0}' class='{c}' aria-selected='{sel}'>{1}</button>", { 0: x[0], 1: x[1], c: x[0] === per ? "on" : "", sel: x[0] === per }); }).join(""),
-        prev: per === "year" ? "" : tpl("<button type='button' class='round-btn' data-anstep='-1' aria-label='Назад'{!dis}>‹</button>", { dis: idx <= 0 ? " disabled" : "" }),
-        next: per === "year" ? "" : tpl("<button type='button' class='round-btn' data-anstep='1' aria-label='Вперёд'{!dis}>›</button>", { dis: idx >= max ? " disabled" : "" }),
-        label: label, tot: eur(rnd(tot), { dec: 0 }) });
+    var html = tpl("<div class='card section an-cats' data-pcard='an' data-py='{y}'><div class='an-head'><h2>На что уходят деньги</h2>{!seg}</div>{!nav}", {
+      y: y, seg: pp.seg, nav: pp.nav(tpl("всего {tot} · по плану и внесённым тратам", { tot: eur(rnd(tot), { dec: 0 }) })) });
     html += ids.length ? "<div class='ut-cats'>" + shown.map(function (id) {
       var v = a[id], pv = b && b[id], tr = pv ? (v > pv * 1.15 ? "↑" : v < pv * 0.85 ? "↓" : "") : "";
       return tpl("<div class='uc-row'><span class='uc-n'>{!ic}<span>{name}</span></span><span class='uc-v'>{v}</span><span class='uc-tr {c}'{!title}>{tr}<span class='vh'>{srt}</span></span>" +
@@ -211,23 +202,13 @@
           ic: Us.catIcon(cname(id)), name: cname(id), v: eur(rnd(v), { dec: 0 }), c: tr === "↑" ? "up" : tr ? "down" : "", tr: tr, srt: tr ? (tr === "↑" ? " больше, чем в " : " меньше, чем в ") + prevY : "", w: Math.max(3, Math.round(v / mx * 100)),
           title: tr ? tpl(" title='{t}, чем в {y}'", { t: tr === "↑" ? "больше" : "меньше", y: prevY }) : "" });
     }).join("") + "</div>" + (ids.length > 8 ? tpl("<button type='button' class='btn ghost sm more' id='anAll'>{t}</button>", { t: all ? "Свернуть" : "Все категории · ещё " + (ids.length - 8) }) : "")
-      : "<p class='muted' style='margin:8px 0 0'>За этот период трат нет.</p>";
+      : "<p class='muted per-empty'>За этот период трат нет.</p>";
     html += tpl("<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li>Расходы из плана за период: то, что запланировано, и то, что уже внесено фактом. Доходы и накопления не входят.</li>" +
       "<li>Рубли — по курсу {rate} ₽/€.</li><li>↑ / ↓ — больше или меньше, чем за тот же период {y}, если разница больше 15%.</li></ul></details></div>", { rate: String(rate).replace(".", ","), y: prevY });
     return html;
   }
   function bindSpendCats() {
-    var y = ui.anYear || ui.year;
-    $main.querySelectorAll("[data-anper]").forEach(function (b) { b.onclick = function () { ui.anPer = b.dataset.anper; ui.anIdx = undefined; ui.anAll = false; render(); }; });
-    $main.querySelectorAll("[data-anstep]").forEach(function (b) {
-      b.onclick = function () {
-        var per = ui.anPer || "month", cur = $main.querySelector(".an-cats");
-        var nowWk = E.weekOfDate(E.todayISO()), isCur = nowWk && String(nowWk.year) === y;
-        var base = ui.anIdx !== undefined && ui.anIdxFor === y + per ? ui.anIdx : per === "week" ? (isCur ? nowWk.idx : 59) : (isCur ? Math.floor(nowWk.idx / 5) : 11);
-        ui.anIdx = base + Number(b.dataset.anstep); ui.anIdxFor = y + per; render();
-        var c2 = $main.querySelector(".an-cats"); if (cur && c2) c2.scrollIntoView({ block: "nearest" });
-      };
-    });
+    bindPeriods($main);
     var al = $main.querySelector("#anAll"); if (al) al.onclick = function () { ui.anAll = !ui.anAll; render(); };
   }
 })();

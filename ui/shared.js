@@ -399,46 +399,52 @@
         a: pMe, b: 100 - pMe, me: meName, cm: eur(rnd(capMe || 0), { dec: 0 }), p: pName, cp: eur(rnd(capThem || 0), { dec: 0 }) }) : "" });
     // 2. сколько тратим вдвоём — прозрачно: общие целиком + личное каждой сверх своей доли в общих
     // Период один на весь блок: полные месяцы года (как в «Кто платил»); за прошлые годы — весь год.
-    var ex = sh ? sh.expenses.filter(function (e) { return (e.kind === "expense" || e.kind === "batch") && e.date.slice(0, 4) === y; }) : [];
-    var prevEx = sh ? sh.expenses.filter(function (e) { return (e.kind === "expense" || e.kind === "batch") && e.date.slice(0, 4) === String(Number(y) - 1); }) : [];
+    var spendEx = sh ? sh.expenses.filter(function (e) { return e.kind === "expense" || e.kind === "batch"; }) : [];
     var toE = function (e) { return S.toEur(e.cost, e.currency, e.date, state.settings); };
     var fullM = String(new Date().getFullYear()) === y ? Math.max(1, new Date().getMonth()) : 12;
-    var pay = window.BudgetInsights.payers(sh ? sh.expenses : [], y, fullM, toE), period = pay.label;
+    var pay = window.BudgetInsights.payers(sh ? sh.expenses : [], y, fullM, toE);
     var catKey = function (e) { return e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, sh.learned); };
-    var byCat = {}, prevCat = {}, sharedTot = 0, shareMe = 0;
-    ex.forEach(function (e) {
-      if (Number(e.date.slice(5, 7)) > fullM) return;
-      var v = toE(e), c = catKey(e); byCat[c] = (byCat[c] || 0) + v; sharedTot += v;
-      shareMe += S.toEur(e.share, e.currency, e.date, state.settings);
-    });
-    prevEx.forEach(function (e) { if (Number(e.date.slice(5, 7)) > fullM) return; var c = catKey(e); prevCat[c] = (prevCat[c] || 0) + toE(e); });
-    var shareThem = sharedTot - shareMe, livSum = function (src) { var t = 0; for (var mi = 0; mi < fullM; mi++) t += src.months[mi].living || 0; return t / fullM; };
+    var hasY = spendEx.some(function (e) { return e.date.slice(0, 4) === y; });
+    // Месяц — этот месяц; год — полные месяцы года (за прошлые годы — весь год), в среднем за месяц
+    var ps = periodPick("usSpend", y, ["month", "year"], "year");
+    var mlist = ps.per === "month" ? [ps.idx] : Array.apply(null, Array(fullM)).map(function (_, i) { return i; }), nM = mlist.length;
+    var inM = function (e) { return e.date.slice(0, 4) === y && mlist.indexOf(Number(e.date.slice(5, 7)) - 1) >= 0; };
+    var sharedTot = 0, shareMe = 0;
+    spendEx.forEach(function (e) { if (!inM(e)) return; sharedTot += toE(e); shareMe += S.toEur(e.share, e.currency, e.date, state.settings); });
+    var shareThem = sharedTot - shareMe, livSum = function (src) { var t = 0; mlist.forEach(function (mi) { t += src.months[mi].living || 0; }); return t / nM; };
     var livMe = livSum(mine), livThem = both ? livSum(theirs) : null;
-    var sharedM = sharedTot / fullM, overMe = livMe - shareMe / fullM, overThem = both ? livThem - shareThem / fullM : null;
+    var sharedM = sharedTot / nM, overMe = livMe - shareMe / nM, overThem = both ? livThem - shareThem / nM : null;
     var family = both ? sharedM + overMe + overThem : null;
     var low = function (over, liv) { return over !== null && over < Math.max(10000, (liv || 0) * 0.15); };
     var row = function (label, sub, v, cls) { return tpl("<div class='kv{c}'><span>{l}{!sub}</span><b>{v}</b></div>", { c: cls ? " " + cls : "", l: label, sub: sub ? tpl(" <small>{s}</small>", { s: sub }) : "", v: v === null ? "—" : eur(rnd(v), { dec: 0 }) }); };
-    html += tpl("<div class='card ut-spend'><h2>Сколько тратим вдвоём · в месяц</h2><p class='small muted' style='margin:-6px 0 8px'>{per}, в среднем за месяц</p>{!rows}<div class='kv ut-mute'><span>Переводы между вами</span><span>не считаются</span></div>{!total}{!warn}" +
+    var period = ps.per === "year" ? pay.label : ps.label.toLowerCase();
+    html += tpl("<div class='card ut-spend' data-pcard='usSpend' data-py='{y}'><div class='an-head'><h2>Сколько тратим вдвоём</h2>{!seg}</div>{!nav}{!rows}<div class='kv ut-mute'><span>Переводы между вами</span><span>не считаются</span></div>{!total}{!warn}" +
       "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li><b>Общие траты</b> — все траты и сводные суммы из общей ленты за {per}, целиком, в евро. Переводы между вами не считаются.</li>" +
       "<li><b>Сверх общих</b> — личный план «на жизнь» (без налогов и накоплений) минус своя доля в общих: каждая вносит долю общих в личный план, поэтому её вычитаем, чтобы не посчитать дважды.</li>" +
-      "<li>Доли: {me} {shMe}, {p} {shP} в месяц. Личное на жизнь: {me} {livMe}{livP}.</li><li><b>Итого как семья</b> = общие + сверх общих у каждой.</li></ul></details></div>", {
-        per: period, me: meName, p: pName, shMe: eur(rnd(shareMe / fullM), { dec: 0 }), shP: eur(rnd(shareThem / fullM), { dec: 0 }), livMe: eur(rnd(livMe), { dec: 0 }), livP: both ? ", " + pName + " " + eur(rnd(livThem), { dec: 0 }) : "",
+      "<li>Доли: {me} {shMe}, {p} {shP}{inM}. Личное на жизнь: {me} {livMe}{livP}.</li><li><b>Итого как семья</b> = общие + сверх общих у каждой.</li>{!yearNote}</ul></details></div>", {
+        y: y, seg: ps.seg, nav: ps.nav(ps.per === "year" ? "в среднем за месяц" : ps.open ? "месяц ещё идёт — общие траты пока не все" : "за месяц", ps.per === "year" ? pay.label[0].toUpperCase() + pay.label.slice(1) : ""),
+        per: period, me: meName, p: pName, shMe: eur(rnd(shareMe / nM), { dec: 0 }), shP: eur(rnd(shareThem / nM), { dec: 0 }), inM: ps.per === "year" ? " в месяц" : "", livMe: eur(rnd(livMe), { dec: 0 }), livP: both ? ", " + pName + " " + eur(rnd(livThem), { dec: 0 }) : "",
+        yearNote: ps.per === "year" ? "<li>Год — полные месяцы (текущий ещё не закончился), в среднем за месяц. Недели нет: у партнёра видны только итоги по месяцам.</li>" : "<li>Недели нет: у партнёра видны только итоги по месяцам.</li>",
         rows: row("Общие траты", "целиком", sharedM) + row(meName + " сверх общих", "личное на жизнь − своя доля в общих", overMe) + row(pName + " сверх общих", "личное на жизнь − своя доля в общих", overThem),
         total: row("Итого как семья", "", family, "ut-total"),
-        warn: [[meName, overMe, livMe], [pName, overThem, livThem]].filter(function (x) { return low(x[1], x[2]); }).map(function (x) {
+        warn: [[meName, overMe, livMe], [pName, overThem, livThem]].filter(function (x) { return !(ps.per === "month" && ps.open) && low(x[1], x[2]); }).map(function (x) {
           return tpl("<p class='hint small ut-warn'>Похоже, в плане {n} учтены не все общие траты: личное на жизнь {how} доле в общих.</p>", { n: nameGen(x[0]), how: x[1] < 0 ? "меньше" : "почти равно" });
         }).join("") });
-    // 3. кто платил — та же формула, что «Кто платил» в «Для справки»
-    if (pay.all > 0) {
-      var shMe = pay.me / pay.all, pm = Math.round(shMe * 100);
-      html += tpl("<div class='card'><div class='small muted'>Кто платил за общее · {per}</div><div class='ut-bar' style='margin-top:8px'><i style='width:{a}%'></i><i style='width:{b}%'></i></div>" +
-        "<div class='ut-leg'><span>{me} {a}% · {vm}</span><span>{p} {b}% · {vp}</span></div><p class='small muted' style='margin:6px 0 0'>Траты и сводные суммы, в евро. Это кто оплачивал, а не чья доля больше — разницу закрывает «Рассчитаться».</p></div>", {
-          per: period, a: pm, b: 100 - pm, me: meName, p: pName, vm: eur(rnd(pay.me), { dec: 0 }), vp: eur(rnd(pay.them), { dec: 0 }) });
+    // 3. кто платил — та же формула, что «Кто платил» в «Для справки», за выбранный период
+    var pw = periodPick("usPay", y), pMe = 0, pAll = 0;
+    spendEx.forEach(function (e) { if (!pw.has(e.date)) return; var v = toE(e); pAll += v; if (e.paidByMe) pMe += v; });
+    if (hasY) {
+      var pm = pAll > 0 ? Math.round(pMe / pAll * 100) : 0;
+      html += tpl("<div class='card' data-pcard='usPay' data-py='{y}'><div class='an-head'><h2>Кто платил за общее</h2>{!seg}</div>{!nav}{!body}" +
+        "<p class='small muted ut-note'>Траты и сводные суммы, в евро. Это кто оплачивал, а не чья доля больше — разницу закрывает «Рассчитаться».</p></div>", {
+          y: y, seg: pw.seg, nav: pw.nav(tpl("всего {v}", { v: eur(rnd(pAll), { dec: 0 }) })),
+          body: pAll > 0 ? tpl("<div class='ut-bar'><i style='width:{a}%'></i><i style='width:{b}%'></i></div><div class='ut-leg'><span>{me} {a}% · {vm}</span><span>{p} {b}% · {vp}</span></div>", {
+            a: pm, b: 100 - pm, me: meName, p: pName, vm: eur(rnd(pMe), { dec: 0 }), vp: eur(rnd(pAll - pMe), { dec: 0 }) }) : "<p class='muted per-empty'>За этот период общих трат нет.</p>" });
     }
     // 4. выводы про нас
     if (sh) {
       var tres = window.BudgetInsights.together(sh.expenses, { today: E.todayISO(), learned: sh.learned, partnerName: pName, toLog: toLogCount(), toEur: toE });
-      if (pay.all > 0) tres.info = tres.info.filter(function (c) { return c.id !== "payer"; }); // уже есть карточкой выше
+      if (hasY) tres.info = tres.info.filter(function (c) { return c.id !== "payer"; }); // уже есть карточкой выше
       if (both) {
         var dcap = (mine.total.dcap || 0) + (theirs.total.dcap || 0);
         var cc = { id: "capboth", ic: "◆", rank: 0, h: "Капитал вместе за " + y + ": " + eur(rnd(dcap), { dec: 0, plus: true }), p: meName + " " + eur(rnd(mine.total.dcap || 0), { dec: 0, plus: true }) + ", " + pName + " " + eur(rnd(theirs.total.dcap || 0), { dec: 0, plus: true }) + "." };
@@ -446,28 +452,42 @@
       }
       html += "<div class='section'><h2 style='margin-bottom:0'>Выводы про нас</h2></div>" + sandwichHtml(tres);
     }
-    // 5. на что уходят общие деньги: названия целиком, суммы ровной колонкой, стрелки отдельно
+    // 5. на что уходят общие деньги: названия целиком, суммы ровной колонкой, стрелки отдельно; ↑↓ — к тому же периоду прошлого года
+    var pc = periodPick("usCats", y), byCat = {}, prevCat = {}, catTot = 0;
+    spendEx.forEach(function (e) {
+      if (pc.has(e.date)) { var v = toE(e), c = catKey(e); byCat[c] = (byCat[c] || 0) + v; catTot += v; }
+      else if (pc.hadPrev(e.date)) { var c2 = catKey(e); prevCat[c2] = (prevCat[c2] || 0) + toE(e); }
+    });
     var cats2 = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
-    if (sharedTot > 0) {
+    if (hasY) {
       var mx = byCat[cats2[0]] || 1;
-      html += tpl("<div class='card section'><h2>На что уходят общие деньги</h2><p class='small muted' style='margin-top:-6px'>{per} · целиком · в среднем {avg} в месяц</p><div class='ut-cats'>{!rows}</div>" +
-        "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li>Суммы — общие траты целиком (обе доли), в евро, за {per}.</li>" +
-        "<li>↑ / ↓ — больше или меньше, чем за те же месяцы {py}, если разница больше 15%.</li><li>Показаны 8 самых крупных категорий.</li></ul></details></div>", {
-          per: period, avg: eur(rnd(sharedTot / fullM), { dec: 0 }), py: Number(y) - 1,
-          rows: cats2.slice(0, 8).map(function (c) {
+      html += tpl("<div class='card section' data-pcard='usCats' data-py='{y}'><div class='an-head'><h2>На что уходят общие деньги</h2>{!seg}</div>{!nav}{!rows}" +
+        "<details class='ut-how'><summary>Как считается</summary><ul class='small muted'><li>Суммы — общие траты целиком (обе доли), в евро, за период.</li>" +
+        "<li>↑ / ↓ — больше или меньше, чем за тот же период {py}{same}, если разница больше 15%.</li><li>Показаны 8 самых крупных категорий.</li></ul></details></div>", {
+          y: y, seg: pc.seg, nav: pc.nav(tpl("всего {v} · целиком", { v: eur(rnd(catTot), { dec: 0 }) })), py: pc.prevY, same: pc.per !== "week" ? " (если период ещё идёт — по тот же день)" : "",
+          rows: cats2.length ? "<div class='ut-cats'>" + cats2.slice(0, 8).map(function (c) {
             var v = byCat[c], pv = prevCat[c], tr = pv ? (v > pv * 1.15 ? "↑" : v < pv * 0.85 ? "↓" : "") : "";
-            return tpl("<div class='uc-row'><span class='uc-n'>{!ic}<span>{n}</span></span><span class='uc-v'>{v}</span><span class='uc-tr {c}'{!title}>{tr}</span><span class='uc-track'><i style='width:{w}%'></i></span></div>", {
+            return tpl("<div class='uc-row'><span class='uc-n'>{!ic}<span>{n}</span></span><span class='uc-v'>{v}</span><span class='uc-tr {c}'{!title}>{tr}<span class='vh'>{srt}</span></span><span class='uc-track'><i style='width:{w}%'></i></span></div>", {
               ic: catIcon(c), n: catLabel(c), v: eur(rnd(v), { dec: 0 }), c: tr === "↑" ? "up" : tr ? "down" : "", tr: tr, w: Math.max(3, Math.round(v / mx * 100)),
-              title: tr ? tpl(" title='{t}, чем {p}'", { t: tr === "↑" ? "больше" : "меньше", p: period.replace(y, String(Number(y) - 1)) }) : "" });
-          }).join("") });
+              srt: tr ? (tr === "↑" ? " больше, чем в " : " меньше, чем в ") + pc.prevY : "",
+              title: tr ? tpl(" title='{t}, чем в {p}'", { t: tr === "↑" ? "больше" : "меньше", p: pc.prevY }) : "" });
+          }).join("") + "</div>" : "<p class='muted per-empty'>За этот период общих трат нет.</p>" });
     }
-    // 6. твоя доля по категориям
-    var msh = S.monthlyShares(sharedForCalc(), state.settings, y), shareRows = Object.keys(msh.byCat).map(function (c) { return { c: c, v: msh.byCat[c].reduce(function (a, b) { return a + b; }, 0) }; }).filter(function (x) { return Math.abs(x.v) >= 100; }).sort(function (a, b) { return b.v - a.v; });
-    if (shareRows.length) html += tpl("<div class='card section'><h2>Твоя доля по категориям</h2><p class='small muted' style='margin-top:-6px'>{y} · то, что приходится на тебя из общих трат</p>{!rows}</div>", { y: y,
-      rows: shareRows.slice(0, 8).map(function (x) {
+    // 6. твоя доля по категориям — за выбранный период
+    var pd2 = periodPick("usShare", y), shc = sharedForCalc(), byShare = {};
+    (shc.expenses || []).forEach(function (e) {
+      if (e.kind === "settlement" || e.kind === "refund" || !pd2.has(String(e.date))) return;
+      var c = e.kind === "batch" && !e.cat ? "Сводные суммы" : S.catOf(e, shc.learned);
+      byShare[c] = (byShare[c] || 0) + S.toEur(e.share, e.currency, e.date, state.settings);
+    });
+    var shareRows = Object.keys(byShare).map(function (c) { return { c: c, v: byShare[c] }; }).filter(function (x) { return Math.abs(x.v) >= 100; }).sort(function (a, b) { return b.v - a.v; });
+    var shareTot = shareRows.reduce(function (t, x) { return t + x.v; }, 0);
+    if (hasY) html += tpl("<div class='card section' data-pcard='usShare' data-py='{y}'><div class='an-head'><h2>Твоя доля по категориям</h2>{!seg}</div>{!nav}{!rows}</div>", {
+      y: y, seg: pd2.seg, nav: pd2.nav(tpl("всего {v} · то, что приходится на тебя из общих трат", { v: eur(rnd(shareTot), { dec: 0 }) })),
+      rows: shareRows.length ? shareRows.slice(0, 8).map(function (x) {
         var ds = sh ? catSplitOf(x.c) : "equal";
         return tpl("<div class='kv'><span>{n}{!who}</span><b>{v}</b></div>", { n: catLabel(x.c), v: eur(rnd(x.v), { dec: 0 }), who: ds === "theirs" || ds === "mine" ? tpl(" <small class='muted'>в основном {w}</small>", { w: ds === "theirs" ? pName : meName }) : "" });
-      }).join("") });
+      }).join("") : "<p class='muted per-empty'>За этот период твоей доли в общих тратах нет.</p>" });
     // 7. коммуналка
     var uc = { html: "", bind: function () {} }; // коммуналка — в «Общие и план»; крупные счета каждый ведёт по-своему
     // 8. графики
@@ -482,7 +502,7 @@
     $main.innerHTML = html;
     $main.querySelectorAll("[data-uy]").forEach(function (b) { b.onclick = function () { ui.usYear = b.dataset.uy; render(); }; });
     var op = $main.querySelector("#openPartner"); if (op) op.onclick = function () { switchTo(ui.us.id); location.hash = "#home"; };
-    bindInsights($main); uc.bind(); bindFxMissing();
+    bindInsights($main); uc.bind(); bindFxMissing(); bindPeriods($main);
     $main.querySelectorAll(".ut-cap [data-explain]").forEach(function (q) { q.onclick = function () { Help.explain(q.dataset.explain); }; });
   };
 

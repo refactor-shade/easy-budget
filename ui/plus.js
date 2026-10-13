@@ -169,7 +169,7 @@
     body.innerHTML = tpl("<label class='plus-lbl' for='plusQ'>Опиши в свободном формате</label><input id='plusQ' class='plus-q' autocomplete='off' placeholder='например: {ex}' value='{text}'>" +
       "<div class='plus-chips' id='plusChips'></div><div id='plusWhere'></div><button type='button' class='btn primary plus-go' id='plusGo'>Записать</button>{!foot}", {
         ex: ex, text: plusUi.text,
-        foot: tab !== "cash" ? "<button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button>" : "<a class='plus-more' href='#cash'>История и карманы ›</a>" });
+        foot: tab !== "cash" ? "<div class='plus-foot'><button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button>" + (tab === "shared" ? "<a class='plus-more' href='#shared'>Лента общих ›</a>" : "<a class='plus-more' href='#log'>История записей ›</a>") + "</div>" : "<a class='plus-more' href='#cash'>История и карманы ›</a>" });
     var q = body.querySelector("#plusQ"), tmr = null;
     q.oninput = function () { clearTimeout(tmr); tmr = setTimeout(function () { plusUi.text = q.value; plusUi.over = {}; drawParsed(m); }, 200); };
     q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); plusUi.text = q.value; drawParsed(m); plusSave(m); } };
@@ -356,8 +356,10 @@
       if (rep !== "no") {
         var yr = state.years[ys], v = md.tab === "income" ? md.cents : -md.cents;
         yr.recurring = yr.recurring || [];
-        yr.recurring.push({ id: E.uid("r"), catId: md.cat, expr: String(v / 100), cents: v, weeks: rep === "week" ? "все" : String(wk.wim), from: md.date, to: null });
-      } else addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note);
+        var rid = E.uid("r");
+        yr.recurring.push({ id: rid, catId: md.cat, expr: String(v / 100), cents: v, weeks: rep === "week" ? "все" : String(wk.wim), from: md.date, to: null });
+        yr.log = yr.log || []; yr.log.push({ id: E.uid("l"), ts: Date.now(), date: md.date, w: wk.idx, cat: md.cat, cents: v, rule: rid, rep: rep, note: md.note || "", src: "plus" });
+      } else addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note, { src: "plus", date: md.date });
       state.settings.lastCat = md.cat;
       state.settings.recentCats = [md.cat].concat((state.settings.recentCats || []).filter(function (x) { return x !== md.cat; })).slice(0, 6);
       if (md.word && plusUi.over.cat) { state.settings.phraseCats = state.settings.phraseCats || {}; state.settings.phraseCats[phStem(md.word)] = md.cat; }
