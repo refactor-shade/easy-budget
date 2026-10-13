@@ -3,6 +3,8 @@
    Карточка: { id, ic, h, p, rank, act?, actLabel?, next? } — rank: меньше = важнее. */
 (function (root) {
   "use strict";
+  // «ты должна Саше»: дательный падеж имени (как nameDative в ui/core.js — модуль чистый, без доступа к ядру)
+  function dative(n) { n = String(n || ""); if (/ия$/i.test(n)) return n.slice(0, -1) + "и"; if (/[ая]$/i.test(n)) return n.slice(0, -1) + "е"; return n; }
   var E = root.BudgetEngine;
 
   // ---------- форматирование ----------
@@ -289,7 +291,7 @@
     var bal = S.balance(ex).EUR || 0, abs = Math.abs(bal);
     var lastSet = ex.filter(function (e) { return e.kind === "settlement" || e.kind === "refund"; }).map(function (e) { return e.date; }).sort().pop() || null;
     var days = lastSet ? Math.round((Date.parse(today) - Date.parse(lastSet)) / 864e5) : null;
-    var who = bal > 0 ? partner + " должна тебе " + E.eur(abs) : "ты должна " + partner + " " + E.eur(abs);
+    var who = bal > 0 ? partner + " должна тебе " + E.eur(abs) : "ты должна " + dative(partner) + " " + E.eur(abs);
     if (abs < 10000 || (days !== null && days <= 31 && abs < 50000)) good.push({ id: "bal", ic: "€", rank: 3, h: abs < 10000 ? "Вы почти в расчёте" : "Последний перевод — " + ago(days), p: abs < 10000 ? "Баланс " + eur(abs) + " — меньше 100 €." : "Сейчас " + who + "." });
     else if (abs > 50000 || (days !== null && days > 30)) improve.push({ id: "bal", ic: "€", rank: 1, h: cap1(who), p: (days !== null ? "Последний перевод между вами — " + ago(days) + ". " : "") + "Можно рассчитаться сейчас и дальше раз в месяц — так баланс не копится.", act: "settle", actLabel: "Рассчитаться", next: "Рассчитайтесь и договоритесь делать это раз в месяц — баланс перестанет копиться." });
     // общие траты в месяц: этот год против прошлого
