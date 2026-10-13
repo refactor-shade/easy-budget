@@ -721,9 +721,9 @@
     var ro = RO(), all = [];
     years().forEach(function (yy) { ((state.years[yy] || {}).log || []).forEach(function (e) { all.push({ y: yy, e: e }); }); });
     all.sort(function (a, b) { return a.e.date < b.e.date ? 1 : a.e.date > b.e.date ? -1 : (b.e.ts || 0) - (a.e.ts || 0); });
-    var html = "<div class='page-head'><div><h1>История записей</h1><div class='sub'>Траты и доходы, внесённые через «+», «Внести» и в сверке. Правки прямо в таблице сюда не попадают. Общие — в «Мы», наличка — в «Наличке».</div></div></div>";
+    var html = "<div class='page-head'><div><h1>История записей</h1><div class='sub'>Траты и доходы, внесённые через «+», «Внести» и в сверке. Правки прямо в таблице План сюда не попадают. История общих трат — в «Мы», история трат в наличке — в «Наличке».</div></div></div>";
     if (!all.length) {
-      $main.innerHTML = html + "<div class='card'><p class='empty flush'>Пока пусто. Здесь появится всё, что ты вносишь через «+» и «Внести», — с датой, и любую запись можно будет убрать. История записей раньше уже в суммах Плана: поправить его можно в таблице.</p></div>";
+      $main.innerHTML = html + "<div class='card'><p class='empty flush'>Пока пусто. Здесь появится всё, что ты вносишь через «+» и «Внести», — с датой, и любую запись можно будет изменить или убрать. Предыдущие записи отражены в суммах Плана: поправить их можно в таблице.</p></div>";
       return;
     }
     var today = E.todayISO(), lastD = null;
@@ -732,12 +732,21 @@
       var e = x.e, head = e.date !== lastD ? tpl("<li class='ch-day'>{d}</li>", { d: dayT(e.date) }) : ""; lastD = e.date;
       var what = e.note ? e.note.charAt(0).toUpperCase() + e.note.slice(1) : catName(e.cat);
       var sub = (e.note ? catName(e.cat) + " · " : "") + shortWeek(x.y, e.w) + (e.rule ? " · " + (e.rep === "week" ? "каждую неделю" : "каждый месяц") : "") + (e.src === "recon" ? " · из сверки" : "");
-      return head + tpl("<li class='ll-row'><span class='ll-tx'><b>{w}</b><small>{sub}</small></span><span class='ll-v {c}'>{v}</span>{!del}</li>", {
-        w: what, sub: sub, c: e.cents > 0 ? "pos" : "", v: E.fmt(e.cents, { cur: "€", plus: e.cents > 0 }),
+      // нажатие на строку — изменить (регулярную — в «Регулярных»)
+      return head + tpl("<li class='ll-row'><button type='button' class='ll-edit' data-ledit='{y}:{id}'{!dis} aria-label='Изменить «{w}»'><span class='ll-tx'><b>{w}</b><small>{sub}</small></span><span class='ll-v {c}'>{v}</span></button>{!del}</li>", {
+        y: x.y, id: e.id, dis: ro ? " disabled" : "", w: what, sub: sub, c: e.cents > 0 ? "pos" : "", v: E.fmt(e.cents, { cur: "€", plus: e.cents > 0 }),
         del: ro ? "" : tpl("<button type='button' class='ch-del' data-ldel='{y}:{id}' aria-label='Убрать «{w}»'>✕</button>", { y: x.y, id: e.id, w: what }) });
     }).join("") + "</ul>" + (all.length > (ui.logLimit || 100) ? "<button class='btn ghost sm' id='logMore'>Показать ещё</button>" : "");
     $main.innerHTML = html;
     var lm = $main.querySelector("#logMore"); if (lm) lm.onclick = function () { ui.logLimit = (ui.logLimit || 100) + 200; render(); };
+    $main.querySelectorAll("[data-ledit]").forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.ledit.split(":"), e = (state.years[k[0]].log || []).find(function (z) { return z.id === k[1]; }); if (!e) return;
+        if (e.rule) { toast("Регулярная — сумму и срок меняют в «Регулярных»"); location.hash = "#recurring"; return; }
+        var cat = state.categories.find(function (c) { return c.id === e.cat; }) || {};
+        spendModal({ edit: { year: k[0], id: e.id }, income: cat.block === "income", cat: e.cat, date: e.date, note: e.note, amount: String(Math.abs(e.cents) / 100).replace(".", ","), after: function () { render(); } });
+      };
+    });
     $main.querySelectorAll("[data-ldel]").forEach(function (b) {
       b.onclick = function () {
         var k = b.dataset.ldel.split(":"), yy = k[0], e = (state.years[yy].log || []).find(function (z) { return z.id === k[1]; }); if (!e) return;

@@ -373,11 +373,20 @@
   }
   routes.us = function () {
     if (RO()) { switchTo("me"); return; }
-    if (!ui.usLoaded) {
+    // Данные партнёра грузятся один раз; дальше экран рисуется сразу, а свежие данные подтягиваются в фоне
+    // (раньше каждая перерисовка — например, смена периода — снова показывала «Собираю…», и страница прыгала)
+    if (!ui.usTried) {
       $main.innerHTML = "<p class='loading'>Собираю общий бюджет…</p>";
-      ui.usLoaded = true;
-      loadPartnerData(true).then(function () { if (location.hash === "#us") render(); ui.usLoaded = false; });
+      ui.usTried = true;
+      loadPartnerData(true).then(function () { if (location.hash === "#us") render(); });
       return;
+    }
+    if (ui.us && Date.now() - ui.us.at > 120000 && !ui.usBusy) {
+      var was = JSON.stringify(ui.us.data); ui.usBusy = true;
+      loadPartnerData(true).then(function (u) {
+        ui.usBusy = false;
+        if (location.hash === "#us" && JSON.stringify(u && u.data) !== was) { var sy = window.scrollY; render(); window.scrollTo(0, sy); }
+      });
     }
     var pd = ui.us && ui.us.data, pName = (ui.us && ui.us.name) || (sh && sh.partner ? sh.partner.name : "партнёр"), meName = myName() || "Я";
     var ys = activeYears(), y = ui.usYear && ys.indexOf(ui.usYear) >= 0 ? ui.usYear : (ys.indexOf(E.todayISO().slice(0, 4)) >= 0 ? E.todayISO().slice(0, 4) : ys[ys.length - 1]);

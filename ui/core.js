@@ -23,6 +23,7 @@ function refreshAll() {
     return Promise.all([Store.loadMyBudget(), loadShared().catch(function () {}), loadPeople()]).then(function (x) {
       var b = x[0];
       if (b && !pending && !saving) { myState = migrate(b.data); if (view.who === "me") state = myState; resetUndoBase(); }
+      ui.usTried = false; // «Мы» перезагрузит и данные партнёра
       render();
       ui.syncAt = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
       setSync("обновлено " + ui.syncAt + " ↻", "ok");
@@ -872,16 +873,27 @@ function periodPick(key, y, pers, def) {
 }
 function bindPeriods(root) {
   root.querySelectorAll("[data-pper]").forEach(function (b) {
-    b.onclick = function () { ui.per[b.dataset.pkey] = { per: b.dataset.pper }; ui.perFocus = b.dataset.pkey; render(); };
+    b.onclick = function () { ui.per[b.dataset.pkey] = { per: b.dataset.pper }; keepCard(b); render(); };
   });
   root.querySelectorAll("[data-pstep]").forEach(function (b) {
     b.onclick = function () {
       var k = b.dataset.pkey, card = b.closest(".card"), y = card && card.dataset.py, p = periodPick(k, y || "", [b.dataset.pcur]);
-      ui.per[k] = { per: p.per, idx: p.idx + Number(b.dataset.pstep), for: p.y + p.per }; ui.perFocus = k; render();
+      ui.per[k] = { per: p.per, idx: p.idx + Number(b.dataset.pstep), for: p.y + p.per }; keepCard(b); render();
     };
   });
-  // после перерисовки карточка остаётся на месте экрана
-  if (ui.perFocus) { var c = root.querySelector(".card[data-pcard='" + ui.perFocus + "']"); if (c) c.scrollIntoView({ block: "nearest" }); ui.perFocus = null; }
+  // после перерисовки карточка остаётся там же на экране, где была (страница не прыгает), и фокус — на той же кнопке
+  var a = ui.perAnchor; ui.perAnchor = null;
+  if (a) {
+    var c = root.querySelector(".card[data-pcard='" + a.key + "']");
+    if (c) {
+      window.scrollBy(0, c.getBoundingClientRect().top - a.top);
+      var btn = c.querySelector(a.sel) || c.querySelector("[data-pper].on"); if (btn && !btn.disabled) btn.focus({ preventScroll: true });
+    }
+  }
+}
+function keepCard(b) {
+  var card = b.closest(".card[data-pcard]");
+  ui.perAnchor = card ? { key: card.dataset.pcard, top: card.getBoundingClientRect().top, sel: b.dataset.pstep ? "[data-pstep='" + b.dataset.pstep + "']" : "[data-pper='" + b.dataset.pper + "']" } : null;
 }
 
 // Внести трату в любую дату: прошлую или будущую
@@ -908,14 +920,16 @@ function spendModal(o) {
   var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = o.cat || incCat || defaultCat();
   var chipCats = o.income ? cats().filter(function (c) { return c.block === "income" && !c.archived; }).slice(0, 6) : recentCats();
   var inChips = chipCats.some(function (c) { return c.id === dc; });
-  modal(tpl("<form class='m-body' id='spForm'><h2>{title}</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
+  modal(tpl("<form class='m-body' id='spForm'><h2>{title}</h2><p class='small muted sp-lead'>{lead}</p>" +
     "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' value='{amount}' required autofocus></label>" +
     "<label class='f'>Дата<input type='date' name='d' value='{date}' required></label><div class='chips sp-days' style='grid-column:1/-1'>{!days}</div>" +
     "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>{!chips}<label class='chip chip-sel{selOn}'><span class='cs-t'>{selT}</span><select name='cat' aria-label='Все категории'>{!opts}</select></label></div></div>" +
     "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='{note}' placeholder='{ph}'></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
-    "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", {
-      title: o.income ? "Внести доход" : "Внести трату", date: date, note: o.note || "", amount: o.amount || "", // сумма из «+» → «Заполнить по полям» ph: o.income ? "например, бонус за квартал" : "например, шопинг",
+    "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>{okT}</button></div>", {
+      okT: o.edit ? "Сохранить" : "Добавить",
+      lead: o.edit ? "Старая сумма уйдёт из Плана, новая встанет в неделю по дате." : "Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.",
+      title: o.edit ? "Изменить запись" : o.income ? "Внести доход" : "Внести трату", date: date, note: o.note || "", amount: o.amount || "", // сумма из «+» → «Заполнить по полям» ph: o.income ? "например, бонус за квартал" : "например, шопинг",
       days: [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return tpl("<button type='button' class='chip' data-dd='{1}'>{0}</button>", x); }).join(""),
       chips: chipCats.map(function (c) { return tpl("<button type='button' class='chip{on}' data-cc='{id}'>{n}</button>", { on: c.id === dc ? " on" : "", id: c.id, n: c.name }); }).join(""),
       selOn: inChips ? "" : " on", selT: inChips ? "другая ▾" : catName(dc) + " ▾",
@@ -946,10 +960,15 @@ function spendModal(o) {
     function ok() {
       var t = target(); if (t.err) { toast(t.err); return; }
       if (!f.v.value.trim()) { f.v.focus(); return; }
-      try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value, { src: "form", date: f.d.value }); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
+      // изменение записи из «Истории записей»: сначала проверить сумму, потом снять старую запись и внести новую
+      try { if (E.exprCents(f.v.value) === null) { f.v.focus(); return; } } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
+      var src = "form";
+      if (o.edit) { var old = ((state.years[o.edit.year] || {}).log || []).find(function (z) { return z.id === o.edit.id; }); if (old) src = old.src || src; removeLogged(o.edit.year, o.edit.id); }
+      try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value, { src: src, date: f.d.value }); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
       state.settings.lastCat = f.cat.value;
       state.settings.recentCats = [f.cat.value].concat((state.settings.recentCats || []).filter(function (x) { return x !== f.cat.value; })).slice(0, 6);
       closeModal(); if (o.after) o.after(t);
+      if (o.edit) { changed(false, "Запись изменена"); toast("Сохранено · " + catName(f.cat.value) + ", " + shortWeek(t.year, t.week)); return; }
       toast("Добавлено в «" + catName(f.cat.value) + "» · " + shortWeek(t.year, t.week)); changed();
     }
     f.onsubmit = function (e) { e.preventDefault(); ok(); };
