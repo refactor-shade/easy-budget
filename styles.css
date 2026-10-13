@@ -308,7 +308,8 @@ td.open:hover { text-decoration: underline; }
 .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; padding: 26px 28px; position: relative; overflow: hidden;
   background: linear-gradient(135deg, var(--accent-soft) 0%, var(--surface) 55%); }
 .hero-label { color: var(--ink-2); font-size: 13px; }
-.hero-value { font: 600 52px/1.05 var(--serif); letter-spacing: -.02em; margin: 8px 0 14px; font-variant-numeric: tabular-nums; }
+/* Одиночное крупное число: цифры пропорциональные (моноширинная «1» в антикве даёт дыру), пробел тысяч уже */
+.hero-value { font: 600 52px/1.05 var(--serif); letter-spacing: -.02em; word-spacing: -.05em; margin: 8px 0 14px; font-variant-numeric: proportional-nums; }
 .hero-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; }
 .hero-status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pos) 18%, transparent); }
 .hero-status.bad .dot { background: var(--neg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--neg) 18%, transparent); }
@@ -463,7 +464,7 @@ td.open:hover { text-decoration: underline; }
 .pockets { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .pocket { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow); }
 .pocket.def { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
-.pocket-val { font: 600 24px/1.2 var(--serif); font-variant-numeric: tabular-nums; }
+.pocket-val { font: 600 24px/1.2 var(--serif); font-variant-numeric: proportional-nums; }
 .pocket .btn { align-self: flex-start; margin-top: 4px; }
 .pocket.add { border-style: dashed; background: transparent; color: var(--ink-2); cursor: pointer; justify-content: center; align-items: center; min-height: 110px; box-shadow: none; font: inherit; }
 .cash-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -993,7 +994,7 @@ table.g.g-months tfoot td.now { background: color-mix(in srgb, var(--accent) 12%
 body::before { content: ""; position: fixed; z-index: 40; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: var(--bg); pointer-events: none; }
 .nav-plus .ico, .nav .nav-plus .ico { color: #ffffff !important; }
 table.g tr.tog td { cursor: pointer; text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.sh-right { display: flex; align-items: center; gap: 12px; }
+.sh-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
 
 /* итоги месяцев */
 .ms-nums4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
@@ -1688,3 +1689,27 @@ button:focus-visible, a:focus-visible, [role=button]:focus-visible, [role=link]:
 .a-recon .rc-row .rc-l { display: none; }
 /* таблица Плана с клавиатуры: ячейка под курсором */
 table.g td[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* «Внесённое» (журнал своих записей) и ссылка на него в «Внести» */
+.plus-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.plus-foot .plus-form { margin: 0; }
+.lg-log { list-style: none; padding: 0; overflow: hidden; }
+.lg-log .ch-day { padding: 8px 14px; background: var(--surface-2); font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.ll-row { display: flex; align-items: center; gap: 12px; padding: 10px 6px 10px 14px; border-top: 1px solid var(--line); }
+.ll-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ll-tx small { color: var(--muted); font-size: 12px; }
+.ll-v { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+.plus-foot .plus-more { margin: 0; }
+
+/* Главная → «Внесённое»: последняя запись внизу карточки недели */
+.wk-log { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink); text-decoration: none; }
+.wk-log > span:first-child { min-width: 0; }
+.wk-log-all { flex: none; color: var(--accent); }
+.wk-log:hover .wk-log-all { text-decoration: underline; }
+.empty.flush { margin: 0; }
+.per-empty { margin: 8px 0 0; }
+.ut-note { margin: 6px 0 0; }
+.ll-v, .wk-log-v { white-space: nowrap; }
+.wk-log-v { font-weight: 500; }
+/* правило: область нажатия значка ≥ 40×40 */
+.ll-row .ch-del { width: 40px; height: 40px; }
+.ll-row { padding-top: 6px; padding-bottom: 6px; }

@@ -103,6 +103,8 @@
       var yr = data.years[y], p = { entries: {}, recurring: [] };
       Object.keys(yr.entries || {}).forEach(function (cid) { if (privIds[cid]) { p.entries[cid] = yr.entries[cid]; delete yr.entries[cid]; } });
       yr.recurring = (yr.recurring || []).filter(function (r) { if (privIds[r.catId]) { p.recurring.push(r); return false; } return true; });
+      // история «История записей»: записи приватных категорий — тоже только владельцу
+      if (yr.log) { p.log = []; yr.log = yr.log.filter(function (l) { if (privIds[l.cat]) { p.log.push(l); return false; } return true; }); }
       priv.years[y] = p;
     });
     // черновик незаконченной сверки — только владельцу (в нём могут быть и приватные строки)
@@ -121,6 +123,7 @@
       yr.entries = yr.entries || {};
       Object.keys(p.entries || {}).forEach(function (cid) { yr.entries[cid] = p.entries[cid]; });
       yr.recurring = (yr.recurring || []).concat(p.recurring || []);
+      if (p.log && p.log.length) yr.log = (yr.log || []).concat(p.log);
     });
     return s;
   }
