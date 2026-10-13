@@ -126,7 +126,7 @@ function pushUndo(item) {
   var label = item.label || "Изменено";
   if ((label === "Сохранено") && toast.last && Date.now() - toast.last.at < 400) { label = toast.last.msg; document.getElementById("toast").classList.remove("on"); }
   // как в Material: текст · «Отменить» · «×» в самом конце; между кнопками черта и отступ — чтобы не промахнуться
-  el.innerHTML = "<span class='ub-label'>" + esc(label) + "</span><button type='button' class='ub-undo'>Отменить</button><span class='ub-sep' aria-hidden='true'></span><button type='button' class='ub-x' aria-label='Скрыть'>×</button>";
+  el.innerHTML = tpl("<span class='ub-label'>{l}</span>", { l: label }) + "<button type='button' class='ub-undo'>Отменить</button><span class='ub-sep' aria-hidden='true'></span><button type='button' class='ub-x' aria-label='Скрыть'>×</button>";
   el.querySelector(".ub-undo").onclick = doUndo;
   el.querySelector(".ub-x").onclick = function () { el.classList.remove("on"); };
   pushUndo.at = Date.now();
@@ -178,6 +178,8 @@ function inDraft() { return !!(state && state._draftKey && view.who === "me"); }
 function draftOf(y, w) { var d = myState && myState.recDraft; return d && d.key === draftKey(y, w) ? d : null; }
 function buildDraftState(d) {
   var s = JSON.parse(JSON.stringify(myState)); delete s.recDraft;
+  // с чего черновик начался: основа для слияния тех частей, которые ещё не правили (см. persistDraft)
+  ui.draftOrig = { years: JSON.parse(JSON.stringify(s.years)), cash: JSON.parse(JSON.stringify(s.cash || null)) };
   Object.keys(d.years || {}).forEach(function (yy) { s.years[yy] = JSON.parse(JSON.stringify(d.years[yy])); });
   if (d.cash) s.cash = JSON.parse(JSON.stringify(d.cash));
   if (d.settings) Object.assign(s.settings, JSON.parse(JSON.stringify(d.settings)));
@@ -204,10 +206,13 @@ function persistDraft() {
   var years = {}, setPatch = {};
   Object.keys(ds.years).forEach(function (yy) { if (JSON.stringify(ds.years[yy]) !== JSON.stringify(myState.years[yy])) years[yy] = ds.years[yy]; });
   Object.keys(ds.settings).forEach(function (k) { if (JSON.stringify(ds.settings[k]) !== JSON.stringify(myState.settings[k])) setPatch[k] = ds.settings[k]; });
-  // база — каким год был в начале сверки: на «Завершить» сливаем, а не перезаписываем (вдруг план правили на другом устройстве)
+  // база — каким год был, когда черновик его скопировал: на «Завершить» сливаем, а не перезаписываем (вдруг план правили на другом устройстве).
+  // Берём из копии черновика, а не из бюджета сейчас: иначе правка с другого устройства между началом сверки и первой правкой года
+  // попала бы в базу, а в черновике её нет — и слияние решило бы, что её удалили.
+  var orig = ui.draftOrig || { years: myState.years, cash: myState.cash };
   d.base = d.base || {};
-  Object.keys(years).forEach(function (yy) { if (!d.base[yy]) d.base[yy] = JSON.parse(JSON.stringify(myState.years[yy] || {})); });
-  if (d.baseCash === undefined && JSON.stringify(ds.cash) !== JSON.stringify(myState.cash)) d.baseCash = JSON.parse(JSON.stringify(myState.cash || null));
+  Object.keys(years).forEach(function (yy) { if (!d.base[yy]) d.base[yy] = JSON.parse(JSON.stringify((orig.years && orig.years[yy]) || myState.years[yy] || {})); });
+  if (d.baseCash === undefined && JSON.stringify(ds.cash) !== JSON.stringify(myState.cash)) d.baseCash = JSON.parse(JSON.stringify(orig.cash !== undefined ? orig.cash : myState.cash || null));
   d.years = JSON.parse(JSON.stringify(years));
   d.cash = JSON.stringify(ds.cash) !== JSON.stringify(myState.cash) ? JSON.parse(JSON.stringify(ds.cash || null)) : undefined;
   d.settings = Object.keys(setPatch).length ? JSON.parse(JSON.stringify(setPatch)) : undefined;
@@ -309,7 +314,7 @@ function switchTo(who) {
   if (who === "me") { view = { who: "me", level: "full", name: "", summary: null }; state = myState; render(); return; }
   var p = people.find(function (x) { return x.userId === who; });
   if (!p) return;
-  $main.innerHTML = "<p class='loading'>Загружаю бюджет: " + esc(p.name) + "…</p>";
+  $main.innerHTML = tpl("<p class='loading'>Загружаю бюджет: {n}…</p>", { n: p.name });
   var lvl = p.theirLevel;
   var job = lvl === "full" ? Store.loadBudgetOf(who) : lvl === "totals" ? Store.loadSummaryOf(who) : Promise.resolve(null);
   job.then(function (row) {
@@ -330,13 +335,13 @@ function viewablePeople() { return people.filter(function (p) { return p.theirLe
 function profileBar() {
   var bar = document.getElementById("profiles");
   if (bar) {
-    bar.innerHTML = RO() ? "<div class='ro-banner'><span class='ro-dot' aria-hidden='true'>◉</span><span>Бюджет " + esc(nameGen(view.name)) + " — только просмотр: видишь цифры, но изменить ничего нельзя.</span><button class='btn sm' id='roBack'>Вернуться к своему</button></div>" : "";
+    bar.innerHTML = RO() ? tpl("<div class='ro-banner'><span class='ro-dot' aria-hidden='true'>◉</span><span>Бюджет {n} — только просмотр: видишь цифры, но изменить ничего нельзя.</span><button class='btn sm' id='roBack'>Вернуться к своему</button></div>", { n: nameGen(view.name) }) : "";
     var rb = bar.querySelector("#roBack"); if (rb) rb.onclick = function () { switchTo("me"); };
   }
   var np = document.getElementById("navPeople");
   if (np) {
     np.innerHTML = viewablePeople().map(function (p) {
-      return "<button type='button' class='nav-person" + (view.who === p.userId ? " active" : "") + "' data-who='" + esc(p.userId) + "'>Бюджет " + esc(nameGen(p.name)) + " <small>" + (p.theirLevel === "totals" ? "итоги" : "просмотр") + "</small></button>";
+      return tpl("<button type='button' class='nav-person{a}' data-who='{id}'>Бюджет {n} <small>{l}</small></button>", { a: view.who === p.userId ? " active" : "", id: p.userId, n: nameGen(p.name), l: p.theirLevel === "totals" ? "итоги" : "просмотр" });
     }).join("") + (RO() ? "<button type='button' class='nav-person' data-who='me'>‹ Мой бюджет</button>" : "");
     np.querySelectorAll("[data-who]").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
   }
@@ -373,25 +378,26 @@ function afterRender(route) {
   var g = routeGroup(route), tabs = SUBTABS[g];
   $main.classList.toggle("in-sec", !!tabs && route !== "week");
   var href = backHref(route);
-  if (href && !(route === "settings" && ui.setSec)) $main.insertAdjacentHTML("afterbegin", "<a class='back-link' href='" + href[0] + "'>‹ " + href[1] + "</a>");
+  if (href && !(route === "settings" && ui.setSec)) $main.insertAdjacentHTML("afterbegin", tpl("<a class='back-link' href='{0}'>‹ {1}</a>", href));
   if (!tabs || route === "week" || route === "tolog" || route === "other") { $main.classList.remove("in-sec"); return; }
   // год: чипы старых экранов прячем, вместо них — список справа от заголовка
   var firstY = $main.querySelector(".chips [data-year], .chips [data-uy]"), chips = firstY ? Array.prototype.slice.call(firstY.parentNode.querySelectorAll("[data-year], [data-uy]")) : [], ysel = "";
   var yv = function (c) { return c.dataset.year || c.dataset.uy; };
   if (chips.length) {
     chips[0].parentNode.classList.add("chips-hidden");
-    ysel = "<select class='year-sel' id='secYear' aria-label='Год'>" + chips.map(function (c) {
-      return "<option value='" + esc(yv(c)) + "'" + (c.classList.contains("on") ? " selected" : "") + ">" + esc(c.textContent) + "</option>";
-    }).join("") + "</select>";
+    ysel = tpl("<select class='year-sel' id='secYear' aria-label='Год'>{!o}</select>", { o: chips.map(function (c) {
+      return tpl("<option value='{v}'{!s}>{t}</option>", { v: yv(c), s: c.classList.contains("on") ? " selected" : "", t: c.textContent });
+    }).join("") });
   }
   var hasUrl = state && state.settings.sheetUrl && /^https:\/\/docs\.google\.com\//.test(state.settings.sheetUrl);
-  var sheetA = g === "plan" && !RO() ? (hasUrl ? "<a class='plan-sheet' href='" + esc(state.settings.sheetUrl) + "' target='_blank' rel='noopener'>Google Таблица ↗</a>" : "<button type='button' class='linkish plan-sheet' id='sheetAsk'>Google Таблица ↗</button>") : "";
-  var html = "<div class='sec-head'><h1>" + GROUP_TITLE[g] + "</h1>" + (g === "plan" ? "<span class='sh-right'>" + (route !== "year" ? ysel : "") + sheetA + "</span>" : ysel) + "</div>" +
-    "<nav class='subtabs' aria-label='Раздел'>" + tabs.map(function (t) {
-      return "<a href='#" + t[0] + "'" + (t[0] === route ? " class='on' aria-current='page'" : "") + ">" + t[1] + "</a>";
-    }).join("") + "</nav>";
+  // адрес таблицы проверен выше (только https://docs.google.com/), в атрибут — экранированным
+  var sheetA = g === "plan" && !RO() ? (hasUrl ? tpl("<a class='plan-sheet' href='{u}' target='_blank' rel='noopener'>Google Таблица ↗</a>", { u: state.settings.sheetUrl }) : "<button type='button' class='linkish plan-sheet' id='sheetAsk'>Google Таблица ↗</button>") : "";
+  var html = tpl("<div class='sec-head'><h1>{t}</h1>{!right}</div><nav class='subtabs' aria-label='Раздел'>{!tabs}</nav>", {
+    t: GROUP_TITLE[g], right: g === "plan" ? tpl("<span class='sh-right'>{!y}{!a}</span>", { y: route !== "year" ? ysel : "", a: sheetA }) : ysel,
+    tabs: tabs.map(function (t) { return tpl("<a href='#{0}'{!on}>{1}</a>", { 0: t[0], 1: t[1], on: t[0] === route ? " class='on' aria-current='page'" : "" }); }).join("") });
   if (route === "us" && !RO()) html += viewablePeople().map(function (p) {
-    return "<button type='button' class='person-row card' data-who='" + esc(p.userId) + "'><span class='pr-ic' aria-hidden='true'>" + esc(p.name.charAt(0)) + "</span><span class='pr-tx'><b>Бюджет " + esc(nameGen(p.name)) + "</b><span>" + (p.theirLevel === "totals" ? "только итоги" : "только просмотр") + "</span></span><span class='arr'>›</span></button>";
+    return tpl("<button type='button' class='person-row card' data-who='{id}'><span class='pr-ic' aria-hidden='true'>{ic}</span><span class='pr-tx'><b>Бюджет {n}</b><span>{lvl}</span></span><span class='arr'>›</span></button>", {
+      id: p.userId, ic: p.name.charAt(0), n: nameGen(p.name), lvl: p.theirLevel === "totals" ? "только итоги" : "только просмотр" });
   }).join("");
   $main.insertAdjacentHTML("afterbegin", html);
   $main.querySelectorAll(".person-row").forEach(function (b) { b.onclick = function () { switchTo(b.dataset.who); }; });
@@ -413,7 +419,7 @@ function afterRender(route) {
   var p = document.getElementById("navPlus"); if (p) p.onclick = function () {
     // вкладка по разделу: в «Мы» — общая трата, в Наличке — наличка, иначе — трата
     var r = (location.hash || "#home").slice(1), g = routeGroup(r);
-    plusSheet(g === "us" ? "shared" : r === "cash" ? "cash" : null, true);
+    Plus.plusSheet(g === "us" ? "shared" : r === "cash" ? "cash" : null, true);
   };
   document.querySelectorAll(".nav-sync").forEach(function (b) { b.onclick = function () { refreshAll(); }; });
 })();
@@ -427,8 +433,9 @@ function rnd(c) { return c === null || c === undefined ? null : Math.round(c / 1
 function trendHtml(c, opts) {
   opts = opts || {};
   var t = eur(rnd(c), { dec: 0, plus: true });
-  if (!rnd(c)) return "<span class='chg'>" + t + "</span>";
-  return "<span class='chg " + (c > 0 ? "up" : "down") + "'>" + (c > 0 ? "↗ " : "↘ ") + t + "</span>" + (opts.after ? " " + opts.after : "");
+  if (!rnd(c)) return tpl("<span class='chg'>{t}</span>", { t: t });
+  // opts.after — HTML из своего кода
+  return tpl("<span class='chg {c}'>{a}{t}</span>{!after}", { c: c > 0 ? "up" : "down", a: c > 0 ? "↗ " : "↘ ", t: t, after: opts.after ? " " + opts.after : "" });
 }
 function sign(c) { return c > 0 ? "pos" : c < 0 ? "neg" : ""; }
 // В расходах минус можно не ставить: 50 → −50. «+50» — оставить плюсом (вернули деньги).
@@ -452,6 +459,10 @@ function tpl(s, d) {
     return raw ? (v === null || v === undefined ? "" : String(v)) : esc(v);
   });
 }
+// имена и переход между экранами — нужны всем экранам
+function myName() { var n = Store.user() && Store.user().name; if (!n || n === "Я") n = state.settings.myName || ""; return n.split(" ")[0]; }
+function partnerName() { return sh && sh.partner ? sh.partner.name : "партнёр"; }
+function go(hash, after) { location.hash = hash; if (after) setTimeout(after, 60); }
 function plural(n, one, few, many) { return window.BudgetInsights.plural(n, one, few, many); }
 // курсы на сегодня (fx.js): строка для Настроек и «Поставить»
 var FX_SIGN = { RUB: "₽", USD: "$", GEL: "лари" };
@@ -496,6 +507,22 @@ function catSplitOf(cat) {
   return iAmCreator ? v : v === "mine" ? "theirs" : v === "theirs" ? "mine" : v;
 }
 function catSplitValue(rel) { return rel === "mine" ? "p:" + sh.meId : rel === "theirs" && sh.partnerId ? "p:" + sh.partnerId : null; }
+// Валюты общих трат без курса: такие траты в итогах считались бы как 0 € — показываем и просим указать курс
+// знак валюты для сумм: €, ₽, $; остальные — кодом (CHF, GEL…)
+function curSign(c) { return { EUR: "€", RUB: "₽", USD: "$" }[c] || c || "€"; }
+function missingFx() {
+  if (!sh || !state) return [];
+  var cnt = {};
+  sh.expenses.forEach(function (e) { var c = e.currency; if (!c || c === "EUR") return; if (!(S.toEur(100000, c, e.date, state.settings) > 0)) cnt[c] = (cnt[c] || 0) + 1; });
+  return Object.keys(cnt).sort().map(function (c) { return { cur: c, n: cnt[c] }; });
+}
+function fxMissingHtml() {
+  var miss = missingFx(); if (!miss.length || RO()) return "";
+  return tpl("<div class='hint fx-miss'><b>Нет курса для {curs}</b> — {what} не входят в итоги, пока курс не указан. <button type='button' class='btn sm' data-fixfx='1'>Указать курс</button></div>", {
+    curs: miss.map(function (x) { return x.cur; }).join(", "),
+    what: miss.map(function (x) { return x.n + " " + plural(x.n, "трата", "траты", "трат") + " в " + x.cur; }).join(", ") });
+}
+function bindFxMissing() { $main.querySelectorAll("[data-fixfx]").forEach(function (b) { b.onclick = function () { go("#settings", function () { ui.setSec = "money"; render(); window.scrollTo(0, 0); }); }; }); }
 function numShow(expr) { return String(expr === null || expr === undefined ? "" : expr).replace(/(\d)\.(\d)/g, "$1,$2"); }
 function absIfPlain(expr) { var v = String(expr || "").trim(); return /^-\d+([.,]\d+)?$/.test(v) ? v.slice(1) : v; }
 function cats() { return state.categories.slice().sort(function (a, b) { return a.sort - b.sort; }); }
@@ -514,7 +541,7 @@ function toast(msg) {
 function blockName(b) { var x = E.BLOCKS.find(function (k) { return k.id === b; }); return x ? x.name : b; }
 function weekOpts(year, sel, mark) {
   return E.genWeeks(Number(year)).map(function (w) {
-    return "<option value='" + w.idx + "'" + (w.idx === sel ? " selected" : "") + ">" + E.MONTHS_SHORT[w.month - 1] + " · " + w.label + (mark && mark(w.idx) ? " ✓" : "") + "</option>";
+    return tpl("<option value='{v}'{!s}>{m} · {l}{ok}</option>", { v: w.idx, s: w.idx === sel ? " selected" : "", m: E.MONTHS_SHORT[w.month - 1], l: w.label, ok: mark && mark(w.idx) ? " ✓" : "" });
   }).join("");
 }
 function catOptions(sel, filter) {
@@ -522,9 +549,9 @@ function catOptions(sel, filter) {
   E.BLOCKS.forEach(function (b) {
     var list = cats().filter(function (c) { return c.block === b.id && !c.archived && (!filter || filter(c)); });
     if (!list.length) return;
-    out += "<optgroup label='" + esc(b.name) + "'>" + list.map(function (c) {
-      return "<option value='" + c.id + "'" + (c.id === sel ? " selected" : "") + ">" + esc(c.name) + (c.currency === "RUB" ? " (₽)" : "") + "</option>";
-    }).join("") + "</optgroup>";
+    out += tpl("<optgroup label='{l}'>{!o}</optgroup>", { l: b.name, o: list.map(function (c) {
+      return tpl("<option value='{id}'{!s}>{n}{rub}</option>", { id: c.id, s: c.id === sel ? " selected" : "", n: c.name, rub: c.currency === "RUB" ? " (₽)" : "" });
+    }).join("") });
   });
   return out;
 }
@@ -548,7 +575,7 @@ function isNow(year, w) { var wk = E.weekOfDate(E.todayISO()); return wk && Stri
 var $modal = document.getElementById("modal");
 // маленькое окно с одним полем вместо системного prompt()
 function textModal(title, value, onOk, placeholder) {
-  modal("<form class='m-body' id='tmF'><h2>" + esc(title) + "</h2><label class='f' style='margin-top:12px'><input name='v' value='" + esc(value || "") + "' placeholder='" + esc(placeholder || "") + "' required></label><button type='submit' hidden></button></form>" +
+  modal(tpl("<form class='m-body' id='tmF'><h2>{t}</h2><label class='f' style='margin-top:12px'><input name='v' value='{v}' placeholder='{p}' required></label><button type='submit' hidden></button></form>", { t: title, v: value || "", p: placeholder || "" }) +
     "<div class='m-foot'><button class='btn ghost' data-act='x'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", function (m) {
     var f = m.querySelector("#tmF"), ok = function (e) { if (e) e.preventDefault(); var v = f.v.value.trim(); closeModal(); onOk(v); };
     f.onsubmit = ok; m.querySelector("[data-act=ok]").onclick = ok; m.querySelector("[data-act=x]").onclick = closeModal;
@@ -573,8 +600,8 @@ function askConfirm(text, okLabel, onOk, opts) {
   opts = opts || {};
   var q = String(text), cut = q.indexOf("?"), title = cut > 0 ? q.slice(0, cut + 1) : q, rest = cut > 0 ? q.slice(cut + 1).trim() : "";
   var danger = opts.danger !== undefined ? opts.danger : /удал|стер|убра|не сохран|отключ|замен/i.test(okLabel);
-  modal("<div class='m-body ask'><h2>" + esc(title) + "</h2>" + (rest ? "<p class='muted' style='margin:6px 0 0'>" + esc(rest) + "</p>" : "") + "</div>" +
-    "<div class='m-foot'><button type='button' class='btn ghost' data-act='no'>" + esc(opts.cancel || "Отмена") + "</button><button type='button' class='btn " + (danger ? "danger-solid" : "primary") + "' data-act='yes'>" + esc(okLabel) + "</button></div>", function (m) {
+  modal(tpl("<div class='m-body ask'><h2>{t}</h2>{!rest}</div><div class='m-foot'><button type='button' class='btn ghost' data-act='no'>{no}</button><button type='button' class='btn {c}' data-act='yes'>{yes}</button></div>", {
+    t: title, rest: rest ? tpl("<p class='muted' style='margin:6px 0 0'>{r}</p>", { r: rest }) : "", no: opts.cancel || "Отмена", c: danger ? "danger-solid" : "primary", yes: okLabel }), function (m) {
     m.querySelector("[data-act=no]").onclick = closeModal;
     var yes = m.querySelector("[data-act=yes]"); yes.onclick = function () { closeModal(); onOk(); };
     setTimeout(function () { yes.focus(); }, 30);
@@ -650,16 +677,16 @@ function editCell(year, catId, w) {
   var r = E.compute(state, year), cell = r.cells[catId][w], c = state.categories.find(function (x) { return x.id === catId; });
   var wk = r.weeks[w], entry = (state.years[year].entries[catId] || {})[w];
   var recCell = E.yearCells(Object.assign({}, state, { years: (function () { var o = {}; o[year] = Object.assign({}, state.years[year], { entries: {} }); return o; })() }), year)[catId][w];
-  modal("<form method='dialog' class='m-body' id='cellForm'><h2>" + esc(c.name) + "</h2><div class='sub'>" + E.weekTitle(Number(year), w) +
-    " · " + wk.wim + "-я неделя месяца</div>" +
-    (recCell ? "<div class='hint small'>Регулярная трата: <b>" + E.fmt(recCell.cents, { cur: cur(c) }) + "</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>" : "") +
-    "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула" + (c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги") + "<input type='text' name='expr' autofocus value='" +
-    esc(numShow(c.block === "income" ? (entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")) : absIfPlain(entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "")))) + "' placeholder='35+20' inputmode='decimal'></label>" +
-    "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='" + esc(entry ? entry.note : "") + "' placeholder='что это было'></label></div>" +
-    "<div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>" +
-    (cell && cell.cents < 0 && c.block !== "savings" ? "<div class='row' style='margin:0 22px 12px'><button class='btn sm' data-act='move'>Не потратила — перенести или убрать</button></div>" : "") +
-    "<div class='m-foot'>" + (entry ? "<button class='btn ghost danger' data-act='clear'>" + (recCell ? "Вернуть регулярную" : "Удалить") + "</button>" : "") +
-    "<span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='save'>Сохранить</button></div>",
+  var raw = entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "");
+  modal(tpl("<form method='dialog' class='m-body' id='cellForm'><h2>{name}</h2><div class='sub'>{wk} · {wim}-я неделя месяца</div>{!rec}" +
+    "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула{hint}<input type='text' name='expr' autofocus value='{expr}' placeholder='35+20' inputmode='decimal'></label>" +
+    "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='{note}' placeholder='что это было'></label></div><div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>{!move}" +
+    "<div class='m-foot'>{!clear}<span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='save'>Сохранить</button></div>", {
+      name: c.name, wk: E.weekTitle(Number(year), w), wim: wk.wim, hint: c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги",
+      expr: numShow(c.block === "income" ? raw : absIfPlain(raw)), note: entry ? entry.note : "",
+      rec: recCell ? tpl("<div class='hint small'>Регулярная трата: <b>{v}</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>", { v: E.fmt(recCell.cents, { cur: cur(c) }) }) : "",
+      move: cell && cell.cents < 0 && c.block !== "savings" ? "<div class='row' style='margin:0 22px 12px'><button class='btn sm' data-act='move'>Не потратила — перенести или убрать</button></div>" : "",
+      clear: entry ? tpl("<button class='btn ghost danger' data-act='clear'>{t}</button>", { t: recCell ? "Вернуть регулярную" : "Удалить" }) : "" }),
   function (m) {
     var inp = m.querySelector("[name=expr]"), pv = m.querySelector("#cellPreview");
     function preview() {
@@ -701,11 +728,11 @@ function moveSkipModal(y, catId, w, after) {
   var r = E.compute(state, y), cell = r.cells[catId][w], wk = r.weeks[w];
   if (!cell) return;
   var next = E.addDays(wk.to, 1), monthNext = E.addDays(wk.from, 28);
-  modal("<div class='m-body'><h2>" + esc(catName(catId)) + " · " + E.fmt(cell.cents, { cur: cur(state.categories.find(function (c) { return c.id === catId; })) }) + "</h2>" +
-    "<p class='small muted' style='margin:2px 0 12px'>В плане на " + esc(shortWeek(y, w)) + ". Не потратила — перенеси на потом или убери.</p>" +
-    "<div class='chips'><button class='chip' data-to='" + next + "'>На следующую неделю</button><button class='chip' data-to='" + monthNext + "'>Через месяц</button></div>" +
-    "<div class='form-grid' style='margin-top:10px'><label class='f'>Или на дату<input type='date' id='mvD' value='" + next + "'></label><button class='btn' id='mvGo'>Перенести</button></div></div>" +
-    "<div class='m-foot'><button class='btn ghost danger' data-act='skip'>Не было — убрать</button><span class='spacer'></span><button class='btn ghost' data-act='x'>Отмена</button></div>", function (m) {
+  modal(tpl("<div class='m-body'><h2>{name} · {v}</h2><p class='small muted' style='margin:2px 0 12px'>В плане на {wk}. Не потратила — перенеси на потом или убери.</p>" +
+    "<div class='chips'><button class='chip' data-to='{next}'>На следующую неделю</button><button class='chip' data-to='{month}'>Через месяц</button></div>" +
+    "<div class='form-grid' style='margin-top:10px'><label class='f'>Или на дату<input type='date' id='mvD' value='{next}'></label><button class='btn' id='mvGo'>Перенести</button></div></div>" +
+    "<div class='m-foot'><button class='btn ghost danger' data-act='skip'>Не было — убрать</button><span class='spacer'></span><button class='btn ghost' data-act='x'>Отмена</button></div>", {
+      name: catName(catId), v: E.fmt(cell.cents, { cur: cur(state.categories.find(function (c) { return c.id === catId; })) }), wk: shortWeek(y, w), next: next, month: monthNext }), function (m) {
     function go(iso) {
       var res = moveCell(y, catId, w, iso);
       if (!res) return; if (res.err) { toast(res.err); return; }
@@ -773,15 +800,19 @@ function spendModal(o) {
   var date = o.date || E.todayISO();
   var incCat = o.income ? (state.categories.find(function (x) { return x.block === "income" && !x.archived; }) || {}).id : null, dc = o.cat || incCat || defaultCat();
   var chipCats = o.income ? cats().filter(function (c) { return c.block === "income" && !c.archived; }).slice(0, 6) : recentCats();
-  modal("<form class='m-body' id='spForm'><h2>" + (o.income ? "Внести доход" : "Внести трату") + "</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
-    "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' required autofocus></label>" +
-    "<label class='f'>Дата<input type='date' name='d' value='" + date + "' required></label>" +
-    "<div class='chips sp-days' style='grid-column:1/-1'>" + [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return "<button type='button' class='chip' data-dd='" + x[1] + "'>" + x[0] + "</button>"; }).join("") + "</div>" +
-    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>" + chipCats.map(function (c) { return "<button type='button' class='chip" + (c.id === dc ? " on" : "") + "' data-cc='" + c.id + "'>" + esc(c.name) + "</button>"; }).join("") +
-    "<label class='chip chip-sel" + (chipCats.some(function (c) { return c.id === dc; }) ? "" : " on") + "'><span class='cs-t'>" + (chipCats.some(function (c) { return c.id === dc; }) ? "другая ▾" : esc(catName(dc)) + " ▾") + "</span><select name='cat' aria-label='Все категории'>" + catOptions(dc, o.income ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) + "</select></label></div></div>" +
-    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='" + esc(o.note || "") + "' placeholder='" + (o.income ? "например, бонус за квартал" : "например, шопинг") + "'></label></div>" +
+  var inChips = chipCats.some(function (c) { return c.id === dc; });
+  modal(tpl("<form class='m-body' id='spForm'><h2>{title}</h2><p class='small muted' style='margin:2px 0 0'>Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.</p>" +
+    "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' value='{amount}' required autofocus></label>" +
+    "<label class='f'>Дата<input type='date' name='d' value='{date}' required></label><div class='chips sp-days' style='grid-column:1/-1'>{!days}</div>" +
+    "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>{!chips}<label class='chip chip-sel{selOn}'><span class='cs-t'>{selT}</span><select name='cat' aria-label='Все категории'>{!opts}</select></label></div></div>" +
+    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='{note}' placeholder='{ph}'></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
-    "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", function (m) {
+    "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Добавить</button></div>", {
+      title: o.income ? "Внести доход" : "Внести трату", date: date, note: o.note || "", amount: o.amount || "", // сумма из «+» → «Заполнить по полям» ph: o.income ? "например, бонус за квартал" : "например, шопинг",
+      days: [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return tpl("<button type='button' class='chip' data-dd='{1}'>{0}</button>", x); }).join(""),
+      chips: chipCats.map(function (c) { return tpl("<button type='button' class='chip{on}' data-cc='{id}'>{n}</button>", { on: c.id === dc ? " on" : "", id: c.id, n: c.name }); }).join(""),
+      selOn: inChips ? "" : " on", selT: inChips ? "другая ▾" : catName(dc) + " ▾",
+      opts: catOptions(dc, o.income ? function (c) { return c.block === "income"; } : function (c) { return c.block !== "income" && c.block !== "savings"; }) }), function (m) {
     var f = m.querySelector("#spForm"), hint = m.querySelector("#spWeek");
     function target() {
       var wk = f.d.value && E.weekOfDate(f.d.value);
@@ -794,7 +825,7 @@ function spendModal(o) {
     function upd() {
       var t = target();
       hint.className = "sp-week small " + (t.err ? "neg" : "muted");
-      hint.innerHTML = t.err ? esc(t.err) : "Попадёт в неделю <b>" + esc(E.weekTitle(Number(t.year), t.week)) + "</b>" + (isNow(t.year, t.week) ? " · текущая" : weekDone(t.year, t.week) ? " · прошедшая" : " · будущая");
+      hint.innerHTML = t.err ? esc(t.err) : tpl("Попадёт в неделю <b>{wk}</b>{when}", { wk: E.weekTitle(Number(t.year), t.week), when: isNow(t.year, t.week) ? " · текущая" : weekDone(t.year, t.week) ? " · прошедшая" : " · будущая" });
     }
     f.d.addEventListener("input", upd); upd();
     function syncChips() {
@@ -824,13 +855,15 @@ function spendModal(o) {
 function reminderModal() {
   var cur = Object.assign({ day: "MO", time: "09:00" }, state.settings.reminder || {});
   var P = window.BudgetPush, canPush = Store.mode === "cloud" && P && (P.supported() || P.needsInstall());
-  modal("<div class='m-body'><h2>Напоминание о сверке</h2><p class='small muted' style='margin:2px 0 0'>" + (canPush ? "Уведомление на телефон или событие в календаре — раз в неделю, со ссылкой на сверку." : "Добавлю в календарь событие на каждую неделю со ссылкой на сверку.") + "</p>" +
-    "<div class='rem-opts'>" + [["MO", "Понедельник утром", "все траты недели уже в выписке"], ["SU", "Воскресенье вечером", "подвести итог перед новой неделей"]].map(function (x) {
-      return "<label class='rem-opt'><input type='radio' name='rd' value='" + x[0] + "'" + (cur.day === x[0] ? " checked" : "") + "><span><b>" + x[1] + "</b><small>" + x[2] + "</small></span></label>";
-    }).join("") + "</div><label class='f' style='max-width:160px'>Время<input type='time' id='rt' value='" + esc(cur.time) + "'></label>" +
-    (canPush ? "<div class='push-box' id='pushBox'><span class='small muted'>Проверяю уведомления…</span></div>" : "") + "</div>" +
-    "<div class='m-foot'><button class='btn ghost' data-act='off'>Не нужно</button><span class='spacer'></span>" + (canPush ? "<span class='small muted'>или в календарь:</span>" : "") +
-    "<button class='btn' data-act='google'>Google</button><button class='btn" + (canPush ? "" : " primary") + "' data-act='ics'>Apple / Outlook</button></div>", function (m) {
+  modal(tpl("<div class='m-body'><h2>Напоминание о сверке</h2><p class='small muted' style='margin:2px 0 0'>{sub}</p><div class='rem-opts'>{!opts}</div>" +
+    "<label class='f' style='max-width:160px'>Время<input type='time' id='rt' value='{time}'></label>{!push}</div>" +
+    "<div class='m-foot'><button class='btn ghost' data-act='off'>Не нужно</button><span class='spacer'></span>{!or}<button class='btn' data-act='google'>Google</button><button class='btn{pr}' data-act='ics'>Apple / Outlook</button></div>", {
+      sub: canPush ? "Уведомление на телефон или событие в календаре — раз в неделю, со ссылкой на сверку." : "Добавлю в календарь событие на каждую неделю со ссылкой на сверку.", time: cur.time,
+      opts: [["MO", "Понедельник утром", "все траты недели уже в выписке"], ["SU", "Воскресенье вечером", "подвести итог перед новой неделей"]].map(function (x) {
+        return tpl("<label class='rem-opt'><input type='radio' name='rd' value='{0}'{!on}><span><b>{1}</b><small>{2}</small></span></label>", { 0: x[0], 1: x[1], 2: x[2], on: cur.day === x[0] ? " checked" : "" });
+      }).join(""),
+      push: canPush ? "<div class='push-box' id='pushBox'><span class='small muted'>Проверяю уведомления…</span></div>" : "",
+      or: canPush ? "<span class='small muted'>или в календарь:</span>" : "", pr: canPush ? "" : " primary" }), function (m) {
     if (canPush) drawPushBox(m, cur);
     m.querySelector("[data-act=off]").onclick = function () { state.settings.reminder = { off: true, day: cur.day, time: cur.time }; closeModal(); changed(); toast("Хорошо, без напоминания. Включить можно в «Настройках»"); };
     m.querySelectorAll("[name=rd]").forEach(function (r) { r.onchange = function () { m.querySelector("#rt").value = r.value === "MO" ? "09:00" : "19:00"; }; });
@@ -853,7 +886,7 @@ function reminderModal() {
         "DTSTART:" + x.start, "DTEND:" + x.end, "RRULE:FREQ=WEEKLY;BYDAY=" + x.day, "SUMMARY:" + title, "DESCRIPTION:" + text + "\\n" + x.url, "URL:" + x.url,
         "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:PT0M", "DESCRIPTION:" + title, "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
       if (/iPhone|iPad|iPod/.test(navigator.userAgent)) location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
-      else download("easy-budget-sverka.ics", ics, "text/calendar");
+      else Settings.download("easy-budget-sverka.ics", ics, "text/calendar");
       closeModal(); changed(); toast("Открой файл — событие добавится в календарь");
     };
     m.querySelector("[data-act=google]").onclick = function () {
@@ -876,7 +909,7 @@ function drawPushBox(m, cur) {
   P.status().then(function (st) {
     if (st.on) {
       var r = st.row || {};
-      box.innerHTML = "<b>Уведомления включены</b> <span class='small muted'>· " + (r.day === "SU" ? "воскресенье" : "понедельник") + " " + esc(r.time || "") + "</span>" +
+      box.innerHTML = tpl("<b>Уведомления включены</b> <span class='small muted'>· {d} {t}</span>", { d: r.day === "SU" ? "воскресенье" : "понедельник", t: r.time || "" }) +
         "<div class='row' style='margin-top:8px'><button class='btn sm primary' data-p='save'>Сохранить день и время</button><button class='btn sm' data-p='test'>Прислать тестовое</button><button class='btn sm ghost danger' data-p='off'>Выключить</button></div>";
     } else if (st.permission === "denied") {
       box.innerHTML = "<b>Уведомления запрещены</b><p class='small' style='margin:4px 0 0'>Разреши их для Easy Budget в настройках телефона (Настройки → Уведомления), потом вернись сюда.</p>";
@@ -919,24 +952,25 @@ function installModal() {
 
 // ---------- выводы: карточки и «бутерброд» (метод — ANALYSIS_METHOD.md) ----------
 function insightCard(c, zone) {
-  return "<div class='card insight " + zone + "'><div class='ic' aria-hidden='true'>" + esc(c.ic || "·") + "</div><div><b>" + esc(c.h) + "</b>" +
-    (c.gloss && GLOSSARY[c.gloss] ? " <button class='gloss-q' data-gloss='" + c.gloss + "' aria-label='Что это: " + esc(GLOSSARY[c.gloss][0]) + "'>?</button>" : "") +
-    "<p>" + esc(c.p) + "</p>" + (c.act ? "<button class='btn sm' data-iact='" + c.act + "'>" + esc(c.actLabel || "Открыть") + "</button>" : "") + "</div></div>";
+  return tpl("<div class='card insight {z}'><div class='ic' aria-hidden='true'>{ic}</div><div><b>{h}</b>{!gl}<p>{p}</p>{!act}</div></div>", {
+    z: zone, ic: c.ic || "·", h: c.h, p: c.p,
+    gl: c.gloss && Help.GLOSSARY[c.gloss] ? tpl(" <button class='gloss-q' data-gloss='{g}' aria-label='Что это: {t}'>?</button>", { g: c.gloss, t: Help.GLOSSARY[c.gloss][0] }) : "",
+    act: c.act ? tpl("<button class='btn sm' data-iact='{a}'>{l}</button>", { a: c.act, l: c.actLabel || "Открыть" }) : "" });
 }
 // res — результат BudgetInsights.personal / together; opts.after — html под «Шагом вперёд»
 function sandwichHtml(res, opts) {
   opts = opts || {};
-  var html = "<div class='section'><h2>Что получилось</h2><div class='grid2'>" +
-    (res.good.length ? res.good.map(function (c) { return insightCard(c, "good"); }).join("") : res.neutral ? insightCard(res.neutral, "") : "<p class='muted'>Пока мало данных — появится после первых сверок.</p>") + "</div></div>";
-  if (res.improve.length) html += "<div class='section'><h2>Что можно улучшить</h2><div class='grid2'>" + res.improve.map(function (c) { return insightCard(c, "improve"); }).join("") + "</div></div>";
-  if (res.next) html += "<div class='section'><h2>Шаг вперёд</h2><div class='card insight next'><div class='ic' aria-hidden='true'>→</div><div><p style='margin:0'>" + esc(res.next) + "</p></div></div>" + (opts.after || "") + "</div>";
-  else if (opts.after) html += "<div class='section'>" + opts.after + "</div>";
-  if (res.info.length) html += "<details class='section sh-more'><summary><h2>Для справки</h2><span class='small muted'>" + res.info.length + " " + (res.info.length === 1 ? "наблюдение" : res.info.length < 5 ? "наблюдения" : "наблюдений") + "</span></summary><div class='grid2'>" +
-    res.info.map(function (c) { return insightCard(c, ""); }).join("") + "</div></details>";
+  var html = tpl("<div class='section'><h2>Что получилось</h2><div class='grid2'>{!c}</div></div>", {
+    c: res.good.length ? res.good.map(function (c) { return insightCard(c, "good"); }).join("") : res.neutral ? insightCard(res.neutral, "") : "<p class='muted'>Пока мало данных — появится после первых сверок.</p>" });
+  if (res.improve.length) html += tpl("<div class='section'><h2>Что можно улучшить</h2><div class='grid2'>{!c}</div></div>", { c: res.improve.map(function (c) { return insightCard(c, "improve"); }).join("") });
+  if (res.next) html += tpl("<div class='section'><h2>Шаг вперёд</h2><div class='card insight next'><div class='ic' aria-hidden='true'>→</div><div><p style='margin:0'>{n}</p></div></div>{!after}</div>", { n: res.next, after: opts.after || "" });
+  else if (opts.after) html += tpl("<div class='section'>{!after}</div>", { after: opts.after });
+  if (res.info.length) html += tpl("<details class='section sh-more'><summary><h2>Для справки</h2><span class='small muted'>{n} {w}</span></summary><div class='grid2'>{!c}</div></details>", {
+    n: res.info.length, w: res.info.length === 1 ? "наблюдение" : res.info.length < 5 ? "наблюдения" : "наблюдений", c: res.info.map(function (c) { return insightCard(c, ""); }).join("") });
   return html;
 }
 function bindInsights(rootEl) {
-  rootEl.querySelectorAll("[data-gloss]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); explain(b.dataset.gloss); }; });
+  rootEl.querySelectorAll("[data-gloss]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); Help.explain(b.dataset.gloss); }; });
   rootEl.querySelectorAll("[data-iact]").forEach(function (b) {
     b.onclick = function () {
       var a = b.dataset.iact;
@@ -946,7 +980,7 @@ function bindInsights(rootEl) {
   });
 }
 function insightCtx() {
-  return { today: E.todayISO(), shared: !RO() && sh ? sharedForCalc() : null, toLog: !RO() && sh ? toLogCount() : 0, partnerName: partnerName() };
+  return { today: E.todayISO(), shared: !RO() && sh ? sharedForCalc() : null, toLog: !RO() && sh ? Us.toLogCount() : 0, partnerName: partnerName() };
 }
 
 // ---------- Google Таблица: после изменений книга уходит в облако, скрипт в таблице забирает её сам ----------
