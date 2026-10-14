@@ -44,9 +44,12 @@
   // категория по словам: сначала выученные слова, потом совпадение с названием
   function phCat(words, income) {
     var learned = state.settings.phraseCats || {}, ok = function (c) { return c && !c.archived && (income ? c.block === "income" : c.block !== "income" && c.block !== "savings"); };
-    for (var i = 0; i < words.length; i++) { var id = learned[phStem(words[i])], c = state.categories.find(function (x) { return x.id === id; }); if (ok(c)) return { id: c.id, used: i }; }
+    // «нал», «наличкой», «кэш» — про способ оплаты, не про категорию («нал» иначе совпадал с «налог»)
+    var isCash = function (w) { return K.CASH_WORD.test(phNorm(w)); };
+    for (var i = 0; i < words.length; i++) { if (isCash(words[i])) continue; var id = learned[phStem(words[i])], c = state.categories.find(function (x) { return x.id === id; }); if (ok(c)) return { id: c.id, used: i }; }
     var list = cats().filter(ok);
     for (i = 0; i < words.length; i++) {
+      if (isCash(words[i])) continue;
       var st = phStem(words[i]); if (st.length < 3) continue;
       var hit = list.find(function (c) { return phNorm(c.name).split(/[^a-zа-я0-9]+/).some(function (n) { return n && (n.indexOf(st) === 0 || st.indexOf(phStem(n)) === 0); }); });
       if (hit) return { id: hit.id, used: i };
@@ -56,6 +59,7 @@
   // Трата: сначала свои слова и названия строк (phCat), потом общий словарь («аптека» → «Аптека, здоровье, уход» → «здоровье, медицина»)
   function spendCat(words) {
     var ci = phCat(words, false); if (ci) return ci;
+    words = words.filter(function (w) { return !K.CASH_WORD.test(phNorm(w)); });
     if (!words.length) return null;
     var sc = S.guessCategory(words.join(" "), null, sh ? sh.learned : null), id = sc && sc !== "Прочее" ? S.personalCatFor(state, sc) : null;
     return id ? { id: id, used: -1 } : null;
@@ -124,6 +128,8 @@
   function plusAutoTab(text) {
     var t = phNorm(text);
     if (sharedSignal(text)) return "shared";
+    // «такси 12 нал» — трата наличными, если учёт налички уже начат
+    if (Cash.cashState().since && t.split(/[\s,;.!?]+/).some(function (w) { return K.CASH_WORD.test(w); })) return "cash";
     if (/(^|\s)(доход|зарплат|зп(\s|$)|получил|пришл[оа]|бонус|преми|аванс|кешбэк|кэшбэк|гонорар|возврат налог)/.test(t)) return "income";
     var p = phParse(text);
     if (p.words.length && !phCat(p.words, false) && phCat(p.words, true)) return "income";
@@ -169,7 +175,7 @@
     body.innerHTML = tpl("<label class='plus-lbl' for='plusQ'>Опиши в свободном формате</label><input id='plusQ' class='plus-q' autocomplete='off' placeholder='например: {ex}' value='{text}'>" +
       "<div class='plus-chips' id='plusChips'></div><div id='plusWhere'></div><button type='button' class='btn primary plus-go' id='plusGo'>Записать</button>{!foot}", {
         ex: ex, text: plusUi.text,
-        foot: tab !== "cash" ? "<div class='plus-foot'><button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button>" + (tab === "shared" ? "<a class='plus-more' href='#shared'>Лента общих ›</a>" : "<a class='plus-more' href='#log'>История записей ›</a>") + "</div>" : "<a class='plus-more' href='#cash'>История и карманы ›</a>" });
+        foot: tab === "cash" && Cash.cashState().since ? "<div class='plus-foot'><button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button><a class='plus-more' href='#cash'>История и карманы ›</a></div>" : tab !== "cash" ? "<div class='plus-foot'><button type='button' class='linkish plus-form' id='plusForm'>Заполнить по полям</button>" + (tab === "shared" ? "<a class='plus-more' href='#shared'>Лента общих ›</a>" : "<a class='plus-more' href='#log'>История записей ›</a>") + "</div>" : "<a class='plus-more' href='#cash'>История и карманы ›</a>" });
     var q = body.querySelector("#plusQ"), tmr = null;
     q.oninput = function () { clearTimeout(tmr); tmr = setTimeout(function () { plusUi.text = q.value; plusUi.over = {}; drawParsed(m); }, 200); };
     q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); plusUi.text = q.value; drawParsed(m); plusSave(m); } };
@@ -179,7 +185,8 @@
     if (pf) pf.onclick = function () {
       plusUi.text = q.value; var md = plusModel(); closeModal();
       setTimeout(function () {
-        if (tab === "shared") Us.expenseSheet(null, { desc: md.desc ? md.desc.charAt(0).toUpperCase() + md.desc.slice(1) : "", cost: md.cents || 0, cat: md.cat, date: md.date, paidByMe: md.paidByMe, mode: md.mode === "full" ? "full" : "equal", method: md.method || "card" });
+        if (tab === "cash") cashFormModal(md);
+        else if (tab === "shared") Us.expenseSheet(null, { desc: md.desc ? md.desc.charAt(0).toUpperCase() + md.desc.slice(1) : "", cost: md.cents || 0, cat: md.cat, date: md.date, paidByMe: md.paidByMe, mode: md.mode === "full" ? "full" : "equal", method: md.method || "card" });
         else spendModal({ income: tab === "income", date: md.date, cat: md.cat, amount: md.cents ? String(md.cents / 100).replace(".", ",") : "", note: md.note || "" });
       }, 40);
     };
@@ -376,13 +383,50 @@
       var ntx = { id: E.uid("t"), ts: Date.now(), date: md.date, kind: k, cents: md.cents, from: k === "in" || k === "ext" ? null : cur.from, to: k === "spend" || k === "out" ? null : cur.to, note: cur.note };
       var pcat = cashPlanCat(md), pw = E.weekOfDate(md.date), pys = pw && String(pw.year), inPlan = "";
       if (pcat && pw && state.years[pys] && !state.years[pys].archived) {
-        addToCell(pys, pcat, pw.idx, String(md.cents / 100), (cur.note || "") + " (нал)"); ntx.plan = { year: pys, week: pw.idx, cat: pcat }; inPlan = " и в план «" + catName(pcat) + "»";
+        var pn = (cur.note || "") + " (нал)", pr = addToCell(pys, pcat, pw.idx, String(md.cents / 100), pn) || {}; ntx.plan = { year: pys, week: pw.idx, cat: pcat, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; inPlan = " и в план «" + catName(pcat) + "»";
       }
       c.tx.push(ntx);
       closeModal(); toast("Записано: " + (cur.note || "наличка") + " " + E.fmt(md.cents, { cur: "€" }) + inPlan); changed();
     }
   }
 
+  // «Наличка» → «Заполнить по полям»: трата наличными из кармана; «И в план» — как при вводе фразой
+  // (общую трату наличными удобнее вносить на вкладке «Общая»: там есть «наличными · карман»)
+  function cashFormModal(md) {
+    var c = Cash.cashState(), pockets = c.pockets.filter(function (p) { return !p.archived; });
+    var from = (md && md.cash && md.cash.from) || c.defaultPocket || (pockets[0] && pockets[0].id), g = (md && md.cents ? cashPlanGuess(md) : null) || {};
+    var planOn = !!(md && md.cents && cashPlanCat(md)), pcat = g.cat || defaultCat();
+    modal(tpl("<form class='m-body' id='cfForm'><h2>Трата наличными</h2><div class='form-grid cf-grid'>" +
+      "<label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='12' value='{amount}' required autofocus></label>" +
+      "<label class='f'>Дата<input type='date' name='d' value='{date}' required></label>" +
+      "<label class='f'>Из кармана<select name='from'>{!pk}</select></label>" +
+      "<label class='f'>Что это<input type='text' name='note' value='{note}' placeholder='например, такси'></label>" +
+      "<label class='f f-wide cf-plan'><span><input type='checkbox' name='plan'{!on}> И в план</span><select name='cat' aria-label='Строка плана'>{!opts}</select></label>" +
+      "</div><p class='small muted cf-hint'>В план — если этой траты там ещё нет: тогда сверка сойдётся.</p><button type='submit' hidden></button></form>" +
+      "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Записать</button></div>", {
+        amount: md && md.cents ? String(md.cents / 100).replace(".", ",") : "", date: (md && md.date) || E.todayISO(), note: (md && md.cash && md.cash.note) || "", on: planOn ? " checked" : "",
+        pk: pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{n} · {b}</option>", { id: p.id, s: p.id === from ? " selected" : "", n: p.name, b: Cash.pocketCur(p.id) }); }).join(""),
+        opts: catOptions(pcat, function (x) { return x.block !== "income" && x.block !== "savings"; }) }), function (m) {
+      var f = m.querySelector("#cfForm");
+      f.cat.onchange = function () { f.plan.checked = true; };
+      function ok() {
+        var v; try { v = E.exprCents(f.v.value || ""); } catch (e) { v = null; }
+        if (!v) { toast("Впиши сумму"); f.v.focus(); return; }
+        v = Math.abs(v);
+        var note = f.note.value.trim(), date = f.d.value || E.todayISO();
+        var ntx = { id: E.uid("t"), ts: Date.now(), date: date, kind: "spend", cents: v, from: f.from.value, to: null, note: note }, inPlan = "";
+        if (f.plan.checked) {
+          var pw = E.weekOfDate(date), pys = pw && String(pw.year);
+          if (!pw || !state.years[pys] || state.years[pys].archived) toast("Плана на эту дату нет — в план не вношу");
+          else { var pn = (note || "") + " (нал)", pr = addToCell(pys, f.cat.value, pw.idx, String(v / 100), pn) || {}; ntx.plan = { year: pys, week: pw.idx, cat: f.cat.value, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; inPlan = " и в план «" + catName(f.cat.value) + "»"; }
+        }
+        c.tx.push(ntx); closeModal(); toast("Записано: " + (note || "наличка") + " " + E.fmt(v, { cur: Cash.pocketCur(ntx.from) }) + inPlan); changed();
+      }
+      f.onsubmit = function (e) { e.preventDefault(); ok(); };
+      m.querySelector("[data-act=ok]").onclick = ok;
+      m.querySelector("[data-act=cancel]").onclick = closeModal;
+    });
+  }
   // Общая трата из «+». pocket — карман, если платила я наличными: запоминаем его для этой траты (cash.sharedMap)
   function saveShared(m, md, method, pocket) {
     var mine = plusMine(md);

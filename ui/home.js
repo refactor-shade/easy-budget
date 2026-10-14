@@ -220,7 +220,10 @@
     });
     var hs = $main.querySelector("#homeSync"); if (hs) hs.onclick = refreshAll;
     // вся строка — в Сверку текущей недели (кубики здесь только показывают, в старые сверки не уводят)
-    var rr = $main.querySelector("#rcRow"); if (rr) { rr.onclick = function () { ui.recWeek = null; ui.recStep = null; go("#recon"); }; rr.onkeydown = function (e) { if (e.key === "Enter") rr.onclick(); }; }
+    // вся карточка «Сверки» ведёт в сверку (как «Наличка»); с клавиатуры — строка с квадратами (role=link)
+    var rr = $main.querySelector("#rcRow"), rcCard = $main.querySelector(".a-recon"), openRec = function () { ui.recWeek = null; ui.recStep = null; go("#recon"); };
+    if (rcCard) rcCard.onclick = openRec;
+    if (rr) rr.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRec(); } };
     $main.querySelectorAll("[data-q]").forEach(function (el) {
       el.onclick = function () {
         var q = el.dataset.q; ui.year = y; ui.week = w;

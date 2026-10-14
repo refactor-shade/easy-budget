@@ -153,7 +153,7 @@
       if (pp && pp.checked) {
         var wk = E.weekOfDate(cur.date), ys = wk && String(wk.year), cat = pv.querySelector("[name=pcat]").value;
         if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет — в личный план не вношу"); }
-        else { addToCell(ys, cat, wk.idx, String(cur.cents / 100), (cur.note || "") + " (нал)"); tx.plan = { year: ys, week: wk.idx, cat: cat }; state.settings.lastCat = cat; }
+        else { var pn = (cur.note || "") + " (нал)", pr = addToCell(ys, cat, wk.idx, String(cur.cents / 100), pn) || {}; tx.plan = { year: ys, week: wk.idx, cat: cat, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; state.settings.lastCat = cat; }
       }
       var msg = previewText();
       c.tx.push(tx); cur = null; f.q.value = "";
@@ -200,8 +200,9 @@
       b.onclick = function (e) {
         e.stopPropagation();
         var t = c.tx.find(function (x) { return x.id === b.dataset.deltx; });
-        askConfirm("Удалить запись «" + ((t && t.note) || "без описания") + "»?" + (t && t.plan ? " Сумма в личном плане останется — поправь её на экране «Неделя», если нужно." : " Баланс пересчитается."), "Удалить", function () {
-          c.tx = c.tx.filter(function (x) { return x.id !== b.dataset.deltx; }); changed();
+        askConfirm(cashDelText(t), "Удалить", function () {
+          var inPlan = unplanCash(t);
+          c.tx = c.tx.filter(function (x) { return x.id !== b.dataset.deltx; }); changed(); toast(inPlan ? "Удалено — и из Плана" : "Запись удалена");
         });
       };
     });
@@ -269,6 +270,13 @@
     var cm = $main.querySelector("#cashMore"); if (cm) cm.onclick = function () { ui.cashLimit = (ui.cashLimit || 60) + 100; render(); };
   };
 
+  // Текст подтверждения удаления: если трата внесена в План — сказать, откуда она уйдёт
+  function cashDelText(t) {
+    var what = "Удалить «" + ((t && t.note) || "без описания") + "»" + (t ? " " + E.fmt(Math.abs(t.cents), { cur: "€" }) : "") + "?";
+    var p = t && t.plan;
+    if (p && state.years[p.year] && !state.years[p.year].archived) return what + " Она есть в Плане («" + catName(p.cat) + "», " + shortWeek(p.year, p.week) + ") — уберу и оттуда. Баланс кармана пересчитается.";
+    return what + " Баланс кармана пересчитается.";
+  }
   // Правка записи налички: сумма, карманы, дата, описание. Если трата уже в плане — разница по сумме идёт туда же.
   function cashEditModal(t) {
     if (!t) return;
@@ -286,8 +294,9 @@
       var g = function (n) { var el = m.querySelector("[name=" + n + "]"); return el ? el.value : undefined; };
       m.querySelector("[data-act=x]").onclick = closeModal;
       m.querySelector("[data-act=del]").onclick = function () {
-        askConfirm("Удалить запись «" + (t.note || "без описания") + "»?" + (t.plan ? " Сумма в плане останется — поправь её в «Неделе», если нужно." : ""), "Удалить", function () {
-          c.tx = c.tx.filter(function (x) { return x.id !== t.id; }); closeModal(); changed(); toast("Запись удалена");
+        askConfirm(cashDelText(t), "Удалить", function () {
+          var inPlan = unplanCash(t);
+          c.tx = c.tx.filter(function (x) { return x.id !== t.id; }); closeModal(); changed(); toast(inPlan ? "Удалено — и из Плана" : "Запись удалена");
         });
       };
       m.querySelector("[data-act=ok]").onclick = function () {
@@ -372,7 +381,7 @@
           if (a === "add") {
             var cat = li.querySelector("select").value, wk = E.weekOfDate(t.date), ys = wk && String(wk.year);
             if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет"); return; }
-            addToCell(ys, cat, wk.idx, String(t.cents / 100), (t.note || "") + " (нал)"); t.plan = { year: ys, week: wk.idx, cat: cat };
+            var pn = (t.note || "") + " (нал)", pr = addToCell(ys, cat, wk.idx, String(t.cents / 100), pn) || {}; t.plan = { year: ys, week: wk.idx, cat: cat, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn };
             toast(E.fmt(t.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(ys, wk.idx));
           } else { t.planSkip = a; }
           if (before) before(); changed();

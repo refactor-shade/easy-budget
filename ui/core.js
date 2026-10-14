@@ -795,6 +795,32 @@ function addToCell(year, catId, w, valueExpr, note, logSrc) {
     // term — что дописано к формуле; base/fresh — какой была ячейка, чтобы при удалении вернуть как было
     yl.log.push({ id: E.uid("l"), ts: Date.now(), date: logSrc.date || E.todayISO(), w: w, cat: catId, cents: v, term: add, base: baseExpr, fresh: !entry, note: note || "", src: logSrc.src || "plus" });
   }
+  return { term: add, base: baseExpr, fresh: !entry };
+}
+// Снять из ячейки то, что когда-то к ней прибавили (term — дописанное слагаемое, cents — его сумма со знаком).
+// Если слагаемое в формуле не нашлось (ячейку потом правили) — дописываем обратное, итог всё равно верный.
+function stripFromCell(year, cat, w, cents, term, note, fresh, base) {
+  var y = state.years[year], entry = y && (y.entries[cat] || {})[w];
+  if (!entry) return;
+  var ex = String(entry.expr), t = term, t0 = t.replace(/^\+/, ""), nx;
+  if (ex === t || ex === t0) nx = "";
+  else if (ex.slice(-t.length) === t) nx = ex.slice(0, -t.length);
+  else if (ex.indexOf(t0) === 0 && /^[+-]/.test(ex.slice(t0.length))) nx = ex.slice(t0.length).replace(/^\+/, "");
+  else if (ex.indexOf(t) > 0) nx = ex.replace(t, "");
+  else nx = ex + (cents < 0 ? "+" : "-") + String(Math.abs(cents) / 100);
+  if (fresh && nx === base) nx = ""; // ячейка была пустой или регулярной — возвращаем как было
+  var n = entry.note || "";
+  if (note) n = n === note ? "" : n.replace("; " + note, "").replace(note + "; ", "");
+  E.setEntry(state, year, cat, String(w), nx, n);
+}
+// Трата налички, внесённая в План (t.plan), — убрать её сумму и оттуда (при удалении записи налички)
+function unplanCash(t) {
+  var p = t && t.plan;
+  if (!p || !state.years[p.year] || state.years[p.year].archived) return false;
+  var cents = -Math.abs(t.cents), own = p.term && Math.round(Math.abs(parseFloat(p.term)) * 100) === Math.abs(t.cents);
+  // сумму потом меняли — слагаемое в формуле уже другое, снимаем текущую сумму целиком
+  stripFromCell(p.year, p.cat, p.week, cents, own ? p.term : "-" + String(Math.abs(t.cents) / 100), p.note || (t.note || "") + " (нал)", own && p.fresh, p.base);
+  return true;
 }
 // Убрать запись журнала: снять её слагаемое из формулы ячейки (или удалить регулярную трату, если запись — правило)
 function removeLogged(year, id) {
@@ -802,21 +828,7 @@ function removeLogged(year, id) {
   if (i < 0) return false;
   var e = log[i];
   if (e.rule) { y.recurring = (y.recurring || []).filter(function (r) { return r.id !== e.rule; }); }
-  else {
-    var entry = (y.entries[e.cat] || {})[e.w];
-    if (entry) {
-      var ex = String(entry.expr), t = e.term, t0 = t.replace(/^\+/, ""), nx;
-      if (ex === t || ex === t0) nx = "";
-      else if (ex.slice(-t.length) === t) nx = ex.slice(0, -t.length);
-      else if (ex.indexOf(t0) === 0 && /^[+-]/.test(ex.slice(t0.length))) nx = ex.slice(t0.length).replace(/^\+/, "");
-      else if (ex.indexOf(t) > 0) nx = ex.replace(t, "");
-      else nx = ex + (e.cents < 0 ? "+" : "-") + String(Math.abs(e.cents) / 100);
-      if (e.fresh && nx === e.base) nx = ""; // ячейка была пустой или регулярной — возвращаем как было
-      var n = entry.note || "";
-      if (e.note) n = n === e.note ? "" : n.replace("; " + e.note, "").replace(e.note + "; ", "");
-      E.setEntry(state, year, e.cat, String(e.w), nx, n);
-    }
-  }
+  else stripFromCell(year, e.cat, e.w, e.cents, e.term, e.note, e.fresh, e.base);
   log.splice(i, 1);
   return true;
 }

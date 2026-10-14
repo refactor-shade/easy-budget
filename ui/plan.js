@@ -209,6 +209,20 @@
         var changedIt = finish(true);
         if (!changedIt && nx) { ui.gridFocus = null; if (nx.dataset.c !== undefined) inlineEdit(nx, y); else inlineEditRecon(nx, y); }
       } else if (e.key === "Escape") { ui.gridFocus = null; finish(false); td.focus(); }
+      else if (/^Arrow(Up|Down|Left|Right)$/.test(e.key) && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+        // как в Excel: ↑↓ — сохранить и перейти на соседнюю ячейку; ←→ — тоже, если курсор у края числа
+        // (или всё выделено — так ячейка открывается), иначе стрелка двигает курсор внутри числа
+        var horiz = e.key === "ArrowLeft" || e.key === "ArrowRight", back = e.key === "ArrowLeft" || e.key === "ArrowUp";
+        if (horiz) {
+          var len = inp.value.length, a0 = inp.selectionStart, a1 = inp.selectionEnd, all = a0 === 0 && a1 === len;
+          if (!all && !(back ? a0 === 0 && a1 === 0 : a0 === len)) return;
+        }
+        e.preventDefault();
+        var to = gridNext(td, horiz ? "Tab" : "Enter", back);
+        ui.gridFocus = null; ui.gridCursor = to ? cellSel(to) : cellSel(td);
+        var ch = finish(true);
+        if (!ch) { ui.gridCursor = null; var f = to || td; td.tabIndex = -1; f.tabIndex = 0; f.focus(); f.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+      }
     });
   }
   // остаток счёта или сверка накоплений прямо в таблице
