@@ -1672,7 +1672,14 @@ a.us-plan .arr { color: var(--muted); font-size: 18px; flex: none; }
 .foot-sub { display: block; font-size: 11px; font-weight: 400; opacity: .8; }
 /* окно «Внести» не прыгает, когда появляется превью (B13): на компьютере — от верха, на телефоне — постоянной высоты */
 @media (min-width: 821px) { dialog.modal.sheet-plus { margin: 10vh auto auto; } }
-@media (max-width: 820px) { dialog.modal.sheet-plus .m-body.plus { min-height: min(66vh, 560px); } }
+/* на телефоне шторка по высоте содержимого, а поле и «Записать» не прыгают: шторка прижата к низу, поэтому разбор фразы
+   (чипы и «куда попадёт») стоит над полем — новое растёт вверх, поле остаётся на месте (раньше — пустая половина экрана) */
+@media (max-width: 820px) {
+  #plusBody { display: flex; flex-direction: column; }
+  #plusBody .plus-chips, #plusBody #plusWhere { order: -1; }
+  #plusBody .plus-chips { margin: 0 0 12px; }
+  #plusBody #plusWhere:not(:empty) { margin-bottom: 14px; }
+}
 /* иконки меню — SVG (B14) */
 .nav svg.ico { flex: none; display: block; }
 /* единая рамка фокуса — зелёная, а не стандартная браузерная (после закрытия окна фокус возвращается на «+») */
@@ -1718,3 +1725,9 @@ table.g td[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-o
 .ll-edit:disabled { cursor: default; }
 .ll-edit:not(:disabled):hover .ll-tx b { text-decoration: underline; text-decoration-color: var(--line-strong); }
 .sp-lead { margin: 2px 0 0; }
+.a-recon { cursor: pointer; transition: border-color .15s; }
+.a-recon:hover { border-color: var(--accent); }
+.cf-grid { margin-top: 14px; }
+.f-wide { grid-column: 1 / -1; }
+.cf-plan > span { display: flex; align-items: center; gap: 8px; }
+.cf-hint { margin: 8px 0 0; }
