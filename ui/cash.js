@@ -153,7 +153,7 @@
       if (pp && pp.checked) {
         var wk = E.weekOfDate(cur.date), ys = wk && String(wk.year), cat = pv.querySelector("[name=pcat]").value;
         if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет — в личный план не вношу"); }
-        else { var pn = (cur.note || "") + " (нал)", pr = addToCell(ys, cat, wk.idx, String(cur.cents / 100), pn) || {}; tx.plan = { year: ys, week: wk.idx, cat: cat, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; state.settings.lastCat = cat; }
+        else { tx.plan = cashToPlan(ys, cat, wk.idx, cur.cents, (cur.note || "") + " (нал)", "in"); state.settings.lastCat = cat; }
       }
       var msg = previewText();
       c.tx.push(tx); cur = null; f.q.value = "";
@@ -274,6 +274,10 @@
   function cashDelText(t) {
     var what = "Удалить «" + ((t && t.note) || "без описания") + "»" + (t ? " " + E.fmt(Math.abs(t.cents), { cur: "€" }) : "") + "?";
     var p = t && t.plan;
+    if (p && p.inside !== undefined && state.years[p.year] && !state.years[p.year].archived) {
+      var over = Math.abs(t.cents) - p.inside;
+      return what + " Она была уже в плане недели" + (p.term && over > 0 ? ", сверх плана было " + E.fmt(over, { cur: "€" }) + " — это уйдёт из Плана." : " — План не изменится.") + " Баланс кармана пересчитается.";
+    }
     if (p && state.years[p.year] && !state.years[p.year].archived) return what + " Она есть в Плане («" + catName(p.cat) + "», " + shortWeek(p.year, p.week) + ") — уберу и оттуда. Баланс кармана пересчитается.";
     return what + " Баланс кармана пересчитается.";
   }
@@ -305,7 +309,10 @@
         v = k === "adjust" ? v : Math.abs(v);
         if (k === "move" && g("ef") === g("et")) { toast("Откуда и куда — одно и то же"); return; }
         var delta = v - t.cents;
-        if (t.plan && delta && state.years[t.plan.year]) shiftCell(t.plan.year, t.plan.cat, t.plan.week, -delta, "правка налички");
+        if (t.plan && delta && state.years[t.plan.year] && !state.years[t.plan.year].archived) {
+          if (t.plan.inside !== undefined) replanCash(t, v); // уже в плане: остаток конверта и то, что сверх, пересчитываются
+          else shiftCell(t.plan.year, t.plan.cat, t.plan.week, -delta, "правка налички");
+        }
         t.cents = v; t.date = g("ed") || t.date; t.note = g("en") || "";
         if (g("ef") !== undefined) t.from = g("ef"); if (g("et") !== undefined) t.to = g("et");
         closeModal(); changed(); toast("Сохранено");
@@ -335,16 +342,18 @@
   function moveToShared(t) {
     var c = cashState(), f = Plus.sharedFromNote(t.note, t.cents), pName = sh.partner ? sh.partner.name : "партнёр", owe = t.cents - f.mine;
     var how = { equal: "пополам", theirs: "всё на " + pName, mine: "всё на тебе" }[f.mode] || "пополам";
-    var planOk = t.plan && state.years[t.plan.year] && !state.years[t.plan.year].archived;
+    var planOk = t.plan && state.years[t.plan.year] && !state.years[t.plan.year].archived, planIn = planOk && t.plan.inside !== undefined;
     // «Перенести «Такси» в общие?» — описание уже без «пополам» и имени; карман и сумма не меняются
     askConfirm("Перенести «" + f.desc + "» в общие? " + E.fmt(t.cents, { cur: "€" }) + " из «" + pocketName(t.from) + "», " + how + (owe > 0 ? ": " + pName + " должна " + E.fmt(owe, { cur: "€" }) : "") + "." +
-      (planOk && owe > 0 ? " В личном плане останется твоя доля — " + E.fmt(f.mine, { cur: "€" }) + " вместо " + E.fmt(t.cents, { cur: "€" }) + "." : ""), "Перенести", function () {
+      (planOk && !planIn && owe > 0 ? " В личном плане останется твоя доля — " + E.fmt(f.mine, { cur: "€" }) + " вместо " + E.fmt(t.cents, { cur: "€" }) + "." : ""), "Перенести", function () {
       var ex = S.makeExpense({ date: t.date, desc: f.desc, cost: t.cents, currency: "EUR", paidByMe: true, myShare: f.mine, cat: f.cat, method: "cash", note: "", kind: "expense", split: f.split });
       var row = SU.toRow(ex, sh.meId, sh.partnerId, sh.space.id);
       Store.insertShared([row]).then(function () { return loadShared(); }).then(function () {
         c.tx = c.tx.filter(function (x) { return x.id !== t.id; });
         c.sharedMap = c.sharedMap || {}; if (row.id) c.sharedMap[row.id] = t.from;
-        if (planOk) {
+        // была «уже в плане»: из личного плана убираем, твою долю учтёт «Общие траты и твой план» за месяц
+        if (planIn) unplanCash(t);
+        else if (planOk) {
           if (owe > 0) shiftCell(t.plan.year, t.plan.cat, t.plan.week, owe, "общая: доля " + pName);
           // доля уже в плане — «Общие траты и твой план» не предлагает её второй раз
           if (row.id) { state.settings.sharedLog = state.settings.sharedLog || {}; state.settings.sharedLog[row.id] = "added"; }
