@@ -1731,3 +1731,4 @@ table.g td[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-o
 .f-wide { grid-column: 1 / -1; }
 .cf-plan > span { display: flex; align-items: center; gap: 8px; }
 .cf-hint { margin: 8px 0 0; }
+dialog.modal:focus { outline: none; }
