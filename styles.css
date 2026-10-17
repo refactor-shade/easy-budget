@@ -1733,3 +1733,7 @@ dialog.modal:focus { outline: none; }
 /* «Сверх плана · −50 € допишется к неделе»: подпись не обрезается — если не влезает, сумма переносится */
 .pw-row.pw-over { flex-wrap: wrap; row-gap: 2px; }
 .pw-row.pw-over > span { flex: none; overflow: visible; }
+/* карман уходит в минус: сумма красным и строка «не хватит» */
+.pw-row b.neg { color: var(--neg); }
+.pw-warn { font-size: 13px; color: var(--neg); }
+.pw-warn .linkish { font-size: 13px; }
