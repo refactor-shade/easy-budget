@@ -6,6 +6,7 @@
   var PH_STOP = ["евро", "eur", "€", "руб", "р", "в", "на", "за", "из", "и", "с", "со", "по", "это", "было", "доход", "получила", "пришло", "пришла"];
   var PH_WD = { "понедельник": 1, "пн": 1, "вторник": 2, "вт": 2, "среда": 3, "среду": 3, "ср": 3, "четверг": 4, "чт": 4, "пятница": 5, "пятницу": 5, "пт": 5, "суббота": 6, "субботу": 6, "сб": 6, "воскресенье": 0, "вс": 0 };
   function phNorm(s) { return String(s || "").toLowerCase().replace(/ё/g, "е"); }
+  function phLoose(w) { return phNorm(w).replace(/([а-яa-z])\1+/g, "$1"); }
   function phStem(w) { w = phNorm(w); return w.length <= 4 ? w : w.slice(0, Math.max(4, w.length - 2)); }
   function phParse(text) {
     var t = phNorm(text), out = { cents: null, date: null, words: [] };
@@ -29,7 +30,7 @@
       out.date = mk(y, mi, Math.min(d, lastDay(y, mi))); return " ";
     });
     // сумма: первое число (4,5 · 1 200 · 89)
-    t = t.replace(/(\d{1,3}(?:[.,   ]\d{3})+(?:[.,]\d{1,2})?(?!\d)|\d+(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(E.parseNum(m) * 100); return " "; });
+    t = t.replace(/(\d{1,3}(?:[.,\u00a0\u202f ]\d{3})+(?:[.,]\d{1,2})?(?!\d)|\d+(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(E.parseNum(m) * 100); return " "; });
     t.split(/[\s,;]+/).forEach(function (w) {
       if (!w) return;
       if (w === "сегодня") { out.date = E.todayISO(); return; }
@@ -50,8 +51,9 @@
     var list = cats().filter(ok);
     for (i = 0; i < words.length; i++) {
       if (isCash(words[i])) continue;
-      var st = phStem(words[i]); if (st.length < 3) continue;
-      var hit = list.find(function (c) { return phNorm(c.name).split(/[^a-zа-я0-9]+/).some(function (n) { return n && (n.indexOf(st) === 0 || st.indexOf(phStem(n)) === 0); }); });
+      // удвоенные буквы не важны: «шоппинг» = «шопинг», «каффе» = «кафе»
+      var st = phStem(phLoose(words[i])); if (st.length < 3) continue;
+      var hit = list.find(function (c) { return phNorm(c.name).split(/[^a-zа-я0-9]+/).some(function (n) { n = phLoose(n); return n && (n.indexOf(st) === 0 || st.indexOf(phStem(n)) === 0); }); });
       if (hit) return { id: hit.id, used: i };
     }
     return null;
@@ -129,7 +131,11 @@
     var t = phNorm(text);
     if (sharedSignal(text)) return "shared";
     // «такси 12 нал» — трата наличными, если учёт налички уже начат
-    if (Cash.cashState().since && t.split(/[\s,;.!?]+/).some(function (w) { return K.CASH_WORD.test(w); })) return "cash";
+    // «уход 50 из конверта», «кофе 4 из кошелька» — тоже наличка: слова «кошелёк / конверт» или «из <название кармана>»
+    // (только после «из»: конверт «продукты» не должен превращать любые продукты в наличку)
+    var cst = Cash.cashState();
+    if (cst.since && (t.split(/[\s,;.!?]+/).some(function (w) { return K.CASH_WORD.test(w) || /^(кошел[её]?[а-я]*|конверт[а-я]*)$/.test(w); }) ||
+      (/(^|\s)из\s+\S/.test(t) && K.mentionedPocket(t.replace(/^.*?(^|\s)из\s+/, ""), (cst.pockets || []).filter(function (p) { return !p.archived; }))))) return "cash";
     if (/(^|\s)(доход|зарплат|зп(\s|$)|получил|пришл[оа]|бонус|преми|аванс|кешбэк|кэшбэк|гонорар|возврат налог)/.test(t)) return "income";
     var p = phParse(text);
     if (p.words.length && !phCat(p.words, false) && phCat(p.words, true)) return "income";
@@ -179,6 +185,10 @@
     var q = body.querySelector("#plusQ"), tmr = null;
     q.oninput = function () { clearTimeout(tmr); tmr = setTimeout(function () { plusUi.text = q.value; plusUi.over = {}; drawParsed(m); }, 200); };
     q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); plusUi.text = q.value; drawParsed(m); plusSave(m); } };
+    // на телефоне шторка открывается по содержимому и становится высокой, когда нажимаешь на поле или печатаешь — и остаётся
+    // такой до закрытия (иначе нажатие на чип снимает фокус, шторка сжимается и всё прыгает)
+    var tall = function () { m.classList.add("plus-typing"); };
+    q.addEventListener("pointerdown", tall); q.addEventListener("input", tall);
     body.querySelector("#plusGo").onclick = function () { plusUi.text = q.value; drawParsed(m); plusSave(m); };
     var pm = body.querySelector(".plus-more"); if (pm) pm.onclick = closeModal;
     var pf = body.querySelector("#plusForm");
@@ -187,7 +197,7 @@
       setTimeout(function () {
         if (tab === "cash") cashFormModal(md);
         else if (tab === "shared") Us.expenseSheet(null, { desc: md.desc ? md.desc.charAt(0).toUpperCase() + md.desc.slice(1) : "", cost: md.cents || 0, cat: md.cat, date: md.date, paidByMe: md.paidByMe, mode: md.mode === "full" ? "full" : "equal", method: md.method || "card" });
-        else spendModal({ income: tab === "income", date: md.date, cat: md.cat, amount: md.cents ? String(md.cents / 100).replace(".", ",") : "", note: md.note || "" });
+        else spendModal({ income: tab === "income", envOver: !envDefaultIn(md), date: md.date, cat: md.cat, amount: md.cents ? String(md.cents / 100).replace(".", ",") : "", note: md.note || "" });
       }, 40);
     };
     drawParsed(m);
@@ -277,13 +287,28 @@
       html += plusChip({ no: "не повторять", month: "каждый месяц", week: "каждую неделю" }[rep] + " ▾", rep === "no" ? "soft" : "", "<select data-o='rep'>" +
         opt("no", "не повторять", rep === "no") + opt("month", "каждый месяц — станет регулярной", rep === "month") + opt("week", "каждую неделю — станет регулярной", rep === "week") + "</select>");
       var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
+      // у категории в эту неделю уже есть сумма в плане — трата уже в ней или сверх
+      var env = md.tab === "spend" && rep === "no" && wk && state.years[ys] && !state.years[ys].archived ? weekEnv(ys, md.cat, wk.idx) : null, envIn = env && envDefaultIn(md);
+      if (env) html += plusChip(envIn ? "уже в плане недели ▾" : "сверх плана ▾", envIn ? "soft" : "", "<select data-o='env' aria-label='Трата уже в плане недели или сверх'>" +
+        opt("in", "уже в плане недели — план не меняется", envIn) + opt("over", "сверх плана — прибавится к неделе", !envIn) + "</select>");
       if (!wk || !state.years[ys] || state.years[ys].archived) wh = tpl("<div class='pw-err'>Плана на {y} нет — создай его в «Плане».</div>", { y: ys || "эту дату" });
+      else if (md.cents && envIn) {
+        // коротко: сколько останется в плане недели и, если не хватило, сколько допишется сверх
+        var sp = splitEnv(env, md.cents), lft = env.left - sp.inside;
+        wh = tpl("<div class='pw-row'><span>Уже в плане {pl}</span><b>останется {l2}</b></div>{!over}", {
+          l2: E.fmt(lft, { cur: "€", dec: lft % 100 ? 2 : 0 }), pl: E.fmt(env.plan, { cur: "€", dec: env.plan % 100 ? 2 : 0 }),
+          over: sp.over ? tpl("<div class='pw-row'><span>Сверх плана</span><b>{v} к неделе</b></div>", { v: E.fmt(-sp.over, { cur: "€" }) }) : "" });
+      }
       else if (md.cents) {
         var r = E.compute(state, ys), cell = r.cells[md.cat][wk.idx], before = cell ? cell.cents : 0, v = md.tab === "income" ? md.cents : -md.cents;
-        wh = tpl("<div class='pw-row'><span>План · {wk} · {cat}</span><b>{a} → {b}</b></div><div class='pw-sub'>В обращении на {to}: {o1} → {o2}</div>{!ask}", {
+        wh = tpl("<div class='pw-row'><span>План · {wk} · {cat}</span><b>{a} → {b}</b></div>{!ask}", {
           ask: md.catSure || md.tab === "income" ? "" : tpl("<div class='pw-sub pw-ask'>Категорию не узнала — поставила «{c}». Можно выбрать другую.</div>", { c: catName(md.cat) }),
-          wk: shortWeek(ys, wk.idx).replace(/([а-я]{3})[а-я]+$/, "$1"), cat: catName(md.cat), a: E.fmt(before, { cur: "€", dec: 0 }), b: E.fmt(before + v, { cur: "€", dec: 0 }),
-          to: dayGen(r.weeks[wk.idx].to), o1: E.fmt(rnd(r.base[wk.idx]), { cur: "€", dec: 0 }), o2: E.fmt(rnd(r.base[wk.idx] + v), { cur: "€", dec: 0 }) });
+          wk: shortWeek(ys, wk.idx).replace(/([а-я]{3})[а-я]+$/, "$1"), cat: catName(md.cat), a: E.fmt(before, { cur: "€", dec: 0 }), b: E.fmt(before + v, { cur: "€", dec: 0 }) });
+      }
+      // «В обращении» не показываем — разница всегда равна сумме. Предупреждаем, только если трата уводит самый низкий остаток в минус
+      if (md.cents && md.tab === "spend" && rep === "no" && wh && wk && state.years[ys] && !state.years[ys].archived) {
+        var neg = lowGoesNeg(ys, wk.idx, envIn ? splitEnv(env, md.cents).over : md.cents);
+        if (neg) wh += tpl("<div class='pw-err'>Самый низкий остаток уйдёт в минус: {v}, {wk}.</div>", { v: E.fmt(rnd(neg.v), { cur: "€", dec: 0 }), wk: shortWeek(ys, neg.week) });
       }
     } else if (md.tab === "shared") {
       var pName = sh.partner ? sh.partner.name : "партнёр";
@@ -332,7 +357,7 @@
       var bal2 = K.balances(cs, Cash.cashLines());
       wh = "<div class='pw-pockets'>" + cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; }).slice(0, 3).map(function (p) {
         var now = bal2[p.id] || 0, nxt = !moves ? now : now - (cc.from === p.id ? md.cents || 0 : 0) + (cc.to === p.id ? md.cents || 0 : 0);
-        return tpl("<div><small>{n}</small><b>{was}{v}</b></div>", { n: p.name, was: nxt !== now ? E.fmt(now, { dec: now % 100 ? 2 : 0 }) + " → " : "", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
+        return tpl("<div><small>{n}</small><b>{was}{v}</b></div>", { n: p.name, was: nxt !== now ? E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0" : "", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
       }).join("") + "</div>";
       if (shOn && md.cents) {
         wh += sharedWhereHtml(md);
@@ -361,6 +386,8 @@
     });
   }
 
+  // «уже в плане» — по умолчанию, но только если категорию узнала: при подставленной наугад трата не должна молча уйти в чужой план
+  function envDefaultIn(md) { return plusUi.over.env ? plusUi.over.env === "in" : (md.catSure || !!plusUi.over.cat); }
   function plusSave(m) {
     var md = plusModel();
     if (!plusUi.text.trim()) { m.querySelector("#plusQ").focus(); return; }
@@ -368,18 +395,19 @@
     if (md.tab === "spend" || md.tab === "income") {
       var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
       if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет"); return; }
-      var rep = plusUi.over.rep || "no";
+      var rep = plusUi.over.rep || "no", envSaved = false;
       if (rep !== "no") {
         var yr = state.years[ys], v = md.tab === "income" ? md.cents : -md.cents;
         yr.recurring = yr.recurring || [];
         var rid = E.uid("r");
         yr.recurring.push({ id: rid, catId: md.cat, expr: String(v / 100), cents: v, weeks: rep === "week" ? "все" : String(wk.wim), from: md.date, to: null });
         yr.log = yr.log || []; yr.log.push({ id: E.uid("l"), ts: Date.now(), date: md.date, w: wk.idx, cat: md.cat, cents: v, rule: rid, rep: rep, note: md.note || "", src: "plus" });
-      } else addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note, { src: "plus", date: md.date });
+      } else if ((envSaved = md.tab === "spend" && envDefaultIn(md) && !!weekEnv(ys, md.cat, wk.idx))) logSpend(ys, md.cat, wk.idx, md.cents, md.note, { src: "plus", date: md.date });
+      else addToCell(ys, md.cat, wk.idx, String(md.cents / 100), md.note, { src: "plus", date: md.date });
       state.settings.lastCat = md.cat;
       state.settings.recentCats = [md.cat].concat((state.settings.recentCats || []).filter(function (x) { return x !== md.cat; })).slice(0, 6);
       if (md.word && plusUi.over.cat) { state.settings.phraseCats = state.settings.phraseCats || {}; state.settings.phraseCats[phStem(md.word)] = md.cat; }
-      closeModal(); toast((md.tab === "income" ? "Доход " : "") + E.fmt(md.cents, { cur: "€" }) + " → «" + catName(md.cat) + "», " + (rep === "month" ? "каждый месяц с " + shortWeek(ys, wk.idx) : rep === "week" ? "каждую неделю с " + shortWeek(ys, wk.idx) : shortWeek(ys, wk.idx))); changed();
+      closeModal(); toast((md.tab === "income" ? "Доход " : "") + E.fmt(md.cents, { cur: "€" }) + " → «" + catName(md.cat) + "», " + (rep === "month" ? "каждый месяц с " + shortWeek(ys, wk.idx) : rep === "week" ? "каждую неделю с " + shortWeek(ys, wk.idx) : shortWeek(ys, wk.idx) + (envSaved ? " · уже в плане" : ""))); changed();
     } else if (md.tab === "shared") {
       saveShared(m, md, md.method, md.method === "cash" && md.paidByMe ? md.pocket : null);
     } else if (md.tab === "cash" && md.share !== "no") {
