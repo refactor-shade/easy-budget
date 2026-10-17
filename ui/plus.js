@@ -268,9 +268,9 @@
     if (mine < 100) return "";
     var kind = S.FOOD.indexOf(md.cat) >= 0 ? "food" : S.FUN.indexOf(md.cat) >= 0 ? "fun" : null;
     var pids = kind ? ((state.settings.coverage || {})[kind] || []) : S.planCatsFor(state, md.cat);
-    var names = pids.map(catName).filter(Boolean), mon = E.MONTHS[Number(md.date.slice(5, 7)) - 1];
-    return names.length ? tpl("<div class='pw-sub'>Твоя часть {v} учтётся в плане «{r}» за {m}. Если за месяц выйдет больше плана — предложу довписать.</div>", { v: E.fmt(mine, { cur: "€" }), r: names.slice(0, 2).join(", ") + (names.length > 2 ? "…" : ""), m: mon })
-      : tpl("<div class='pw-sub'>Твоя часть {v} — строку плана для неё выберешь в «Общие траты и твой план».</div>", { v: E.fmt(mine, { cur: "€" }) });
+    var names = pids.map(catName).filter(Boolean);
+    // одной строкой, как «План · неделя · строка» на «Трате»; длинное название строки обрезается многоточием
+    return tpl("<div class='pw-row'><span>План · {m} · {r}</span><b>твоя часть {v}</b></div>", { v: E.fmt(mine, { cur: "€", dec: mine % 100 ? 2 : 0 }), m: E.MONTHS_SHORT[Number(md.date.slice(5, 7)) - 1], r: names.length ? names.join(", ") : "строка не выбрана" });
   }
   // Карман в превью: «кошелёк 100 → 92 €» (или почему не меняется)
   function pocketWhereHtml(pid, cents, date) {
