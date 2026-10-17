@@ -551,6 +551,13 @@
       if (e.inCents !== undefined) { if (e.term) added += e.cents - e.inCents; if (e.id !== except) used -= e.inCents; }
       else if (e.term) added += e.cents;
     });
+    // наличка, внесённая в план (t.plan): целиком — её слагаемое не часть конверта; «уже в плане» (plan.inside) — расходует конверт, в ячейке только то, что сверх
+    ((st.cash && st.cash.tx) || []).forEach(function (t) {
+      var p = t.plan;
+      if (!p || String(p.year) !== String(year) || p.cat !== catId || p.week !== w || t.kind !== "spend") return;
+      if (p.inside !== undefined) { if (p.term) added -= t.cents - p.inside; if (t.id !== except) used += p.inside; }
+      else if (p.term) added -= t.cents;
+    });
     var plan = -(cell.cents - added);
     if (plan <= 0) return null;
     return { plan: plan, used: used, left: Math.max(0, plan - used) };
@@ -578,6 +585,16 @@
     var yl = st.years[year]; yl.log = yl.log || [];
     yl.log.push({ id: uid("l"), ts: Date.now(), date: logSrc.date || todayISO(), w: w, cat: catId, cents: -cents, inCents: -sp.inside, term: sp.over ? r.term : null, base: r.base, fresh: r.fresh, note: note || "", src: logSrc.src || "plus" });
     return r;
+  }
+  // Трата налички в личный план. mode "in" — «уже в плане недели»: сначала из остатка конверта, в ячейку — только то, что сверх;
+  // иначе (или если конверта нет) — вся сумма. Возвращает t.plan: { year, week, cat, term, base, fresh, note[, inside] }; cents > 0
+  function cashToPlan(st, year, catId, w, cents, note, mode) {
+    var env = mode === "in" ? weekEnv(st, year, catId, w) : null, p = { year: String(year), week: w, cat: catId, note: note };
+    if (!env) { var r0 = addToCell(st, year, catId, w, String(cents / 100), note) || {}; p.term = r0.term; p.base = r0.base; p.fresh = r0.fresh; return p; }
+    var sp = splitEnv(env, cents), r = sp.over ? addToCell(st, year, catId, w, String(sp.over / 100), note) || {} : {};
+    p.inside = sp.inside; p.term = sp.over ? r.term : null; p.base = r.base; p.fresh = r.fresh;
+    st._ver = (st._ver || 0) + 1; // конверт изменился, даже если ячейка нет
+    return p;
   }
   // Снять из ячейки то, что когда-то к ней прибавили (term — дописанное слагаемое, cents — его сумма со знаком).
   // Если слагаемое в формуле не нашлось (ячейку потом правили) — дописываем обратное, итог всё равно верный.
@@ -616,6 +633,6 @@
     categoryTotals: categoryTotals, setEntry: setEntry, changeRuleFrom: changeRuleFrom, createYear: createYear,
     catsById: catsById, ruleMatches: ruleMatches, trimOverlaps: trimOverlaps, overlaps: overlaps, accountActive: accountActive, uid: uid,
     findRepeats: findRepeats, applyRepeat: applyRepeat,
-    addToCell: addToCell, weekEnv: weekEnv, splitEnv: splitEnv, lowGoesNeg: lowGoesNeg, logSpend: logSpend, stripFromCell: stripFromCell, removeLogged: removeLogged,
+    addToCell: addToCell, cashToPlan: cashToPlan, weekEnv: weekEnv, splitEnv: splitEnv, lowGoesNeg: lowGoesNeg, logSpend: logSpend, stripFromCell: stripFromCell, removeLogged: removeLogged,
   };
 })(typeof window !== "undefined" ? window : this);
