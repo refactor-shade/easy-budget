@@ -380,6 +380,8 @@
 
   // ---------- изменения данных ----------
   function setEntry(state, year, catId, w, expr, note) {
+    // клетка меняется — кэш compute() по _ver больше не годится (иначе снять и сразу дописать считало по старой клетке)
+    state._ver = (state._ver || 0) + 1;
     var y = state.years[year];
     y.entries = y.entries || {};
     if (expr === null || String(expr).trim() === "") {
@@ -513,6 +515,99 @@
   var uidN = 0;
   function uid(p) { return (p || "id") + Date.now().toString(36) + (uidN++).toString(36) + Math.random().toString(36).slice(2, 6); }
 
+  // ---------- записи из «+» и «Внести»: дописать в клетку, «уже в плане», снять при удалении (перенесено из ui/core.js, R18) ----------
+  // Добавить трату к ячейке (складывается с тем, что уже стоит)
+  // logSrc ({ src, date }) — записать в журнал «История записей» (свои траты и доходы: «+», «Заполнить по полям», фраза в сверке)
+  function addToCell(st, year, catId, w, valueExpr, note, logSrc) {
+    var c = st.categories.find(function (x) { return x.id === catId; });
+    var v = exprCents(valueExpr);
+    if (v === null) return;
+    if (c.block !== "income" && v > 0) v = -v;
+    var r = compute(st, year), cell = r.cells[catId][w];
+    var entry = (st.years[year].entries[catId] || {})[w];
+    var baseExpr = entry ? entry.expr : (cell ? String(cell.cents / 100) : "");
+    var add = (v < 0 ? "-" : "+") + String(Math.abs(v) / 100);
+    var expr = baseExpr ? baseExpr + add : add.replace(/^\+/, "");
+    var n = entry && entry.note ? entry.note + (note ? "; " + note : "") : (note || "");
+    setEntry(st, year, catId, String(w), expr, n);
+    if (logSrc) {
+      var yl = st.years[year]; yl.log = yl.log || [];
+      // term — что дописано к формуле; base/fresh — какой была ячейка, чтобы при удалении вернуть как было
+      yl.log.push({ id: uid("l"), ts: Date.now(), date: logSrc.date || todayISO(), w: w, cat: catId, cents: v, term: add, base: baseExpr, fresh: !entry, note: note || "", src: logSrc.src || "plus" });
+    }
+    return { term: add, base: baseExpr, fresh: !entry };
+  }
+  // «Конверт» недели: плановая сумма категории в эту неделю (продукты 150 €) — регулярная или вписанная в таблицу,
+  // без того, что дописали записи из «Истории». Траты «уже в плане» его расходуют, в Плане меняется только то, что сверх.
+  // plan, used, left — положительные центы; except — id записи, которую сейчас правят (её трата не считается израсходованной)
+  function weekEnv(st, year, catId, w, except) {
+    var y = st.years[year], c = st.categories.find(function (x) { return x.id === catId; });
+    if (!y || y.archived || !c || c.block === "income" || c.block === "savings") return null;
+    var cell = compute(st, year).cells[catId][w];
+    if (!cell || cell.cents >= 0) return null;
+    var added = 0, used = 0;
+    (y.log || []).forEach(function (e) {
+      if (e.rule || e.cat !== catId || e.w !== w) return;
+      if (e.inCents !== undefined) { if (e.term) added += e.cents - e.inCents; if (e.id !== except) used -= e.inCents; }
+      else if (e.term) added += e.cents;
+    });
+    var plan = -(cell.cents - added);
+    if (plan <= 0) return null;
+    return { plan: plan, used: used, left: Math.max(0, plan - used) };
+  }
+  // Трата «уже в плане»: сначала из остатка конверта, остальное дописывается в ячейку. cents > 0
+  function splitEnv(env, cents) { var inside = env ? Math.min(cents, env.left) : 0; return { inside: inside, over: cents - inside }; }
+  // Уведёт ли трата cents (> 0) в неделю w самый низкий остаток до конца года в минус. Только если до неё он был не в минусе
+  // (иначе об этом уже говорит Главная). Считаем с текущей недели, как на Главной: { v, week } или null
+  function lowGoesNeg(st, year, w, cents, today) {
+    if (!cents || !st.years[year]) return null;
+    var r = compute(st, year), t = weekOfDate(today || todayISO()), from = t && String(t.year) === year ? t.idx : 0;
+    var before = Infinity, after = Infinity, aw = from;
+    for (var i = from; i < 60; i++) {
+      if (r.base[i] === undefined || r.base[i] === null) continue;
+      if (r.base[i] < before) before = r.base[i];
+      var v = r.base[i] - (i >= w ? cents : 0);
+      if (v < after) { after = v; aw = i; }
+    }
+    return before >= 0 && after < 0 ? { v: after, week: aw } : null;
+  }
+  function logSpend(st, year, catId, w, cents, note, logSrc) {
+    var env = weekEnv(st, year, catId, w), sp = splitEnv(env, cents), r = {};
+    if (!env) return addToCell(st, year, catId, w, String(cents / 100), note, logSrc);
+    if (sp.over) r = addToCell(st, year, catId, w, String(sp.over / 100), note) || {};
+    var yl = st.years[year]; yl.log = yl.log || [];
+    yl.log.push({ id: uid("l"), ts: Date.now(), date: logSrc.date || todayISO(), w: w, cat: catId, cents: -cents, inCents: -sp.inside, term: sp.over ? r.term : null, base: r.base, fresh: r.fresh, note: note || "", src: logSrc.src || "plus" });
+    return r;
+  }
+  // Снять из ячейки то, что когда-то к ней прибавили (term — дописанное слагаемое, cents — его сумма со знаком).
+  // Если слагаемое в формуле не нашлось (ячейку потом правили) — дописываем обратное, итог всё равно верный.
+  function stripFromCell(st, year, cat, w, cents, term, note, fresh, base) {
+    var y = st.years[year], entry = y && (y.entries[cat] || {})[w];
+    if (!entry) return;
+    var ex = String(entry.expr), t = term, t0 = t.replace(/^\+/, ""), nx;
+    if (ex === t || ex === t0) nx = "";
+    else if (ex.slice(-t.length) === t) nx = ex.slice(0, -t.length);
+    else if (ex.indexOf(t0) === 0 && /^[+-]/.test(ex.slice(t0.length))) nx = ex.slice(t0.length).replace(/^\+/, "");
+    else if (ex.indexOf(t) > 0) nx = ex.replace(t, "");
+    else nx = ex + (cents < 0 ? "+" : "-") + String(Math.abs(cents) / 100);
+    if (fresh && nx === base) nx = ""; // ячейка была пустой или регулярной — возвращаем как было
+    var n = entry.note || "";
+    if (note) n = n === note ? "" : n.replace("; " + note, "").replace(note + "; ", "");
+    setEntry(st, year, cat, String(w), nx, n);
+  }
+  // Убрать запись журнала: снять её слагаемое из формулы ячейки (или удалить регулярную трату, если запись — правило)
+  function removeLogged(st, year, id) {
+    var y = st.years[year], log = (y && y.log) || [], i = log.findIndex(function (x) { return x.id === id; });
+    if (i < 0) return false;
+    var e = log[i];
+    if (e.rule) { y.recurring = (y.recurring || []).filter(function (r) { return r.id !== e.rule; }); st._ver = (st._ver || 0) + 1; }
+    else if (e.inCents !== undefined) { if (e.term) stripFromCell(st, year, e.cat, e.w, e.cents - e.inCents, e.term, e.note, e.fresh, e.base); } // уже в плане: в ячейке только то, что сверх
+    else stripFromCell(st, year, e.cat, e.w, e.cents, e.term, e.note, e.fresh, e.base);
+    log.splice(i, 1);
+    return true;
+  }
+
+
   root.BudgetEngine = {
     accCur: accCur, accToEur: accToEur, BLOCKS: BLOCKS, MONTHS: MONTHS, MONTHS_GEN: MONTHS_GEN, MONTHS_SHORT: MONTHS_SHORT, CAPITAL_ROWS: CAPITAL_ROWS,
     genWeeks: genWeeks, daysInMonth: daysInMonth, normNum: normNum, parseNum: parseNum, weekOfDate: weekOfDate, weekTitle: weekTitle, todayISO: todayISO, addDays: addDays,
@@ -521,5 +616,6 @@
     categoryTotals: categoryTotals, setEntry: setEntry, changeRuleFrom: changeRuleFrom, createYear: createYear,
     catsById: catsById, ruleMatches: ruleMatches, trimOverlaps: trimOverlaps, overlaps: overlaps, accountActive: accountActive, uid: uid,
     findRepeats: findRepeats, applyRepeat: applyRepeat,
+    addToCell: addToCell, weekEnv: weekEnv, splitEnv: splitEnv, lowGoesNeg: lowGoesNeg, logSpend: logSpend, stripFromCell: stripFromCell, removeLogged: removeLogged,
   };
 })(typeof window !== "undefined" ? window : this);

@@ -1672,13 +1672,13 @@ a.us-plan .arr { color: var(--muted); font-size: 18px; flex: none; }
 .foot-sub { display: block; font-size: 11px; font-weight: 400; opacity: .8; }
 /* окно «Внести» не прыгает, когда появляется превью (B13): на компьютере — от верха, на телефоне — постоянной высоты */
 @media (min-width: 821px) { dialog.modal.sheet-plus { margin: 10vh auto auto; } }
-/* на телефоне шторка по высоте содержимого, а поле и «Записать» не прыгают: шторка прижата к низу, поэтому разбор фразы
-   (чипы и «куда попадёт») стоит над полем — новое растёт вверх, поле остаётся на месте (раньше — пустая половина экрана) */
+/* на телефоне «+» — шторка снизу: поле сразу под вкладками, разбор фразы — под полем. Открывается по содержимому;
+   по нажатию на поле (класс plus-typing, ui/plus.js) становится высокой и больше не меняет высоту — поле не прыгает,
+   когда появляются чипы; нижнюю часть и так закрывает клавиатура.
+   (R17 ставил разбор над полем — на «Наличке» вкладки и чипы уходили за верх экрана, Катя 17 окт) */
 @media (max-width: 820px) {
-  #plusBody { display: flex; flex-direction: column; }
-  #plusBody .plus-chips, #plusBody #plusWhere { order: -1; }
-  #plusBody .plus-chips { margin: 0 0 12px; }
-  #plusBody #plusWhere:not(:empty) { margin-bottom: 14px; }
+  dialog.modal.sheet-plus.plus-typing[open] { height: calc(100vh - 44px); height: calc(100dvh - 44px); max-height: none; display: flex; flex-direction: column; }
+  dialog.modal.sheet-plus.plus-typing[open] .m-body.plus { flex: 1; max-height: none; overflow-y: auto; }
 }
 /* иконки меню — SVG (B14) */
 .nav svg.ico { flex: none; display: block; }
