@@ -776,43 +776,13 @@ function moveSkipModal(y, catId, w, after) {
   });
 }
 
-// Добавить трату к ячейке (складывается с тем, что уже стоит)
-// logSrc ({ src, date }) — записать в журнал «История записей» (свои траты и доходы: «+», «Заполнить по полям», фраза в сверке)
-function addToCell(year, catId, w, valueExpr, note, logSrc) {
-  var c = state.categories.find(function (x) { return x.id === catId; });
-  var v = E.exprCents(valueExpr);
-  if (v === null) return;
-  if (c.block !== "income" && v > 0) v = -v;
-  var r = E.compute(state, year), cell = r.cells[catId][w];
-  var entry = (state.years[year].entries[catId] || {})[w];
-  var baseExpr = entry ? entry.expr : (cell ? String(cell.cents / 100) : "");
-  var add = (v < 0 ? "-" : "+") + String(Math.abs(v) / 100);
-  var expr = baseExpr ? baseExpr + add : add.replace(/^\+/, "");
-  var n = entry && entry.note ? entry.note + (note ? "; " + note : "") : (note || "");
-  E.setEntry(state, year, catId, String(w), expr, n);
-  if (logSrc) {
-    var yl = state.years[year]; yl.log = yl.log || [];
-    // term — что дописано к формуле; base/fresh — какой была ячейка, чтобы при удалении вернуть как было
-    yl.log.push({ id: E.uid("l"), ts: Date.now(), date: logSrc.date || E.todayISO(), w: w, cat: catId, cents: v, term: add, base: baseExpr, fresh: !entry, note: note || "", src: logSrc.src || "plus" });
-  }
-  return { term: add, base: baseExpr, fresh: !entry };
-}
-// Снять из ячейки то, что когда-то к ней прибавили (term — дописанное слагаемое, cents — его сумма со знаком).
-// Если слагаемое в формуле не нашлось (ячейку потом правили) — дописываем обратное, итог всё равно верный.
-function stripFromCell(year, cat, w, cents, term, note, fresh, base) {
-  var y = state.years[year], entry = y && (y.entries[cat] || {})[w];
-  if (!entry) return;
-  var ex = String(entry.expr), t = term, t0 = t.replace(/^\+/, ""), nx;
-  if (ex === t || ex === t0) nx = "";
-  else if (ex.slice(-t.length) === t) nx = ex.slice(0, -t.length);
-  else if (ex.indexOf(t0) === 0 && /^[+-]/.test(ex.slice(t0.length))) nx = ex.slice(t0.length).replace(/^\+/, "");
-  else if (ex.indexOf(t) > 0) nx = ex.replace(t, "");
-  else nx = ex + (cents < 0 ? "+" : "-") + String(Math.abs(cents) / 100);
-  if (fresh && nx === base) nx = ""; // ячейка была пустой или регулярной — возвращаем как было
-  var n = entry.note || "";
-  if (note) n = n === note ? "" : n.replace("; " + note, "").replace(note + "; ", "");
-  E.setEntry(state, year, cat, String(w), nx, n);
-}
+// Записи из «+» и «Внести» — логика в движке (engine.js, с тестами); здесь — с текущим бюджетом
+function addToCell(year, catId, w, valueExpr, note, logSrc) { return E.addToCell(state, year, catId, w, valueExpr, note, logSrc); }
+function weekEnv(year, catId, w, except) { return E.weekEnv(state, year, catId, w, except); }
+function splitEnv(env, cents) { return E.splitEnv(env, cents); }
+function lowGoesNeg(year, w, cents) { return E.lowGoesNeg(state, year, w, cents); }
+function logSpend(year, catId, w, cents, note, logSrc) { return E.logSpend(state, year, catId, w, cents, note, logSrc); }
+function stripFromCell(year, cat, w, cents, term, note, fresh, base) { return E.stripFromCell(state, year, cat, w, cents, term, note, fresh, base); }
 // Трата налички, внесённая в План (t.plan), — убрать её сумму и оттуда (при удалении записи налички)
 function unplanCash(t) {
   var p = t && t.plan;
@@ -822,16 +792,7 @@ function unplanCash(t) {
   stripFromCell(p.year, p.cat, p.week, cents, own ? p.term : "-" + String(Math.abs(t.cents) / 100), p.note || (t.note || "") + " (нал)", own && p.fresh, p.base);
   return true;
 }
-// Убрать запись журнала: снять её слагаемое из формулы ячейки (или удалить регулярную трату, если запись — правило)
-function removeLogged(year, id) {
-  var y = state.years[year], log = (y && y.log) || [], i = log.findIndex(function (x) { return x.id === id; });
-  if (i < 0) return false;
-  var e = log[i];
-  if (e.rule) { y.recurring = (y.recurring || []).filter(function (r) { return r.id !== e.rule; }); }
-  else stripFromCell(year, e.cat, e.w, e.cents, e.term, e.note, e.fresh, e.base);
-  log.splice(i, 1);
-  return true;
-}
+function removeLogged(year, id) { return E.removeLogged(state, year, id); }
 
 // ---------- экраны ----------
 var routes = {};
@@ -936,11 +897,12 @@ function spendModal(o) {
     "<div class='form-grid' style='margin-top:14px'><label class='f'>Сумма<input type='text' name='v' inputmode='decimal' placeholder='300' value='{amount}' required autofocus></label>" +
     "<label class='f'>Дата<input type='date' name='d' value='{date}' required></label><div class='chips sp-days' style='grid-column:1/-1'>{!days}</div>" +
     "<div class='f' style='grid-column:1/-1'>Категория<div class='chips cat-chips'>{!chips}<label class='chip chip-sel{selOn}'><span class='cs-t'>{selT}</span><select name='cat' aria-label='Все категории'>{!opts}</select></label></div></div>" +
-    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='{note}' placeholder='{ph}'></label></div>" +
+    "<label class='f' style='grid-column:1/-1'>Заметка<input type='text' name='note' value='{note}' placeholder='{ph}'></label>" +
+    "<label class='f' style='grid-column:1/-1' id='spEnv' hidden><span id='spEnvT'>План недели</span><select name='env'><option value='in'{!envIn}>уже в плане недели</option><option value='over'{!envOver}>сверх плана</option></select></label></div>" +
     "<div class='sp-week small' id='spWeek'></div><button type='submit' hidden></button></form>" +
     "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>{okT}</button></div>", {
-      okT: o.edit ? "Сохранить" : "Добавить",
-      lead: o.edit ? "Старая сумма уйдёт из Плана, новая встанет в неделю по дате." : "Сумма прибавится к неделе, в которую попадает дата, — прошлой или будущей.",
+      okT: o.edit ? "Сохранить" : "Добавить", envIn: o.envOver ? "" : " selected", envOver: o.envOver ? " selected" : "",
+      lead: o.edit ? "Старая сумма уйдёт из Плана, новая встанет в неделю по дате." : "Дата любая — прошлая или будущая.",
       title: o.edit ? "Изменить запись" : o.income ? "Внести доход" : "Внести трату", date: date, note: o.note || "", amount: o.amount || "", // сумма из «+» → «Заполнить по полям» ph: o.income ? "например, бонус за квартал" : "например, шопинг",
       days: [["Сегодня", 0], ["Вчера", -1], ["Неделю назад", -7]].map(function (x) { return tpl("<button type='button' class='chip' data-dd='{1}'>{0}</button>", x); }).join(""),
       chips: chipCats.map(function (c) { return tpl("<button type='button' class='chip{on}' data-cc='{id}'>{n}</button>", { on: c.id === dc ? " on" : "", id: c.id, n: c.name }); }).join(""),
@@ -955,8 +917,15 @@ function spendModal(o) {
       if (state.years[ys].archived) return { err: ys + " — архивный год, в него не вносятся траты." };
       return { year: ys, week: wk.idx };
     }
+    // «конверт» недели у выбранной категории — спросить: трата уже в нём или сверх (по умолчанию — уже в плане)
+    function envNow() { var t = target(); return t.err || o.income ? null : weekEnv(t.year, f.cat.value, t.week, o.edit && o.edit.id); }
+    function updEnv() {
+      var env = envNow(), box = m.querySelector("#spEnv");
+      box.hidden = !env;
+      if (env) m.querySelector("#spEnvT").textContent = "В плане недели " + E.fmt(env.plan, { cur: "€", dec: 0 }) + ", осталось " + E.fmt(env.left, { cur: "€", dec: env.left % 100 ? 2 : 0 });
+    }
     function upd() {
-      var t = target();
+      var t = target(); updEnv();
       hint.className = "sp-week small " + (t.err ? "neg" : "muted");
       hint.innerHTML = t.err ? esc(t.err) : tpl("Попадёт в неделю <b>{wk}</b>{when}", { wk: E.weekTitle(Number(t.year), t.week), when: isNow(t.year, t.week) ? " · текущая" : weekDone(t.year, t.week) ? " · прошедшая" : " · будущая" });
     }
@@ -966,8 +935,8 @@ function spendModal(o) {
       m.querySelectorAll("[data-cc]").forEach(function (b) { var on = b.dataset.cc === f.cat.value; b.classList.toggle("on", on); if (on) inChips = true; });
       var cs = m.querySelector(".chip-sel"); if (cs) { cs.classList.toggle("on", !inChips); cs.querySelector(".cs-t").textContent = inChips ? "другая ▾" : catName(f.cat.value) + " ▾"; }
     }
-    m.querySelectorAll("[data-cc]").forEach(function (b) { b.onclick = function () { f.cat.value = b.dataset.cc; syncChips(); }; });
-    f.cat.addEventListener("change", syncChips);
+    m.querySelectorAll("[data-cc]").forEach(function (b) { b.onclick = function () { f.cat.value = b.dataset.cc; syncChips(); updEnv(); }; });
+    f.cat.addEventListener("change", function () { syncChips(); updEnv(); });
     m.querySelectorAll("[data-dd]").forEach(function (b) { b.onclick = function () { f.d.value = E.addDays(E.todayISO(), Number(b.dataset.dd)); upd(); }; });
     function ok() {
       var t = target(); if (t.err) { toast(t.err); return; }
@@ -975,8 +944,12 @@ function spendModal(o) {
       // изменение записи из «Истории записей»: сначала проверить сумму, потом снять старую запись и внести новую
       try { if (E.exprCents(f.v.value) === null) { f.v.focus(); return; } } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
       var src = "form";
+      var inEnv = !!envNow() && f.env.value === "in";
       if (o.edit) { var old = ((state.years[o.edit.year] || {}).log || []).find(function (z) { return z.id === o.edit.id; }); if (old) src = old.src || src; removeLogged(o.edit.year, o.edit.id); }
-      try { addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value, { src: src, date: f.d.value }); } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
+      try {
+        if (inEnv) logSpend(t.year, f.cat.value, t.week, Math.abs(E.exprCents(f.v.value)), f.note.value, { src: src, date: f.d.value });
+        else addToCell(t.year, f.cat.value, t.week, f.v.value, f.note.value, { src: src, date: f.d.value });
+      } catch (err) { toast("Ошибка в сумме: " + err.message); return; }
       state.settings.lastCat = f.cat.value;
       state.settings.recentCats = [f.cat.value].concat((state.settings.recentCats || []).filter(function (x) { return x !== f.cat.value; })).slice(0, 6);
       closeModal(); if (o.after) o.after(t);
