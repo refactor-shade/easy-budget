@@ -29,7 +29,7 @@
       out.date = mk(y, mi, Math.min(d, lastDay(y, mi))); return " ";
     });
     // сумма: первое число (4,5 · 1 200 · 89)
-    t = t.replace(/(\d{1,3}(?:[.,\u00a0\u202f ]\d{3})+(?:[.,]\d{1,2})?(?!\d)|\d+(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(E.parseNum(m) * 100); return " "; });
+    t = t.replace(/(\d{1,3}(?:[.,   ]\d{3})+(?:[.,]\d{1,2})?(?!\d)|\d+(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(E.parseNum(m) * 100); return " "; });
     t.split(/[\s,;]+/).forEach(function (w) {
       if (!w) return;
       if (w === "сегодня") { out.date = E.todayISO(); return; }
@@ -216,7 +216,12 @@
     } else if (tab === "cash") {
       var c = Cash.cashState(), pockets = c.pockets.filter(function (x) { return !x.archived; });
       md.cash = plusUi.text.trim() ? K.parse(plusUi.text, pockets, c.defaultPocket) : null;
-      if (md.cash) { md.cents = o.cents !== undefined ? o.cents : md.cash.cents; md.cash.date = md.date; }
+      if (md.cash) {
+        md.cents = o.cents !== undefined ? o.cents : md.cash.cents; md.cash.date = md.date;
+        // карман выбран руками в чипе «из / в» — сильнее разбора фразы
+        if (o.from && (md.cash.kind === "spend" || md.cash.kind === "move" || md.cash.kind === "out")) md.cash.from = o.from;
+        if (o.to && (md.cash.kind === "move" || md.cash.kind === "in" || md.cash.kind === "ext")) md.cash.to = o.to;
+      }
       // общая трата наличными: из своего евро-кармана, платила я. o.share: "no" | "equal" | "theirs" | "mine"
       md.canShare = !!(sh && md.cash && md.cash.kind === "spend" && md.cash.from && Cash.pocketCur(md.cash.from) === "€");
       if (md.canShare) {
@@ -303,8 +308,12 @@
       var cc = md.cash, kinds = { spend: "трата", move: "переложила", "in": "сняла с карты", out: "на карту", ext: "получила" };
       html += plusChip(kinds[cc.kind] || "трата", "");
       html += plusChip(md.cents ? (cc.kind === "spend" || cc.kind === "out" ? "−" : "") + E.fmt(md.cents, { cur: Cash.pocketCur(cc.from || cc.to) }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
-      if (cc.from) html += plusChip("из: " + Cash.pocketName(cc.from), "");
-      if (cc.to) html += plusChip("в: " + Cash.pocketName(cc.to), "");
+      // карман можно поменять руками: «из: кошелёк ▾» → конверт
+      var live = cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
+      var pocketSel = function (k, sel, lbl) { return plusChip(lbl + ": " + (sel ? Cash.pocketName(sel) : "?") + " ▾", sel ? "" : "ask", tpl("<select data-o='{k}' aria-label='{a}'>{!o}</select>", { k: k, a: k === "from" ? "Из какого кармана" : "В какой карман",
+        o: (sel ? "" : opt("", "выбери", true)) + live.map(function (p) { return opt(p.id, p.name, p.id === sel); }).join("") })); };
+      if (cc.kind === "spend" || cc.kind === "move" || cc.kind === "out") html += pocketSel("from", cc.from, "из");
+      if (cc.kind === "move" || cc.kind === "in" || cc.kind === "ext") html += pocketSel("to", cc.to, "в");
       var shOn = md.share !== "no";
       if (shOn) html += plusChip("«" + (md.desc || "без описания") + "»", "");
       else if (cc.note) html += plusChip("«" + cc.note + "»", "");
@@ -323,7 +332,7 @@
       var bal2 = K.balances(cs, Cash.cashLines());
       wh = "<div class='pw-pockets'>" + cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; }).slice(0, 3).map(function (p) {
         var now = bal2[p.id] || 0, nxt = !moves ? now : now - (cc.from === p.id ? md.cents || 0 : 0) + (cc.to === p.id ? md.cents || 0 : 0);
-        return tpl("<div><small>{n}</small><b>{was}{v}</b></div>", { n: p.name, was: nxt !== now ? E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0" : "", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
+        return tpl("<div><small>{n}</small><b>{was}{v}</b></div>", { n: p.name, was: nxt !== now ? E.fmt(now, { dec: now % 100 ? 2 : 0 }) + " → " : "", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
       }).join("") + "</div>";
       if (shOn && md.cents) {
         wh += sharedWhereHtml(md);

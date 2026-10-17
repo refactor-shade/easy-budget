@@ -32,7 +32,8 @@
   // Найти упоминания карманов и банка: [{id, at, end, used:[idx]}]
   function findPlaces(tk, pockets) {
     var found = [];
-    pockets.forEach(function (p) {
+    // по порядку карманов: «из конверта» без номера — первый конверт в списке
+    pockets.slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); }).forEach(function (p) {
       var nt = tokens(p.name); if (!nt.length) return;
       var first = nt.findIndex(function (t) { return !isNum(t); }); if (first < 0) first = 0;
       tk.forEach(function (tok, i) {
@@ -45,6 +46,8 @@
           if (hit < 0) ok = false; else used.push(hit);
         });
         if (ok) found.push({ id: p.id, at: Math.min.apply(null, used), end: Math.max.apply(null, used), used: used, score: nt.length });
+        // «из конверта» без номера — тоже конверт (первый по порядку), а не кошелёк по умолчанию. Короткие и служебные слова так не ловим
+        else if (nt[first].length >= 4 && STOP.indexOf(nt[first]) < 0) found.push({ id: p.id, at: i, end: i, used: [i], score: 0.5 });
       });
     });
     tk.forEach(function (tok, i) {
