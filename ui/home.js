@@ -30,9 +30,9 @@
       if (planEmpty) todo.unshift({ ic: "↻", h: "Заполнить план на " + y, p: "Начни с того, что повторяется: зарплата, аренда, подписки. Один раз — и суммы встанут во все недели.", act: "recurring" });
       var nLog = Us.toLogCount();
       if (nLog) todo.push({ ic: "⇄", h: nLog + " " + plural(nLog, "общая трата", "общие траты", "общих трат") + " не в личном плане", p: nLog === 1 ? "Внеси её в свой план одной кнопкой или отметь, что она там уже есть." : "Внеси их в свой план одной кнопкой или отметь, что уже есть.", act: "tolog" });
-      if (!state.settings.reminder) todo.push({ ic: "◷", h: "Поставить напоминание о сверке", p: Store.mode === "cloud" ? "Уведомление на телефон или событие в календаре раз в неделю — чтобы не забывать." : "Событие в календаре раз в неделю — чтобы не забывать.", act: "reminder" });
-      else if (Store.mode === "cloud" && !state.settings.reminder.push && !state.settings.reminder.off && window.BudgetPush && window.BudgetPush.supported() && !reminderPushAsked()) todo.push({ ic: "◷", h: "Напоминание о сверке — уведомлением", p: "Теперь можно получать его прямо на телефон, а не только в календаре.", act: "reminder" });
-      if (installHintNeeded()) todo.push({ ic: "⊕", h: "Добавить Easy Budget на экран «Домой»", p: "Откроется как приложение, без адресной строки, и сможет присылать напоминания.", act: "install" });
+      if (!state.settings.reminder) todo.push({ setup: "напоминание о сверке", ic: "◷", h: "Поставить напоминание о сверке", p: Store.mode === "cloud" ? "Уведомление на телефон или событие в календаре раз в неделю — чтобы не забывать." : "Событие в календаре раз в неделю — чтобы не забывать.", act: "reminder" });
+      else if (Store.mode === "cloud" && !state.settings.reminder.push && !state.settings.reminder.off && window.BudgetPush && window.BudgetPush.supported() && !reminderPushAsked()) todo.push({ setup: "напоминание уведомлением", ic: "◷", h: "Напоминание о сверке — уведомлением", p: "Теперь можно получать его прямо на телефон, а не только в календаре.", act: "reminder" });
+      if (installHintNeeded()) todo.push({ setup: "значок на экране «Домой»", ic: "⊕", h: "Добавить Easy Budget на экран «Домой»", p: "Откроется как приложение, без адресной строки, и сможет присылать напоминания.", act: "install" });
       if (minV < 0) todo.push({ k: "warn", ic: "↗", h: "Самый низкий остаток — " + eur(rnd(minV), { dec: 0 }) + ", " + shortWeek(y, minW), p: "Остаток уходит в минус. Можно сдвинуть крупные траты или переложить из накоплений.", act: "year" });
       var fxm = missingFx();
       if (fxm.length) todo.push({ k: "warn", ic: "€", h: "Нет курса для " + fxm.map(function (x) { return x.cur; }).join(", "), p: "Общие траты в этих валютах не входят в итоги. Нажми — укажу, где вписать курс.", act: "fixfx" });
@@ -50,8 +50,8 @@
       var ny = String(Number(y) + 1);
       if (wk.month >= 10 && !state.years[ny]) todo.push({ ic: "▦", h: "Пора набросать план на " + ny, p: "Создай его на экране «Год» — регулярные траты перенесутся сами.", act: "year" });
       var lastFile = state.settings.lastFileBackupAt ? new Date(state.settings.lastFileBackupAt).getTime() : 0, daysFile = Math.floor((Date.now() - lastFile) / 864e5);
-      if (daysFile >= 7 && state.settings.tourDone) todo.push({ ic: "⤓", h: "Сохранить бэкап в файл", p: (lastFile ? "Последний — " + daysFile + " дн. назад. " : "") + "Excel-файл со всем бюджетом: положи в iCloud или Google Drive — и данные у тебя, что бы ни случилось.", act: "backup" });
-      if (!state.settings.tourDone) todo.push({ ic: "?", h: "Пройти знакомство — 1 минута", p: "Что такое «в обращении», зачем сверка и где что лежит.", act: "tour" });
+      if (daysFile >= 7 && state.settings.tourDone) todo.push({ setup: "бэкап в файл", ic: "⤓", h: "Сохранить бэкап в файл", p: (lastFile ? "Последний — " + daysFile + " дн. назад. " : "") + "Excel-файл со всем бюджетом: положи в iCloud или Google Drive — и данные у тебя, что бы ни случилось.", act: "backup" });
+      if (!state.settings.tourDone) todo.push({ setup: "знакомство", ic: "?", h: "Пройти знакомство — 1 минута", p: "Что такое «в обращении», зачем сверка и где что лежит.", act: "tour" });
     }
 
     // план недели
@@ -78,6 +78,14 @@
     var hid = state.settings.todoHidden || {}, tNow = E.todayISO();
     todo.forEach(function (x) { x.key = x.act + (x.rw ? ":" + x.rw.year + ":" + x.rw.week : "") + (x.act === "month" && due ? ":" + due.key : ""); });
     todo = todo.filter(function (x) { var u = hid[x.key]; return !u || (u !== "forever" && u <= tNow); });
+    // настройка (напоминание, «Домой», бэкап, знакомство) — одним пунктом в конце: в «Что сделать» остаются деньги
+    var setupTodo = todo.filter(function (x) { return x.setup; });
+    if (setupTodo.length > 1) {
+      var sNames = setupTodo.map(function (x) { return x.setup; }), su = hid.setup;
+      todo = todo.filter(function (x) { return !x.setup; });
+      if (!su || (su !== "forever" && su <= tNow)) todo.push({ ic: "⚙\uFE0E", h: "Настроить до конца · " + setupTodo.length + " " + plural(setupTodo.length, "пункт", "пункта", "пунктов"),
+        p: sNames[0].charAt(0).toUpperCase() + sNames[0].slice(1) + ", " + sNames.slice(1).join(", ") + " — по минуте на каждый.", act: "setup", key: "setup" });
+    }
     var todoShown = ui.todoAll ? todo : todo.slice(0, 4);
 
     // неделя на карточке: можно листать ‹ ›
@@ -203,9 +211,18 @@
       };
     });
     var ta = $main.querySelector("#todoAll"); if (ta) ta.onclick = function () { ui.todoAll = !ui.todoAll; render(); };
+    function setupModal() {
+      modal(tpl("<div class='m-body'><h2>Настроить до конца</h2><ul class='todo-list'>{!list}</ul></div>", {
+        list: setupTodo.map(function (x, j) { return tpl("<li><button type='button' class='td-main' data-su='{j}'><span class='ic' aria-hidden='true'>{ic}</span><span class='tx'><b>{h}</b><span>{p}</span></span><span class='arr' aria-hidden='true'>›</span></button></li>", { j: j, ic: x.ic, h: x.h, p: x.p }); }).join("") }), function (m) {
+        m.querySelectorAll("[data-su]").forEach(function (b) { b.onclick = function () { closeModal(); runTodo(setupTodo[Number(b.dataset.su)]); }; });
+      });
+    }
     $main.querySelectorAll("[data-todo]").forEach(function (el) {
-      el.onclick = function () {
-        var td = todoShown[Number(el.dataset.todo)], a = td.act;
+      el.onclick = function () { runTodo(todoShown[Number(el.dataset.todo)]); };
+    });
+    function runTodo(td) {
+        var a = td.act;
+        if (a === "setup") return setupModal();
         if (a === "tour") return Help.showTour(0);
         if (a === "month") return monthModal();
         if (a === "reminder") { try { localStorage.setItem("eb:pushAsked", "1"); } catch (e) { /* ок */ } return reminderModal(); }
@@ -216,8 +233,7 @@
         if (a === "recdraft") { ui.recWeek = td.rw; ui.recStep = 2; return go("#recon"); }
         if (a === "recon") ui.recWeek = td.rw || { year: y, week: w };
         ui.year = y; ui.week = w; go("#" + a);
-      };
-    });
+    }
     var hs = $main.querySelector("#homeSync"); if (hs) hs.onclick = refreshAll;
     // вся строка — в Сверку текущей недели (кубики здесь только показывают, в старые сверки не уводят)
     // вся карточка «Сверки» ведёт в сверку (как «Наличка»); с клавиатуры — строка с квадратами (role=link)
