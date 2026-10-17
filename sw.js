@@ -1,5 +1,5 @@
 /* Easy Budget — офлайн-кэш оболочки приложения. Данные идут в облако напрямую, не кэшируются здесь. */
-var CACHE = "easy-budget-v21";
+var CACHE = "easy-budget-v22";
 var SHELL = ["./", "index.html", "styles.css", "config.js", "engine.js", "shared.js", "cash.js", "importer.js", "backup.js", "charts.js", "insights.js", "fx.js", "sheetmodel.js", "store.js", "push.js", "ui/core.js", "ui/plus.js", "ui/home.js", "ui/cash.js", "ui/shared.js", "ui/help.js", "ui/plan.js", "ui/analysis.js", "ui/settings.js", "app.js",
   "vendor/supabase.min.js", "vendor/xlsx.full.min.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"];
 self.addEventListener("install", function (e) { e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); })); });

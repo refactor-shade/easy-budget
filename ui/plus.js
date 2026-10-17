@@ -277,7 +277,16 @@
     var cs = Cash.cashState(); if (!pid || !cs.since) return "";
     var now = K.balances(cs, Cash.cashLines())[pid] || 0;
     if (!cashCounts(date)) return tpl("<div class='pw-sub'>Наличными, но до начала учёта налички ({d}) — карман не изменится.</div>", { d: dayGen(cs.since) });
-    return tpl("<div class='pw-row'><span>Наличка · {n}</span><b>{a} → {b}</b></div>", { n: Cash.pocketName(pid), a: E.fmt(now, { dec: now % 100 ? 2 : 0 }), b: E.fmt(now - cents, { cur: "€", dec: (now - cents) % 100 ? 2 : 0 }) });
+    return tpl("<div class='pw-row'><span>Наличка · {n}</span><b class='{c}'>{a} → {b}</b></div>", { n: Cash.pocketName(pid), c: now >= 0 && now - cents < 0 ? "neg" : "", a: E.fmt(now, { dec: now % 100 ? 2 : 0 }), b: E.fmt(now - cents, { cur: "€", dec: (now - cents) % 100 ? 2 : 0 }) }) + pocketWarn(pid, now, cents, "pay");
+  }
+  // Трата уводит карман в минус (а до неё он был не в минусе): одна строка и, если в другом кармане хватает, — «Взять из …».
+  // Записать всё равно можно — вдруг просто не внесено пополнение. key — какой чип меняет кнопка: "from" (Наличка) или "pay" (Общая)
+  function pocketWarn(pid, now, cents, key) {
+    if (!pid || !cents || now < 0 || now - cents >= 0) return "";
+    var cs = Cash.cashState(), bal = K.balances(cs, Cash.cashLines()), cur = Cash.pocketCur(pid);
+    var alt = cs.pockets.filter(function (p) { return !p.archived && p.id !== pid && Cash.pocketCur(p.id) === cur && (bal[p.id] || 0) >= cents; }).sort(function (a, b) { return a.sort - b.sort; })[0];
+    return tpl("<div class='pw-warn'>В «{n}» не хватит {v}. Проверь сумму или карман.{!alt}</div>", { n: Cash.pocketName(pid), v: E.fmt(cents - now, { cur: cur, dec: (cents - now) % 100 ? 2 : 0 }),
+      alt: alt ? tpl(" <button type='button' class='linkish' data-swk='{k}' data-swv='{v}'>Взять из «{n}» ({b})</button>", { k: key, v: key === "pay" ? "cash:" + alt.id : alt.id, n: alt.name, b: E.fmt(bal[alt.id] || 0, { cur: cur, dec: 0 }) }) : "" });
   }
 
   // label — обычный текст (экранируется здесь), inner — HTML поля выбора
@@ -381,7 +390,8 @@
       // карманы — такими же строками, как остальное превью: «Наличка · кошелёк   500 → 300 €», только те, что меняются
       wh = cs.pockets.filter(function (p) { return !p.archived && moves && md.cents && (cc.from === p.id || cc.to === p.id); }).sort(function (a, b) { return a.sort - b.sort; }).map(function (p) {
         var now = bal2[p.id] || 0, nxt = now - (cc.from === p.id ? md.cents : 0) + (cc.to === p.id ? md.cents : 0);
-        return tpl("<div class='pw-row'><span>Наличка · {n}</span><b>{was}{v}</b></div>", { n: p.name, was: E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
+        return tpl("<div class='pw-row'><span>Наличка · {n}</span><b class='{c}'>{was}{v}</b></div>", { n: p.name, c: now >= 0 && nxt < 0 ? "neg" : "", was: E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) }) +
+          (cc.from === p.id ? pocketWarn(p.id, now, md.cents, "from") : "");
       }).join("");
       if (shOn && md.cents) {
         wh += sharedWhereHtml(md);
@@ -399,6 +409,7 @@
     }
     chips.innerHTML = html;
     where.innerHTML = wh ? tpl("<div class='plus-where'><div class='pw-h'>Куда запишется</div>{!wh}</div>", { wh: wh }) : "";
+    where.querySelectorAll("[data-swk]").forEach(function (b) { b.onclick = function () { plusUi.over[b.dataset.swk] = b.dataset.swv; drawParsed(m); }; });
     chips.querySelectorAll("[data-o]").forEach(function (el) {
       el.onchange = function () {
         var k = el.dataset.o, v = el.value;
