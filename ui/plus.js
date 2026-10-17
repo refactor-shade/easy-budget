@@ -162,6 +162,8 @@
     modal(tpl("<div class='m-body plus'><div class='plus-head'><h2>Внести</h2><button type='button' class='linkish plus-rec'>Сверка ›</button></div><div class='plus-tabs' role='tablist' aria-label='Что вносишь'>{!tabs}</div><div id='plusBody'></div></div>", {
       tabs: [["spend", "Трата"], ["income", "Доход"], ["shared", "Общая"], ["cash", "Наличка"]].map(function (x) { return tpl("<button type='button' role='tab' data-pt='{0}'>{1}</button>", x); }).join("") }), function (m) {
       m.classList.add("sheet-plus");
+      // на телефоне фокус — на самой шторке: иначе showModal ставит его на «Сверка ›» и она выглядит выделенной (Катя 17 окт)
+      if (matchMedia("(pointer: coarse)").matches) { m.tabIndex = -1; m.focus({ preventScroll: true }); }
 
       m.querySelectorAll("[data-pt]").forEach(function (b) {
         b.onclick = function () {
@@ -186,9 +188,13 @@
     q.oninput = function () { clearTimeout(tmr); tmr = setTimeout(function () { plusUi.text = q.value; plusUi.over = {}; drawParsed(m); }, 200); };
     q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); plusUi.text = q.value; drawParsed(m); plusSave(m); } };
     // на телефоне шторка открывается по содержимому и становится высокой, когда нажимаешь на поле или печатаешь — и остаётся
-    // такой до закрытия (иначе нажатие на чип снимает фокус, шторка сжимается и всё прыгает)
-    var tall = function () { m.classList.add("plus-typing"); };
-    q.addEventListener("pointerdown", tall); q.addEventListener("input", tall);
+    // такой до закрытия (иначе нажатие на чип снимает фокус, шторка сжимается и всё прыгает).
+    // Растёт по focus после касания, а не по pointerdown: если шторка вырастает под пальцем, поле уезжает и iOS теряет тап
+    // (клавиатура не открывается, нужно нажать ещё раз — видео Кати 17 окт)
+    var touched = false, tall = function () { m.classList.add("plus-typing"); };
+    q.addEventListener("pointerdown", function () { touched = true; });
+    q.addEventListener("focus", function () { if (touched) tall(); });
+    q.addEventListener("input", tall);
     body.querySelector("#plusGo").onclick = function () { plusUi.text = q.value; drawParsed(m); plusSave(m); };
     var pm = body.querySelector(".plus-more"); if (pm) pm.onclick = closeModal;
     var pf = body.querySelector("#plusForm");
@@ -201,7 +207,8 @@
       }, 40);
     };
     drawParsed(m);
-    setTimeout(function () { q.focus(); }, 60);
+    // на телефоне без автофокуса: iOS без клавиатуры дёргает шторку вверх и обратно (видео Кати 17 окт)
+    if (!matchMedia("(pointer: coarse)").matches) setTimeout(function () { q.focus(); }, 60);
   }
 
   // что получилось из фразы с учётом правок в чипах
