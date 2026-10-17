@@ -647,7 +647,7 @@
           toast((inc ? "+" : "") + E.fmt(ph.cents, { cur: "€" }) + " → «" + catName(cat) + "», " + shortWeek(String(wk2.year), wk2.idx)); changed();
         };
       });
-      var ra = $main.querySelector("#recAdd"); if (ra) ra.onclick = function () { spendModal({ date: wk.from, after: function () { ui.recWeek = { year: y, week: w }; ui.recStep = 2; } }); };
+      var ra = $main.querySelector("#recAdd"); if (ra) ra.onclick = function () { spendModal({ date: wk.from, envOver: true, after: function () { ui.recWeek = { year: y, week: w }; ui.recStep = 2; } }); };
       Cash.bindCashPlanRows(function () { ui.recStep = 2; });
       $main.querySelectorAll("[data-unsp]").forEach(function (b) { b.onclick = function () { moveSkipModal(y, b.dataset.unsp, w, function () { ui.recWeek = { year: y, week: w }; ui.recStep = 2; ui.recUnspOpen = true; }); }; });
       var rm = $main.querySelector(".rs-more"); if (rm) rm.ontoggle = function () { ui.recUnspOpen = rm.open; };
@@ -745,7 +745,7 @@
     html += "<ul class='card lg-log'>" + all.slice(0, ui.logLimit || 100).map(function (x) {
       var e = x.e, head = e.date !== lastD ? tpl("<li class='ch-day'>{d}</li>", { d: dayT(e.date) }) : ""; lastD = e.date;
       var what = e.note ? e.note.charAt(0).toUpperCase() + e.note.slice(1) : catName(e.cat);
-      var sub = (e.note ? catName(e.cat) + " · " : "") + shortWeek(x.y, e.w) + (e.rule ? " · " + (e.rep === "week" ? "каждую неделю" : "каждый месяц") : "") + (e.src === "recon" ? " · из сверки" : "");
+      var sub = (e.note ? catName(e.cat) + " · " : "") + shortWeek(x.y, e.w) + (e.rule ? " · " + (e.rep === "week" ? "каждую неделю" : "каждый месяц") : "") + (e.src === "recon" ? " · из сверки" : "") + (e.inCents !== undefined ? " · уже в плане" : "");
       // нажатие на строку — изменить (регулярную — в «Регулярных»)
       return head + tpl("<li class='ll-row'><button type='button' class='ll-edit' data-ledit='{y}:{id}'{!dis} aria-label='Изменить «{w}»'><span class='ll-tx'><b>{w}</b><small>{sub}</small></span><span class='ll-v {c}'>{v}</span></button>{!del}</li>", {
         y: x.y, id: e.id, dis: ro ? " disabled" : "", w: what, sub: sub, c: e.cents > 0 ? "pos" : "", v: E.fmt(e.cents, { cur: "€", plus: e.cents > 0 }),
@@ -758,14 +758,16 @@
         var k = b.dataset.ledit.split(":"), e = (state.years[k[0]].log || []).find(function (z) { return z.id === k[1]; }); if (!e) return;
         if (e.rule) { toast("Регулярная — сумму и срок меняют в «Регулярных»"); location.hash = "#recurring"; return; }
         var cat = state.categories.find(function (c) { return c.id === e.cat; }) || {};
-        spendModal({ edit: { year: k[0], id: e.id }, income: cat.block === "income", cat: e.cat, date: e.date, note: e.note, amount: String(Math.abs(e.cents) / 100).replace(".", ","), after: function () { render(); } });
+        spendModal({ edit: { year: k[0], id: e.id }, income: cat.block === "income", cat: e.cat, date: e.date, note: e.note, envOver: e.inCents === undefined, amount: String(Math.abs(e.cents) / 100).replace(".", ","), after: function () { render(); } });
       };
     });
     $main.querySelectorAll("[data-ldel]").forEach(function (b) {
       b.onclick = function () {
         var k = b.dataset.ldel.split(":"), yy = k[0], e = (state.years[yy].log || []).find(function (z) { return z.id === k[1]; }); if (!e) return;
         var what = e.note || catName(e.cat), amt = E.fmt(Math.abs(e.cents), { cur: "€" });
+        var over = e.inCents !== undefined ? Math.abs(e.cents - e.inCents) : 0;
         askConfirm(e.rule ? "Убрать регулярную «" + what + "»? Сумма " + amt + " уйдёт из всех недель, где она стояла." :
+          e.inCents !== undefined ? "Убрать «" + what + "» " + amt + "? Она была уже в плане недели" + (over ? ", сверх плана было " + E.fmt(over, { cur: "€" }) + " — это уйдёт из Плана." : " — План не изменится.") :
           "Убрать «" + what + "» " + amt + "? В Плане «" + catName(e.cat) + "», " + shortWeek(yy, e.w) + " станет на " + amt + (e.cents < 0 ? " меньше трат." : " меньше дохода."), "Убрать", function () {
           if (removeLogged(yy, e.id)) { changed(false, "Запись убрана"); toast("Убрано из Плана"); }
         });
