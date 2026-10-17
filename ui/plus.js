@@ -71,15 +71,16 @@
   function cashPlanCat(md) {
     var g = cashPlanGuess(md);
     if (!g) return null;
+    if (plusUi.over.cashEnv === "no") return "";
     if (plusUi.over.cashPlan !== undefined) return plusUi.over.cashPlan;
-    return g.planned || g.unknown ? "" : g.cat;
+    return g.unknown ? "" : g.cat;
   }
-  // подпись под «И в план»: зависит от того, включён ли флажок (не обещаем «внесу», если выключено)
-  function planHint(pg, on) {
-    if (on) return pg.planned ? "На эту неделю в плане уже " + E.fmt(pg.planned, { cur: "€", dec: 0 }) + " — внесу сверху, если это отдельная трата." : "Такого в плане на эту неделю нет — внесу, чтобы сверка сошлась.";
-    if (pg.unknown) return "Не узнала категорию — выбери строку, если хочешь внести в план.";
-    if (pg.planned) return "На эту неделю в плане уже " + E.fmt(pg.planned, { cur: "€", dec: 0 }) + " — трата из них, отдельно не вношу.";
-    return "В план не вношу.";
+  // строки превью «уже в плане»: сколько останется в плане недели и, если не хватило, сколько допишется сверх
+  function envOverRow(over) { return over ? tpl("<div class='pw-row pw-over'><span>Сверх плана</span><b>{v} допишется к неделе</b></div>", { v: E.fmt(-over, { cur: "€" }) }) : ""; }
+  function envRows(env, cents) {
+    var sp = splitEnv(env, cents), lft = env.left - sp.inside;
+    return tpl("<div class='pw-row'><span>Уже в плане {pl}</span><b>останется {l2}</b></div>{!over}", {
+      l2: E.fmt(lft, { cur: "€", dec: lft % 100 ? 2 : 0 }), pl: E.fmt(env.plan, { cur: "€", dec: env.plan % 100 ? 2 : 0 }), over: envOverRow(sp.over) });
   }
   // категория и есть ли на эту неделю уже сумма в плане (тогда по умолчанию не вносим: еда, развлечения — недельный бюджет, иначе двойной счёт)
   function cashPlanGuess(md) {
@@ -259,7 +260,17 @@
     var bt = function (b) { return Math.abs(b) < 1 ? "вы в расчёте" : b > 0 ? pName + " должна тебе " + E.fmt(b, { cur: "€", dec: 2 }) : "ты должна " + E.fmt(-b, { cur: "€", dec: 2 }); };
     return tpl("<div class='pw-row'><span>Мы · «{d}»</span><b class='{c}'>{who}</b></div><div class='pw-sub'>Баланс: {b1} → {b2}</div>", {
       d: md.desc || "без описания", c: net >= 0 ? "pos" : "warn", who: Math.abs(net) < 1 ? "без долга" : net > 0 ? pName + " должна " + E.fmt(net, { cur: "€", dec: 2 }) : "ты должна " + E.fmt(-net, { cur: "€", dec: 2 }),
-      b1: bt(bal), b2: bt(after).replace(/^.+ должна (тебе )?/, "") });
+      b1: bt(bal), b2: bt(after).replace(/^.+ должна (тебе )?/, "") }) + sharedPlanLine(md, mine);
+  }
+  // Где в личном плане учтётся твоя часть: еда и развлечения — строки из «Общие траты и твой план», остальное — по категории.
+  // В «+» план не меняется: за месяц доля сравнивается с планом, и если выйдет больше — там предложат довписать
+  function sharedPlanLine(md, mine) {
+    if (mine < 100) return "";
+    var kind = S.FOOD.indexOf(md.cat) >= 0 ? "food" : S.FUN.indexOf(md.cat) >= 0 ? "fun" : null;
+    var pids = kind ? ((state.settings.coverage || {})[kind] || []) : S.planCatsFor(state, md.cat);
+    var names = pids.map(catName).filter(Boolean), mon = E.MONTHS[Number(md.date.slice(5, 7)) - 1];
+    return names.length ? tpl("<div class='pw-sub'>Твоя часть {v} учтётся в плане «{r}» за {m}. Если за месяц выйдет больше плана — предложу довписать.</div>", { v: E.fmt(mine, { cur: "€" }), r: names.slice(0, 2).join(", ") + (names.length > 2 ? "…" : ""), m: mon })
+      : tpl("<div class='pw-sub'>Твоя часть {v} — строку плана для неё выберешь в «Общие траты и твой план».</div>", { v: E.fmt(mine, { cur: "€" }) });
   }
   // Карман в превью: «кошелёк 100 → 92 €» (или почему не меняется)
   function pocketWhereHtml(pid, cents, date) {
@@ -301,10 +312,7 @@
       if (!wk || !state.years[ys] || state.years[ys].archived) wh = tpl("<div class='pw-err'>Плана на {y} нет — создай его в «Плане».</div>", { y: ys || "эту дату" });
       else if (md.cents && envIn) {
         // коротко: сколько останется в плане недели и, если не хватило, сколько допишется сверх
-        var sp = splitEnv(env, md.cents), lft = env.left - sp.inside;
-        wh = tpl("<div class='pw-row'><span>Уже в плане {pl}</span><b>останется {l2}</b></div>{!over}", {
-          l2: E.fmt(lft, { cur: "€", dec: lft % 100 ? 2 : 0 }), pl: E.fmt(env.plan, { cur: "€", dec: env.plan % 100 ? 2 : 0 }),
-          over: sp.over ? tpl("<div class='pw-row'><span>Сверх плана</span><b>{v} к неделе</b></div>", { v: E.fmt(-sp.over, { cur: "€" }) }) : "" });
+        wh = envRows(env, md.cents);
       }
       else if (md.cents) {
         var r = E.compute(state, ys), cell = r.cells[md.cat][wk.idx], before = cell ? cell.cents : 0, v = md.tab === "income" ? md.cents : -md.cents;
@@ -357,38 +365,48 @@
           opt("theirs", "общая · всё на " + nameDat(pN), md.share === "theirs") + opt("mine", "общая · всё на тебе", md.share === "mine") + "</select>");
         if (shOn) html += plusChip(Us.catLabel(md.cat) + " ▾", "", "<select data-o='cat'>" + Us.sharedCats().map(function (c) { return opt(c, Us.catLabel(c), c === md.cat); }).join("") + "</select>");
       }
-      html += dateChip;
       var pc = shOn ? null : cashPlanCat(md), pg = shOn ? null : cashPlanGuess(md);
+      // в личный план — те же чипы, что на «Трате»: строка плана и «уже в плане недели / сверх плана / не в план»
+      var pw2 = pg && E.weekOfDate(md.date), pys2 = pw2 && String(pw2.year), pyOk = pw2 && state.years[pys2] && !state.years[pys2].archived;
+      var penv = pc && pyOk ? weekEnv(pys2, pc, pw2.idx) : null, pmode = !pc ? "no" : penv ? (plusUi.over.cashEnv === "over" ? "over" : "in") : "over";
+      if (pg && pyOk) {
+        html += plusChip(catName(pc || pg.cat) + " ▾", pg.unknown && !pc ? "ask" : "", tpl("<select data-o='cashPlanCat' aria-label='Строка плана'>{!o}</select>", { o: catOptions(pc || pg.cat, function (c) { return c.block !== "income" && c.block !== "savings"; }) }));
+        html += plusChip({ "in": "уже в плане недели", over: penv ? "сверх плана" : "в план", no: "не в план" }[pmode] + " ▾", pmode === "over" ? "" : "soft", "<select data-o='cashEnv' aria-label='Трата уже в плане недели, сверх или не в план'>" +
+          (penv ? opt("in", "уже в плане недели — план не меняется", pmode === "in") + opt("over", "сверх плана — прибавится к неделе", pmode === "over") : opt("over", "в план — прибавится к неделе", pmode === "over")) + opt("no", "не в план", pmode === "no") + "</select>");
+      }
+      html += dateChip;
       // общая трата спишется из кармана, только если она не раньше начала учёта налички
       var moves = !shOn || cashCounts(md.date);
       var bal2 = K.balances(cs, Cash.cashLines());
-      wh = "<div class='pw-pockets'>" + cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; }).slice(0, 3).map(function (p) {
-        var now = bal2[p.id] || 0, nxt = !moves ? now : now - (cc.from === p.id ? md.cents || 0 : 0) + (cc.to === p.id ? md.cents || 0 : 0);
-        return tpl("<div><small>{n}</small><b>{was}{v}</b></div>", { n: p.name, was: nxt !== now ? E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0" : "", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
-      }).join("") + "</div>";
+      // карманы — такими же строками, как остальное превью: «Наличка · кошелёк   500 → 300 €», только те, что меняются
+      wh = cs.pockets.filter(function (p) { return !p.archived && moves && md.cents && (cc.from === p.id || cc.to === p.id); }).sort(function (a, b) { return a.sort - b.sort; }).map(function (p) {
+        var now = bal2[p.id] || 0, nxt = now - (cc.from === p.id ? md.cents : 0) + (cc.to === p.id ? md.cents : 0);
+        return tpl("<div class='pw-row'><span>Наличка · {n}</span><b>{was}{v}</b></div>", { n: p.name, was: E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) });
+      }).join("");
       if (shOn && md.cents) {
         wh += sharedWhereHtml(md);
-        wh += moves ? "<div class='pw-sub'>Запишу в «Мы» как общую трату наличными. Свою долю добавишь в план так же, как другие общие.</div>"
+        wh += moves ? "<div class='pw-sub'>Запишу в «Мы» как общую трату наличными.</div>"
           : tpl("<div class='pw-sub'>Это до начала учёта налички ({d}) — карман не изменится, трата будет только в «Мы».</div>", { d: dayGen(cs.since) });
       }
       // «И в личный план» — заметный переключатель; если на неделю в плане уже есть сумма, по умолчанию выключен
-      if (pg) {
-        var pw2 = E.weekOfDate(md.date);
-        wh += tpl("<div class='pw-plan{off}'><label class='pw-plan-l'><input type='checkbox' id='pwPlan'{!on}> И в план</label><select id='pwPlanCat' aria-label='Строка плана'>{!o}</select></div><div class='pw-sub'>{hint}</div>", {
-          off: pc ? "" : " off", on: pc ? " checked" : "", o: catOptions(pc || pg.cat, function (c) { return c.block !== "income" && c.block !== "savings"; }), hint: planHint(pg, !!pc) });
+      if (pg && pyOk && md.cents) {
+        if (pmode === "in") wh += envRows(penv, md.cents);
+        else if (pmode === "over") {
+          var pcell = E.compute(state, pys2).cells[pc][pw2.idx], pb = pcell ? pcell.cents : 0;
+          wh += tpl("<div class='pw-row'><span>План · {wk} · {cat}</span><b>{a} → {b}</b></div>", { wk: shortWeek(pys2, pw2.idx).replace(/([а-я]{3})[а-я]+$/, "$1"), cat: catName(pc), a: E.fmt(pb, { cur: "€", dec: 0 }), b: E.fmt(pb - md.cents, { cur: "€", dec: 0 }) });
+        } else if (pg.unknown) wh += "<div class='pw-sub'>Категорию не узнала — выбери строку, если хочешь внести в план.</div>";
       }
     }
     chips.innerHTML = html;
     where.innerHTML = wh ? tpl("<div class='plus-where'><div class='pw-h'>Куда запишется</div>{!wh}</div>", { wh: wh }) : "";
-    var pp = where.querySelector("#pwPlan"), ppc = where.querySelector("#pwPlanCat");
-    if (pp) {
-      pp.onchange = function () { plusUi.over.cashPlan = pp.checked ? ppc.value : ""; drawParsed(m); };
-      ppc.onchange = function () { plusUi.over.cashPlanCat = ppc.value; if (pp.checked) plusUi.over.cashPlan = ppc.value; else delete plusUi.over.cashPlan; drawParsed(m); };
-    }
     chips.querySelectorAll("[data-o]").forEach(function (el) {
       el.onchange = function () {
         var k = el.dataset.o, v = el.value;
-        plusUi.over[k] = k === "paidByMe" ? v === "1" : v; drawParsed(m);
+        plusUi.over[k] = k === "paidByMe" ? v === "1" : v;
+        // наличка: выбрала строку плана — значит, в план (если не «не в план»); «не в план» и обратно
+        if (k === "cashPlanCat") plusUi.over.cashPlan = plusUi.over.cashEnv === "no" ? "" : v;
+        if (k === "cashEnv") plusUi.over.cashPlan = v === "no" ? "" : plusUi.over.cashPlanCat || (cashPlanGuess(plusModel()) || {}).cat || "";
+        drawParsed(m);
       };
     });
   }
@@ -427,13 +445,19 @@
       var ntx = { id: E.uid("t"), ts: Date.now(), date: md.date, kind: k, cents: md.cents, from: k === "in" || k === "ext" ? null : cur.from, to: k === "spend" || k === "out" ? null : cur.to, note: cur.note };
       var pcat = cashPlanCat(md), pw = E.weekOfDate(md.date), pys = pw && String(pw.year), inPlan = "";
       if (pcat && pw && state.years[pys] && !state.years[pys].archived) {
-        var pn = (cur.note || "") + " (нал)", pr = addToCell(pys, pcat, pw.idx, String(md.cents / 100), pn) || {}; ntx.plan = { year: pys, week: pw.idx, cat: pcat, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; inPlan = " и в план «" + catName(pcat) + "»";
+        ntx.plan = cashToPlan(pys, pcat, pw.idx, md.cents, (cur.note || "") + " (нал)", plusUi.over.cashEnv || "in"); inPlan = cashPlanToast(ntx);
       }
       c.tx.push(ntx);
       closeModal(); toast("Записано: " + (cur.note || "наличка") + " " + E.fmt(md.cents, { cur: "€" }) + inPlan); changed();
     }
   }
 
+  // хвост подтверждения: куда в плане попала трата налички
+  function cashPlanToast(t) {
+    var p = t.plan; if (!p) return "";
+    if (p.inside === undefined) return " и в план «" + catName(p.cat) + "»";
+    return " · уже в плане «" + catName(p.cat) + "»" + (p.term ? ", сверх " + E.fmt(t.cents - p.inside, { cur: "€" }) : "");
+  }
   // «Наличка» → «Заполнить по полям»: трата наличными из кармана; «И в план» — как при вводе фразой
   // (общую трату наличными удобнее вносить на вкладке «Общая»: там есть «наличными · карман»)
   function cashFormModal(md) {
@@ -446,7 +470,8 @@
       "<label class='f'>Из кармана<select name='from'>{!pk}</select></label>" +
       "<label class='f'>Что это<input type='text' name='note' value='{note}' placeholder='например, такси'></label>" +
       "<label class='f f-wide cf-plan'><span><input type='checkbox' name='plan'{!on}> И в план</span><select name='cat' aria-label='Строка плана'>{!opts}</select></label>" +
-      "</div><p class='small muted cf-hint'>В план — если этой траты там ещё нет: тогда сверка сойдётся.</p><button type='submit' hidden></button></form>" +
+      "<label class='f f-wide'>План недели<select name='env'><option value='in' selected>уже в плане недели</option><option value='over'>сверх плана</option></select></label>" +
+      "</div><p class='small muted cf-hint'>«Уже в плане» — сначала из того, что на эту неделю запланировано; в План допишется только то, что сверх.</p><button type='submit' hidden></button></form>" +
       "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Записать</button></div>", {
         amount: md && md.cents ? String(md.cents / 100).replace(".", ",") : "", date: (md && md.date) || E.todayISO(), note: (md && md.cash && md.cash.note) || "", on: planOn ? " checked" : "",
         pk: pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{n} · {b}</option>", { id: p.id, s: p.id === from ? " selected" : "", n: p.name, b: Cash.pocketCur(p.id) }); }).join(""),
@@ -462,7 +487,7 @@
         if (f.plan.checked) {
           var pw = E.weekOfDate(date), pys = pw && String(pw.year);
           if (!pw || !state.years[pys] || state.years[pys].archived) toast("Плана на эту дату нет — в план не вношу");
-          else { var pn = (note || "") + " (нал)", pr = addToCell(pys, f.cat.value, pw.idx, String(v / 100), pn) || {}; ntx.plan = { year: pys, week: pw.idx, cat: f.cat.value, term: pr.term, base: pr.base, fresh: pr.fresh, note: pn }; inPlan = " и в план «" + catName(f.cat.value) + "»"; }
+          else { ntx.plan = cashToPlan(pys, f.cat.value, pw.idx, v, (note || "") + " (нал)", f.env.value); inPlan = cashPlanToast(ntx); }
         }
         c.tx.push(ntx); closeModal(); toast("Записано: " + (note || "наличка") + " " + E.fmt(v, { cur: Cash.pocketCur(ntx.from) }) + inPlan); changed();
       }

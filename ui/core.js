@@ -787,10 +787,21 @@ function stripFromCell(year, cat, w, cents, term, note, fresh, base) { return E.
 function unplanCash(t) {
   var p = t && t.plan;
   if (!p || !state.years[p.year] || state.years[p.year].archived) return false;
-  var cents = -Math.abs(t.cents), own = p.term && Math.round(Math.abs(parseFloat(p.term)) * 100) === Math.abs(t.cents);
+  // «уже в плане»: в ячейке только то, что сверх остатка (или ничего)
+  var amt = p.inside !== undefined ? Math.abs(t.cents) - p.inside : Math.abs(t.cents);
+  if (p.inside !== undefined) state._ver = (state._ver || 0) + 1;
+  if (!p.term || amt <= 0) return true;
+  var cents = -amt, own = Math.round(Math.abs(parseFloat(p.term)) * 100) === amt;
   // сумму потом меняли — слагаемое в формуле уже другое, снимаем текущую сумму целиком
-  stripFromCell(p.year, p.cat, p.week, cents, own ? p.term : "-" + String(Math.abs(t.cents) / 100), p.note || (t.note || "") + " (нал)", own && p.fresh, p.base);
+  stripFromCell(p.year, p.cat, p.week, cents, own ? p.term : "-" + String(amt / 100), p.note || (t.note || "") + " (нал)", own && p.fresh, p.base);
   return true;
+}
+// Трата налички в личный план (mode "in" — «уже в плане недели», см. E.cashToPlan)
+function cashToPlan(year, catId, w, cents, note, mode) { return E.cashToPlan(state, year, catId, w, cents, note, mode); }
+// Новая сумма траты налички, которая «уже в плане»: снять старую и записать заново — остаток конверта пересчитается
+function replanCash(t, cents) {
+  var p = t.plan; unplanCash(t); t.plan = null; t.cents = cents;
+  t.plan = cashToPlan(p.year, p.cat, p.week, cents, p.note, "in");
 }
 function removeLogged(year, id) { return E.removeLogged(state, year, id); }
 
