@@ -412,7 +412,8 @@
     var y = sel.year, w = sel.week, yr = state.years[y], r = E.compute(state, y), wk = r.weeks[w];
     yr.recon = yr.recon || {}; yr.savRecon = yr.savRecon || {};
     var rec = yr.recon[w] || {}, srec = yr.savRecon[w] || {}, hasRec = Object.keys(rec).length > 0;
-    var step = ui.recStep || (draft ? 2 : hasRec ? 3 : 1);
+    var typed = draft && myState.recDraft.typed || null; // введено на шаге 1, но «Дальше» ещё не нажали
+    var step = ui.recStep || (typed ? 1 : draft ? 2 : hasRec ? 3 : 1);
     if (step === 2 && !hasRec) step = 1;
     if (draft && step === 3) step = 2; // итог — только после «Завершить»
     ui.recStep = step; ui.recWeek = { year: y, week: w };
@@ -472,6 +473,7 @@
     if (step === 1) {
       var accRow = function (a) {
         var active = E.accountActive(a, wk), e = rec[a.id], lk = lastKnown(a.id);
+        var debt = a.kind === "cash_flow" && /долг/i.test(a.name) && E.accCur(a) === "EUR" && active && !RO() ? sharedDebt(wk.to) : null;
         var isCash = /налич/i.test(a.name) && Cash.cashEurTotal() !== null && !/₽|руб/i.test(a.name) && E.accCur(a) === "EUR";
         var acur = E.accCur(a) === "RUB" ? "₽" : E.accCur(a) === "USD" ? "$" : "";
         var from = a.countsFrom ? "считается с " + (E.MONTHS_GEN[Number(a.countsFrom.slice(5, 7)) - 1] || a.countsFrom) : "";
@@ -484,9 +486,12 @@
         return tpl("<div class='rcl-row{info}'><label for='rf_{id}' class='rc-name'><b>{n}{cur}</b><small>{!was}{sub}{!cash}</small></label>" +
           "<span class='rc-inp'><span class='rc-ops'><button type='button' class='rc-sign' data-op='-' aria-label='Вставить «−» в сумму'{!dis}>−</button><button type='button' class='rc-sign' data-op='+' aria-label='Вставить «+» в сумму'{!dis}>+</button></span>" +
           "<input id='rf_{id}' type='text' inputmode='decimal' name='{id}' value='{v}' placeholder=''{!dis}></span></div>", {
-            info: a.kind === "info" ? " info" : "", id: a.id, n: a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, ""), cur: acur && a.name.indexOf(acur) < 0 ? " " + acur : "", sub: sub, dis: dis, v: e ? numShow(e.expr) : "",
+            info: a.kind === "info" ? " info" : "", id: a.id, n: a.name.replace(/\s*\((?:NET|в ФАКТ)[^)]*\)/i, ""), cur: acur && a.name.indexOf(acur) < 0 ? " " + acur : "", sub: sub, dis: dis,
+            v: typed && typed["recForm:" + a.id] !== undefined ? typed["recForm:" + a.id] : typed && typed["recInfo:" + a.id] !== undefined ? typed["recInfo:" + a.id] : e ? numShow(e.expr) : "",
             was: wasBtn,
-            cash: isCash ? tpl("{sep}<button type='button' class='linkish' data-cashfill='{id}'>в «Наличке» {sum}</button>", { sep: sub || wasBtn ? " · " : "", id: a.id, sum: E.fmt(Cash.cashEurTotal(), { dec: 0 }) }) : "" });
+            cash: isCash ? tpl("{sep}<button type='button' class='linkish' data-cashfill='{id}'>в «Наличке» {sum}</button>", { sep: sub || wasBtn ? " · " : "", id: a.id, sum: E.fmt(Cash.cashEurTotal(), { dec: 0 }) }) :
+              debt ? tpl("{sep}<button type='button' class='linkish' data-debtfill='{id}' data-v='{v}' aria-label='{al}'>из «Общих» {sum}</button>", { sep: sub || wasBtn ? " · " : "", id: a.id, v: String(debt.cents / 100).replace(".", ","),
+                sum: E.fmt(debt.cents, { dec: 0, plus: true }), al: "Вписать долг из «Общих» на " + dayGen(wk.to) + ": " + debt.who + (debt.miss.length ? ", без " + debt.miss.join(", ") + " — нет курса" : "") }) : "" });
       };
       html += "<p class='small muted rc-hint'>Впиши остатки на счетах. Можно формулой: 2000+200</p>";
       if (!weekDone(y, w)) html += "<div class='hint' style='margin:0 0 12px'>Неделя ещё идёт — траты могут прийти до её конца." +
@@ -499,7 +504,7 @@
       E.CAPITAL_ROWS.forEach(function (cr) {
         if ((cr.key === "card_rub" && r.rubInObr && r.rubInObr[w]) || (cr.key === "usd" && r.usdInObr && r.usdInObr[w])) return; // уже в обращении
         html += tpl("<label class='f'><span>{n} <small class='muted'>по расчёту {calc}</small></span><input type='text' inputmode='decimal' name='{k}' value='{v}' placeholder=''></label>", {
-          n: cr.name, calc: E.fmt(rnd(r.rows[cr.key][w]), { dec: 0 }), k: cr.key, v: srec[cr.key] !== undefined ? srec[cr.key] / 100 : "" });
+          n: cr.name, calc: E.fmt(rnd(r.rows[cr.key][w]), { dec: 0 }), k: cr.key, v: typed && typed["savForm:" + cr.key] !== undefined ? typed["savForm:" + cr.key] : srec[cr.key] !== undefined ? srec[cr.key] / 100 : "" });
       });
       html += "</form></details>" + (hasRec ? "<button class='linkish rc-clear' id='recClear'>Очистить неделю</button>" : "") +
         "<div class='rc-bar'><div id='recResult'></div><button class='btn primary rc-save' id='recNext'>Дальше</button></div>";
@@ -584,7 +589,15 @@
         var calc = r.obr[w], dd = f === null ? null : f - calc;
         $main.querySelector("#recResult").innerHTML = nums(f, calc, dd) + (err ? tpl("<div class='alert'>Ошибка в формуле — {e}</div>", { e: err }) : "");
       };
+      // всё введённое сразу уходит в черновик: ушла в «Общие» посмотреть долги, вернулась — цифры на месте
+      var keepTyped = function () {
+        var t = {};
+        $main.querySelectorAll("#recForm input, #recInfo input, #savForm input").forEach(function (i) { if (i.value.trim() && !i.disabled) t[i.form.id + ":" + i.name] = i.value; });
+        if (!inDraft()) { if (!Object.keys(t).length) return; startDraft(y, w); }
+        myState.recDraft.typed = t; save();
+      };
       $main.querySelectorAll("#recForm input").forEach(function (i) { i.addEventListener("input", liveResult); });
+      $main.querySelectorAll("#recForm input, #recInfo input, #savForm input").forEach(function (i) { i.addEventListener("input", keepTyped); });
       // «−» и «+»: на цифровой клавиатуре телефона их нет — дописываем кнопкой (долг: −500, формула: 2000+200)
       $main.querySelectorAll("[data-op]").forEach(function (b) {
         b.onmousedown = function (e) { e.preventDefault(); }; // поле не теряет фокус, клавиатура не прячется
@@ -595,8 +608,10 @@
           try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) { /* ок */ }
         };
       });
-      $main.querySelectorAll("[data-wasfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.wasfill + "]"); i.value = b.dataset.v; liveResult(); i.focus(); }; });
-      $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(Cash.cashEurTotal() / 100).replace(".", ","); liveResult(); }; });
+      $main.querySelectorAll("[data-wasfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.wasfill + "]"); i.value = b.dataset.v; liveResult(); keepTyped(); i.focus(); }; });
+      $main.querySelectorAll("[data-cashfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.cashfill + "]"); i.value = String(Cash.cashEurTotal() / 100).replace(".", ","); liveResult(); keepTyped(); }; });
+      // долг из «Общих» — в поле; свои долги (кто-то ещё) дописываются формулой: 120+300
+      $main.querySelectorAll("[data-debtfill]").forEach(function (b) { b.onclick = function () { var i = $main.querySelector("#recForm [name=" + b.dataset.debtfill + "]"); i.value = b.dataset.v; liveResult(); keepTyped(); i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) { /* ок */ } }; });
       liveResult();
       $main.querySelector("#recNext").onclick = function () {
         var nr = {}, ns = {};
@@ -613,7 +628,9 @@
         } catch (e) { toast("Ошибка в формуле: " + e.message); return; }
         if (!flow.some(function (a) { return nr[a.id]; })) { toast("Впиши хотя бы один остаток"); return; }
         // первое «Дальше» начинает черновик: в бюджет сверка попадёт только по «Завершить»
-        if (!inDraft()) { startDraft(y, w); yr = state.years[y]; yr.recon = yr.recon || {}; yr.savRecon = yr.savRecon || {}; }
+        if (!inDraft()) startDraft(y, w);
+        delete myState.recDraft.typed;
+        yr = state.years[y]; yr.recon = yr.recon || {}; yr.savRecon = yr.savRecon || {}; // черновик мог начаться ещё при вводе — пишем в его копию года
         yr.recon[w] = nr;
         if (Object.keys(ns).length) yr.savRecon[w] = ns; else delete yr.savRecon[w];
         var fsum = 0; flow.forEach(function (a) { if (a.kind === "cash_flow" && E.accountActive(a, wk) && nr[a.id]) fsum += E.accToEur(state, a, nr[a.id].cents); });
@@ -665,6 +682,20 @@
       $main.querySelectorAll("[data-go]").forEach(function (tr) { tr.onclick = function () { var p = tr.dataset.go.split(":"); ui.recWeek = { year: p[0], week: Number(p[1]) }; ui.recStep = 3; render(); }; });
     }
   };
+
+  // Шаг 1: долг из «Общих» на конец недели, в евро. > 0 — партнёр должен мне. Валюты без курса не входят — их перечисляем в miss
+  function sharedDebt(to) {
+    if (!sh) return null;
+    var bal = S.balance(sh.expenses, to), cents = 0, miss = [];
+    Object.keys(bal).forEach(function (c) {
+      if (Math.abs(bal[c]) < 1) return;
+      var v = S.toEur(bal[c], c, to, state.settings);
+      if (c !== "EUR" && !v) miss.push(curSign(c)); else cents += v;
+    });
+    cents = Math.round(cents);
+    if (Math.abs(cents) < 1 && !miss.length) return null;
+    return { cents: cents, miss: miss, who: cents >= 0 ? partnerName() + " должна тебе " + E.fmt(cents, { cur: "€" }) : "ты должна " + nameDative(partnerName()) + " " + E.fmt(-cents, { cur: "€" }) };
+  }
 
   // Шаг 2: траты наличными за неделю от порога, которых нет в плане
   function cashNotInPlanCard(y, w) {
