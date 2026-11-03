@@ -60,6 +60,16 @@
   }
 
   // Строка «По категориям за месяц»: траты месяца, с какими строками плана сравниваю, довписать / не учитывать
+  // категория одной общей траты: у вас обеих, похожие дальше пойдут туда же; с отменой
+  function setSharedCat(e, c) {
+    var prev = e.cat, prevL = sh.learned[S.norm(e.desc)];
+    e.cat = c; if (c !== "Прочее") learn(e.desc, c);
+    Store.updateShared(e.id, { category: c }).catch(function (err) { toast("Не сохранилось: " + err.message + ". Проверь связь"); });
+    pushUndo({ label: c === "Прочее" ? "«" + e.desc + "» — оставила в «Прочем»" : "«" + e.desc + "» → " + catLabel(c) + ". Похожие буду относить сюда же", revert: function () {
+      e.cat = prev; if (c !== "Прочее") learn(e.desc, prevL || null);
+      return Store.updateShared(e.id, { category: prev || null });
+    } });
+  }
   function tlRowSheet(x, ty, tm, rr) {
     var set = state.settings, calc = sharedForCalc(), mName = E.MONTHS[tm] + " " + ty;
     var exps = calc.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === ty && Number(e.date.slice(5, 7)) - 1 === tm && x.cats.indexOf(S.catOf(e, calc.learned)) >= 0; })
@@ -69,7 +79,9 @@
     // выбранные строки — первыми, чтобы сразу было видно, с чем сравниваю
     var opts = cats().filter(function (c) { return !c.archived && c.block !== "income" && c.block !== "savings"; })
       .sort(function (a, b) { return (picked.indexOf(b.id) >= 0) - (picked.indexOf(a.id) >= 0); });
-    var expLi = function (e) { return tpl("<li><span>{d} · {desc}</span><b>{v}</b></li>", { d: e.date.slice(8, 10) + "." + e.date.slice(5, 7), desc: e.desc, v: E.eur(S.toEur(e.share, e.currency, e.date, set)) }); };
+    // у каждой траты — своя категория: из «Прочего» (и из любой другой) можно разнести по одной, а не только всю группу сразу
+    var expLi = function (e) { return tpl("<li><span>{d} · {desc}</span><b>{v}</b><button type='button' class='linkish tl-rc' data-rc='{id}' aria-label='Другая категория для «{desc}»'>{l} ▾</button></li>", {
+      d: e.date.slice(8, 10) + "." + e.date.slice(5, 7), desc: e.desc, v: E.eur(S.toEur(e.share, e.currency, e.date, set)), id: e.id, l: x.key === "Прочее" ? "в категорию" : "другая" }); };
     var tg = function (id, label, on, attr) { return tpl("<button type='button' class='tg{on}' {a}='{id}'>{l}</button>", { on: on ? " on" : "", a: attr, id: id, l: (on ? "✓ " : "") + label }); };
     modal(tpl("<div class='m-body tl-sheet'><h2>{c} · {m}</h2><div class='tl-nums'><span>общие <b>{share}</b></span><span>в плане <b id='tlPlan'>{plan}</b></span></div><ul class='tl-exps'>{!first}</ul>{!more}" +
       "<div class='tl-cmp small'><span class='muted' id='tlPre'>Сравниваю с </span><span id='tlNames'></span> <button type='button' class='linkish' id='tlEdit'>изменить</button></div>" +
@@ -125,6 +137,17 @@
       m.querySelector("[data-act=cancel]").onclick = closeModal;
       m.querySelector("[data-act=ok]").onclick = function () { saveMap(); closeModal(); changed(); toast("Сохранено"); };
       m.querySelector("[data-act=skip]").onclick = function () { set.tlSkip = set.tlSkip || {}; if (set.tlSkip[skipK]) delete set.tlSkip[skipK]; else set.tlSkip[skipK] = 1; closeModal(); changed(); };
+      // после выбора — обратно в это же окно: разносить «Прочее» по одной трате подряд
+      m.querySelectorAll("[data-rc]").forEach(function (b) {
+        b.onclick = function () {
+          var e = sh.expenses.find(function (q) { return q.id === b.dataset.rc; }); if (!e) return;
+          catPicker(S.catOf(e, calc.learned), function (c) {
+            setSharedCat(e, c); render();
+            var t2 = tologCatRows(ty, tm), x2 = t2.rows.find(function (r) { return r.key === x.key; });
+            if (x2) tlRowSheet(x2, ty, tm, t2.rr);
+          });
+        };
+      });
     });
   }
 
@@ -648,18 +671,8 @@
     if (older) html += tpl("<button type='button' class='btn ghost' id='othAll'>Показать и старые · {n}</button>", { n: older });
     $main.innerHTML = html;
     var ob = $main.querySelector("#othAll"); if (ob) ob.onclick = function () { ui.otherAll = true; render(); };
-    var learned = sh.learned;
     // выбрать категорию: сохраняем у вас обеих и запоминаем для похожих
-    function setCat(e, c) {
-      var prev = e.cat, prevL = learned[S.norm(e.desc)];
-      e.cat = c; if (c !== "Прочее") learn(e.desc, c);
-      Store.updateShared(e.id, { category: c }).catch(function (err) { toast("Не сохранилось: " + err.message + ". Проверь связь"); });
-      render();
-      pushUndo({ label: c === "Прочее" ? "«" + e.desc + "» — оставила в «Прочем»" : "«" + e.desc + "» → " + catLabel(c) + ". Похожие буду относить сюда же", revert: function () {
-        e.cat = prev; if (c !== "Прочее") learn(e.desc, prevL || null);
-        return Store.updateShared(e.id, { category: prev || null });
-      } });
-    }
+    function setCat(e, c) { setSharedCat(e, c); render(); }
     function setTransfer(e) {
       var prev = e.kind; e.kind = "refund";
       Store.updateShared(e.id, { kind: "refund" }).catch(function (err) { toast("Не сохранилось: " + err.message); });
@@ -726,6 +739,11 @@
       more: balK.slice(1).map(function (k) { return tpl("<div class='small ub-more'>и ещё <b>{v}</b> — {who}</div>", { v: E.fmt(Math.abs(bal[k]), { cur: sign$(k), dec: 2 }), who: whoOwes(bal[k]).replace(/^Ты/, "ты") }); }).join(""),
       btn: balK.length ? "<button class='btn primary' id='settle'>Рассчитаться</button>" : "" });
     html += fxMissingHtml();
+    // трата с датой в будущем — почти всегда опечатка в годе: в ленте её не видно (лента — за один год), а долг наверху она меняет
+    var fut = exps.filter(function (e) { return e.date > E.todayISO(); });
+    if (fut.length) html += tpl("<div class='hint small' style='margin:0 0 14px'><b>{h}</b> Общих трат в будущем не бывает — скорее всего, опечатка в дате. В ленте за этот год их не видно, а в долге они есть.<div class='row' style='margin-top:8px'>{!b}</div></div>", {
+      h: fut.length === 1 ? "Есть трата с датой в будущем." : "Есть траты с датой в будущем: " + fut.length + ".",
+      b: fut.slice(0, 5).map(function (e) { return tpl("<button type='button' class='btn sm' data-open='{id}'>{d} · {desc}</button>", { id: e.id, d: e.date.slice(8, 10) + "." + e.date.slice(5, 7) + "." + e.date.slice(0, 4), desc: e.desc || "без описания" }); }).join("") });
     // общие траты и личный план: текущий месяц
     var nowM = Number(E.todayISO().slice(5, 7)) - 1, tl = toLogCount();
     // всё, что показывает экран «Общие траты и твой план»: траты не в плане, строки выше плана или без плана, коммуналка
@@ -889,7 +907,7 @@
       var cur0 = balK[0] || "EUR", v = bal[cur0] || 0;
       modal(tpl("<div class='m-body'><h2>Рассчитаться</h2><p class='muted'>Перевод между вами меняет только баланс — в расходы он не попадает.</p><div class='form-grid'>" +
         "<label class='f'>Кто переводит<select id='stW'>{!who}</select></label>{!curSel}<label class='f'>Сумма, <span id='stSign'>{sign}</span><input type='text' id='stA' value='{sum}' autofocus></label>" +
-        "<label class='f'>Дата<input type='date' id='stD' value='{d}'></label></div></div>" +
+        "<label class='f'>Дата<input type='date' id='stD' value='{d}' max='{d}'></label></div></div>" +
         "<div class='m-foot'><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='ok'>Записать</button></div>", {
           who: o("partner", partner + " → мне", v > 0) + o("me", "я → " + partner, v < 0), sum: (Math.abs(v) / 100).toFixed(2).replace(".", ","), d: E.todayISO(), sign: sign$(cur0),
           curSel: balK.length > 1 ? tpl("<label class='f'>Валюта<select id='stC'>{!o}</select></label>", { o: balK.map(function (k) { return o(k, sign$(k) + " · " + E.fmt(Math.abs(bal[k]), { cur: sign$(k), dec: 2 }), k === cur0); }).join("") }) : "" }), function (m) {
@@ -972,9 +990,9 @@
           "<label class='big-field'><span class='ic'>✎</span><input id='exDesc' placeholder='Описание' value='{desc}' autocomplete='off'></label>" +
           "<label class='big-field amount'><select id='exCur' aria-label='Валюта'>{!cur}</select><input id='exCost' inputmode='decimal' placeholder='0,00' value='{cost}'></label>" +
           "<div class='center'><button class='btn split-pill' data-act='split'>{sum}</button></div>" +
-          "<div class='sheet-meta'><label class='f'>Дата<input type='date' id='exDate' value='{date}'></label><label class='f'>Категория<select id='exCat'>{!cats}</select></label>" +
+          "<div class='sheet-meta'><label class='f'>Дата<input type='date' id='exDate' value='{date}' max='{today}'></label><label class='f'>Категория<select id='exCat'>{!cats}</select></label>" +
           "<label class='f'>Способ<select id='exMethod'>{!meth}</select></label><label class='f' style='grid-column:1/-1'>Заметка<input id='exNote' value='{note}' placeholder='необязательно'></label></div>{!ed}</div>", {
-            title: existing ? "Трата" : "Новая трата", p: partner, desc: d.desc, cost: d.cost ? String(d.cost / 100).replace(".", ",") : "", sum: summary(), date: d.date, note: d.note,
+            title: existing ? "Трата" : "Новая трата", p: partner, desc: d.desc, cost: d.cost ? String(d.cost / 100).replace(".", ",") : "", sum: summary(), date: d.date, today: E.todayISO(), note: d.note,
             cur: ["EUR", "RUB", "USD", "GEL"].map(function (c) { return tpl("<option{!s}>{c}</option>", { s: c === d.currency ? " selected" : "", c: c }); }).join(""),
             cats: sharedCats().map(function (c) { return o(c, catLabel(c), c === d.cat); }).join(""),
             meth: o("card", "карта", d.method !== "cash") + o("cash", "наличные", d.method === "cash"),
@@ -1076,6 +1094,8 @@
         if (!readMain(m)) return;
         if (!d.desc) { toast("Добавь описание"); q("#exDesc").focus(); return; }
         if (!d.cost) { toast("Впиши сумму"); q("#exCost").focus(); return; }
+        // общая трата — уже потраченные деньги: в будущем её не бывает (иначе опечатка в годе прячется из ленты, а долг меняет)
+        if (!d.date || d.date > E.todayISO()) { toast("Дата в будущем — общая трата может быть только сегодня или раньше"); q("#exDate").focus(); return; }
         var sp = split(); if (sp.error) { toast("Деление: " + sp.error); return; }
         var ex = S.makeExpense({ date: d.date, desc: d.desc, cost: d.cost, currency: d.currency, paidByMe: d.paidByMe, myShare: sp.me, cat: d.cat, method: d.method,
           note: d.note, kind: d.kind === "batch" ? "batch" : d.kind, split: { mode: d.mode, values: d.values || {} } });

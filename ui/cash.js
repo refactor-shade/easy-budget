@@ -5,6 +5,11 @@
   function cashState() { state.cash = state.cash || { pockets: [], tx: [], sharedMap: {}, since: null, defaultPocket: null }; return state.cash; }
   function pocketName(id) { if (id === "bank") return "карта"; var p = (state.cash.pockets || []).find(function (x) { return x.id === id; }); return p ? p.name : "—"; }
   function pocketCur(id) { var p = (state.cash.pockets || []).find(function (x) { return x.id === id; }); return p && p.cur === "RUB" ? "₽" : p && p.cur === "USD" ? "$" : "€"; }
+  // «Конверт 2 · 120 €» — в списках «откуда / куда»: номера конвертов никто не помнит, а остаток решает, откуда перекладывать
+  function pocketLabel(id) {
+    if (id === "bank") return "карта"; var v = K.balances(state.cash, cashLines())[id];
+    return pocketName(id) + (v === undefined ? "" : " · " + E.fmt(v, { cur: pocketCur(id), dec: v % 100 ? 2 : 0 }));
+  }
   // наличные траты из общих: свои — где платила я; в бюджете партнёра — где платила она (иначе её итог не сойдётся с её же пересчётом)
   // открыт бюджет того, с кем у меня общие траты
   function isPartnerView() { return !!(sh && sh.partner && view.who !== "me" && (view.who === sh.partner.userId || view.who === sh.partnerId)); }
@@ -103,19 +108,19 @@
     var f = $main.querySelector("#cashQ"), pv = $main.querySelector("#cashPv"), cur = null;
     function pocketOpts(sel, withBank) {
       return (withBank ? tpl("<option value='bank'{!s}>карта / банк</option>", { s: sel === "bank" ? " selected" : "" }) : "") + tpl("<option value=''{!s}>—</option>", { s: !sel ? " selected" : "" }) +
-        pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{name}</option>", { id: p.id, s: p.id === sel ? " selected" : "", name: p.name }); }).join("");
+        pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{name}</option>", { id: p.id, s: p.id === sel ? " selected" : "", name: pocketLabel(p.id) }); }).join("");
     }
     function drawPv() {
       if (!cur) { pv.innerHTML = ""; return; }
       var k = cur.kind, needFrom = k === "spend" || k === "move" || k === "out", needTo = k === "move" || k === "in" || k === "ext";
       pv.innerHTML = tpl("<div class='cash-pv'><div class='seg'>{!seg}</div><div class='form-grid'><label class='f'>Сумма<input name='pc' inputmode='decimal' value='{sum}' placeholder='0'></label>{!from}{!to}" +
-        "<label class='f'>Дата<input type='date' name='pd' value='{date}'></label><label class='f' style='grid-column:1/-1'>Что это<input name='pn' value='{note}' placeholder='например, рынок'></label>{!plan}" +
+        "<label class='f'>Дата<input type='date' name='pd' value='{date}' max='{today}'></label><label class='f' style='grid-column:1/-1'>Что это<input name='pn' value='{note}' placeholder='например, рынок'></label>{!plan}" +
         "</div><div class='row' style='margin-top:10px'><span class='small muted'>{pv}</span><span class='spacer'></span><button type='button' class='btn ghost' id='pvX'>Отмена</button><button type='submit' class='btn primary'>Сохранить</button></div></div>", {
           seg: K.KINDS.map(function (x) { return tpl("<button type='button' class='{c}' data-k='{id}'>{name}</button>", { c: x.id === k ? "on" : "", id: x.id, name: x.name }); }).join(""),
           sum: cur.cents ? String(cur.cents / 100).replace(".", ",") : "",
           from: needFrom ? tpl("<label class='f'>Откуда<select name='pf'>{!o}</select></label>", { o: pocketOpts(cur.from, false) }) : "",
           to: needTo ? tpl("<label class='f'>Куда<select name='pt'>{!o}</select></label>", { o: pocketOpts(cur.to, false) }) : "",
-          date: cur.date || E.todayISO(), note: cur.note || "",
+          date: cur.date || E.todayISO(), today: E.todayISO(), note: cur.note || "",
           plan: k === "spend" ? tpl("<label class='row small' style='grid-column:1/-1'><input type='checkbox' name='pp'> Внести и в личный план, в категорию <select name='pcat'>{!o}</select></label>", { o: catOptions(defaultCat()) }) : "",
           pv: previewText() });
       pv.querySelectorAll("[data-k]").forEach(function (b) { b.onclick = function () { readPv(); cur.kind = b.dataset.k; if (cur.kind === "in" || cur.kind === "ext") cur.to = cur.to || cur.from || c.defaultPocket; drawPv(); }; });
@@ -148,6 +153,7 @@
       if ((k === "spend" || k === "move" || k === "out") && !cur.from) { toast("Откуда?"); return; }
       if ((k === "move" || k === "in" || k === "ext") && !cur.to) { toast("Куда?"); return; }
       if (k === "move" && cur.from === cur.to) { toast("Откуда и куда — одно и то же"); return; }
+      if (cur.date > E.todayISO()) { toast("Дата в будущем — наличка может быть только сегодня или раньше"); return; }
       var tx = { id: E.uid("t"), ts: Date.now(), date: cur.date, kind: k, cents: cur.cents, from: k === "in" || k === "ext" ? null : cur.from, to: k === "spend" || k === "out" ? null : cur.to, note: cur.note };
       var pp = pv.querySelector("[name=pp]");
       if (pp && pp.checked) {
@@ -286,12 +292,12 @@
     if (!t) return;
     var c = cashState(), pockets = c.pockets.filter(function (p) { return !p.archived || p.id === t.from || p.id === t.to; });
     var k = t.kind, needFrom = k === "spend" || k === "move" || k === "out", needTo = k === "move" || k === "in" || k === "ext" || k === "adjust";
-    var opts = function (sel) { return pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{name}</option>", { id: p.id, s: p.id === sel ? " selected" : "", name: p.name }); }).join(""); };
+    var opts = function (sel) { return pockets.map(function (p) { return tpl("<option value='{id}'{!s}>{name}</option>", { id: p.id, s: p.id === sel ? " selected" : "", name: pocketLabel(p.id) }); }).join(""); };
     var kind = (K.KINDS.find(function (x) { return x.id === k; }) || { name: "пересчёт" }).name;
     modal(tpl("<div class='m-body'><h2>{kind}</h2><div class='form-grid' style='margin-top:10px'><label class='f'>Сумма<input name='ec' inputmode='decimal' value='{sum}'></label>{!from}{!to}" +
-      "<label class='f'>Дата<input type='date' name='ed' value='{date}'></label><label class='f' style='grid-column:1/-1'>Что это<input name='en' value='{note}'></label></div>{!plan}" +
+      "<label class='f'>Дата<input type='date' name='ed' value='{date}' max='{today}'></label><label class='f' style='grid-column:1/-1'>Что это<input name='en' value='{note}'></label></div>{!plan}" +
       "</div><div class='m-foot'><button class='btn ghost danger' data-act='del'>Удалить</button><span class='spacer'></span><button class='btn ghost' data-act='x'>Отмена</button><button class='btn primary' data-act='ok'>Сохранить</button></div>", {
-        kind: kind.charAt(0).toUpperCase() + kind.slice(1), sum: String(t.cents / 100).replace(".", ","), date: t.date, note: t.note || "",
+        kind: kind.charAt(0).toUpperCase() + kind.slice(1), sum: String(t.cents / 100).replace(".", ","), date: t.date, today: E.todayISO(), note: t.note || "",
         from: needFrom ? tpl("<label class='f'>Откуда<select name='ef'>{!o}</select></label>", { o: opts(t.from) }) : "",
         to: needTo ? tpl("<label class='f'>Куда<select name='et'>{!o}</select></label>", { o: opts(t.to) }) : "",
         plan: t.plan ? tpl("<p class='small muted' style='margin:10px 0 0'>Эта трата в плане: «{cat}», {wk}. Новая сумма поправит и план.</p>", { cat: catName(t.plan.cat), wk: shortWeek(t.plan.year, t.plan.week) }) : "" }), function (m) {
@@ -308,6 +314,7 @@
         if (!v) { toast("Впиши сумму"); return; }
         v = k === "adjust" ? v : Math.abs(v);
         if (k === "move" && g("ef") === g("et")) { toast("Откуда и куда — одно и то же"); return; }
+        if (g("ed") && g("ed") > E.todayISO()) { toast("Дата в будущем — наличка может быть только сегодня или раньше"); return; }
         var delta = v - t.cents;
         if (t.plan && delta && state.years[t.plan.year] && !state.years[t.plan.year].archived) {
           if (t.plan.inside !== undefined) replanCash(t, v); // уже в плане: остаток конверта и то, что сверх, пересчитываются
@@ -400,5 +407,5 @@
   }
 
   // для других экранов — только это; остальное внутри модуля
-  window.Cash = { cashState: cashState, pocketName: pocketName, pocketCur: pocketCur, cashLines: cashLines, cashEurTotal: cashEurTotal, cashNotInPlan: cashNotInPlan, cashPlanCardHtml: cashPlanCardHtml, bindCashPlanRows: bindCashPlanRows };
+  window.Cash = { cashState: cashState, pocketName: pocketName, pocketCur: pocketCur, pocketLabel: pocketLabel, cashLines: cashLines, cashEurTotal: cashEurTotal, cashNotInPlan: cashNotInPlan, cashPlanCardHtml: cashPlanCardHtml, bindCashPlanRows: bindCashPlanRows };
 })();

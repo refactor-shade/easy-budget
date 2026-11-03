@@ -8,26 +8,41 @@
   function phNorm(s) { return String(s || "").toLowerCase().replace(/ё/g, "е"); }
   function phLoose(w) { return phNorm(w).replace(/([а-яa-z])\1+/g, "$1"); }
   function phStem(w) { w = phNorm(w); return w.length <= 4 ? w : w.slice(0, Math.max(4, w.length - 2)); }
-  function phParse(text) {
+  // past — дата может быть только в прошлом (общие траты, наличка, сверка); иначе ближайшая к сегодня (план)
+  function phParse(text, past) {
     var t = phNorm(text), out = { cents: null, date: null, words: [] };
-    // дата: 12.10 / 12/10
-    t = t.replace(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b/, function (m, d, mo, yy) {
-      var y = yy ? (yy.length === 2 ? "20" + yy : yy) : E.todayISO().slice(0, 4);
-      out.date = y + "-" + ("0" + mo).slice(-2) + "-" + ("0" + d).slice(-2); return " ";
-    });
-    // месяц словами: «в конце ноября», «15 ноября», «в начале декабря», «в феврале», «конец месяца»
-    var MON = ["янв", "фев", "мар", "апр", "ма[йяе]", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-    var mre = new RegExp("(?:(в\\s+)?(конц[еа]|конец|начал[еа]|середин[еуы])\\s+)?(\\d{1,2}\\s+)?(" + MON.join("|") + ")[а-я]*", "i");
     var today = E.todayISO(), ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7)) - 1;
     var lastDay = function (y, m) { return new Date(y, m + 1, 0).getDate(); };
     var mk = function (y, m, d) { return y + "-" + ("0" + (m + 1)).slice(-2) + "-" + ("0" + d).slice(-2); };
+    // год не назван: ближайшая к сегодня дата (при равенстве — прошлая); для past — последняя не позже сегодня.
+    // Раньше месяц раньше текущего уходил в следующий год: «5 окт» в ноябре становилось 2027-м
+    var near = function (mi, dayOf) {
+      var best = null;
+      [ty - 1, ty, ty + 1].forEach(function (y) {
+        var d = mk(y, mi, Math.min(dayOf(y), lastDay(y, mi))), diff = (Date.parse(d) - Date.parse(today)) / 864e5;
+        if (past && diff > 0) return;
+        var score = Math.abs(diff) + (diff > 0 ? 0.5 : 0);
+        if (!best || score < best.s) best = { s: score, d: d };
+      });
+      return best.d;
+    };
+    // дата: 12.10 / 12/10
+    t = t.replace(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b/, function (m, d, mo, yy) {
+      if (!yy && Number(mo) >= 1 && Number(mo) <= 12) { out.date = near(Number(mo) - 1, function () { return Number(d); }); return " "; }
+      var y = yy ? (yy.length === 2 ? "20" + yy : yy) : String(ty);
+      out.date = y + "-" + ("0" + mo).slice(-2) + "-" + ("0" + d).slice(-2); return " ";
+    });
+    // месяц словами: «в конце ноября», «15 ноября», «5 окт», «в начале декабря», «в феврале», «конец месяца».
+    // Только целое слово: «доктор», «маркет», «индекс», «майка» — не месяцы
+    var MON = ["янв(?:ар[ьяе])?", "фев(?:рал[ьяе])?", "март[ае]?|мар", "апр(?:ел[ьяе])?", "ма[йяе]", "июн[ьяе]?", "июл[ьяе]?", "авг(?:уст[ае]?)?", "сент?(?:ябр[ьяе])?", "окт(?:ябр[ьяе])?", "ноя(?:бр[ьяе])?", "дек(?:абр[ьяе])?"];
+    var mre = new RegExp("(^|[^а-яa-z\\d])(?:(в\\s+)?(конц[еа]|конец|начал[еа]|середин[еуы])\\s+)?(\\d{1,2}\\s+)?(" + MON.join("|") + ")(?![а-я])", "i");
     t = t.replace(/(?:в\s+)?(конц[еа]|конец|начал[еа]|середин[еуы])\s+месяца/, function (m0, pos) {
       out.date = mk(ty, tm, /^кон/.test(pos) ? lastDay(ty, tm) : /^нач/.test(pos) ? 1 : 15); return " ";
     });
-    if (!out.date) t = t.replace(mre, function (m0, v, pos, day, mon) {
-      var mi = MON.findIndex(function (x) { return new RegExp("^" + x, "i").test(mon); }); if (mi < 0) return m0;
-      var y = mi < tm ? ty + 1 : ty, d = day ? Number(day) : pos ? (/^кон/.test(pos) ? lastDay(y, mi) : /^нач/.test(pos) ? 1 : 15) : 1;
-      out.date = mk(y, mi, Math.min(d, lastDay(y, mi))); return " ";
+    if (!out.date) t = t.replace(mre, function (m0, lead, v, pos, day, mon) {
+      var mi = MON.findIndex(function (x) { return new RegExp("^(?:" + x + ")$", "i").test(mon); }); if (mi < 0) return m0;
+      out.date = near(mi, function (y) { return day ? Number(day) : pos ? (/^кон/.test(pos) ? lastDay(y, mi) : /^нач/.test(pos) ? 1 : 15) : 1; });
+      return lead + " ";
     });
     // сумма: первое число (4,5 · 1 200 · 89)
     t = t.replace(/(\d{1,3}(?:[.,\u00a0\u202f ]\d{3})+(?:[.,]\d{1,2})?(?!\d)|\d+(?:[.,]\d{1,2})?)/, function (m) { out.cents = Math.round(E.parseNum(m) * 100); return " "; });
@@ -214,7 +229,7 @@
 
   // что получилось из фразы с учётом правок в чипах
   function plusModel() {
-    var tab = plusUi.tab, p = phParse(plusUi.text), o = plusUi.over, md = { tab: tab, cents: o.cents !== undefined ? o.cents : p.cents, date: o.date || p.date || E.todayISO() };
+    var tab = plusUi.tab, p = phParse(plusUi.text, tab === "shared" || tab === "cash"), o = plusUi.over, md = { tab: tab, cents: o.cents !== undefined ? o.cents : p.cents, date: o.date || p.date || E.todayISO() };
     if (tab === "spend" || tab === "income") {
       var ci = tab === "income" ? phCat(p.words, true) : spendCat(p.words);
       md.cat = o.cat || (ci ? ci.id : (tab === "income" ? ((cats().find(function (c) { return c.block === "income" && !c.archived; }) || {}).id) : defaultCat()));
@@ -303,8 +318,10 @@
       }
     }
     var md = plusModel(), chips = m.querySelector("#plusChips"), where = m.querySelector("#plusWhere"), html = "", wh = "";
-    var dateLbl = md.date === E.todayISO() ? "сегодня" : md.date === E.addDays(E.todayISO(), -1) ? "вчера" : new Date(md.date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-    var dateChip = plusChip(dateLbl + " ▾", md.date === E.todayISO() ? "soft" : "", tpl("<input type='date' data-o='date' value='{d}'>", { d: md.date }));
+    // общие и наличка — только прошлое; дата в другом году видна с годом и выделена, чтобы опечатка не ушла незаметно
+    var pastOnly = md.tab === "shared" || md.tab === "cash", otherYear = md.date.slice(0, 4) !== E.todayISO().slice(0, 4);
+    var dateLbl = md.date === E.todayISO() ? "сегодня" : md.date === E.addDays(E.todayISO(), -1) ? "вчера" : new Date(md.date + "T12:00:00").toLocaleDateString("ru-RU", otherYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" }).replace(/\s*г\.$/, "");
+    var dateChip = plusChip(dateLbl + " ▾", md.date === E.todayISO() ? "soft" : otherYear || (pastOnly && md.date > E.todayISO()) ? "ask" : "", tpl("<input type='date' data-o='date' value='{d}'{!mx}>", { d: md.date, mx: pastOnly ? tpl(" max='{t}'", { t: E.todayISO() }) : "" }));
     if (!plusUi.text.trim()) { chips.innerHTML = ""; where.innerHTML = ""; return; }
     if (md.tab === "spend" || md.tab === "income") {
       html += plusChip(md.cents ? (md.tab === "income" ? "+" : "−") + E.fmt(md.cents, { cur: "€" }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
@@ -359,8 +376,9 @@
       html += plusChip(md.cents ? (cc.kind === "spend" || cc.kind === "out" ? "−" : "") + E.fmt(md.cents, { cur: Cash.pocketCur(cc.from || cc.to) }) : "сумма?", "strong" + (md.cents ? "" : " miss"));
       // карман можно поменять руками: «из: кошелёк ▾» → конверт
       var live = cs.pockets.filter(function (p) { return !p.archived; }).sort(function (a, b) { return a.sort - b.sort; });
-      var pocketSel = function (k, sel, lbl) { return plusChip(lbl + ": " + (sel ? Cash.pocketName(sel) : "?") + " ▾", sel ? "" : "ask", tpl("<select data-o='{k}' aria-label='{a}'>{!o}</select>", { k: k, a: k === "from" ? "Из какого кармана" : "В какой карман",
-        o: (sel ? "" : opt("", "выбери", true)) + live.map(function (p) { return opt(p.id, p.name, p.id === sel); }).join("") })); };
+      // в списке — с остатком: «Конверт 2 · 120 €», номера конвертов по памяти не вспомнить
+      var pocketSel = function (k, sel, lbl) { return plusChip(lbl + ": " + (sel ? Cash.pocketLabel(sel) : "?") + " ▾", sel ? "" : "ask", tpl("<select data-o='{k}' aria-label='{a}'>{!o}</select>", { k: k, a: k === "from" ? "Из какого кармана" : "В какой карман",
+        o: (sel ? "" : opt("", "выбери", true)) + live.map(function (p) { return opt(p.id, Cash.pocketLabel(p.id), p.id === sel); }).join("") })); };
       if (cc.kind === "spend" || cc.kind === "move" || cc.kind === "out") html += pocketSel("from", cc.from, "из");
       if (cc.kind === "move" || cc.kind === "in" || cc.kind === "ext") html += pocketSel("to", cc.to, "в");
       var shOn = md.share !== "no";
@@ -393,6 +411,8 @@
         return tpl("<div class='pw-row'><span>Наличка · {n}</span><b class='{c}'>{was}{v}</b></div>", { n: p.name, c: now >= 0 && nxt < 0 ? "neg" : "", was: E.fmt(now, { dec: now % 100 ? 2 : 0 }) + "\u00A0→\u00A0", v: E.fmt(nxt, { cur: Cash.pocketCur(p.id), dec: nxt % 100 ? 2 : 0 }) }) +
           (cc.from === p.id ? pocketWarn(p.id, now, md.cents, "from") : "");
       }).join("");
+      // перекладываю: сразу видно, где сколько лежит — выбирать, откуда брать, не по памяти
+      if (cc.kind === "move" && live.length > 1) wh = tpl("<div class='pw-sub'>Сейчас: {t}</div>", { t: live.map(function (p) { return Cash.pocketLabel(p.id).replace(" · ", "\u00A0"); }).join(" · ") }) + wh;
       if (shOn && md.cents) {
         wh += sharedWhereHtml(md);
         wh += moves ? "<div class='pw-sub'>Запишу в «Мы» как общую трату наличными.</div>"
@@ -428,6 +448,7 @@
     var md = plusModel();
     if (!plusUi.text.trim()) { m.querySelector("#plusQ").focus(); return; }
     if (!md.cents) { toast("Не вижу сумму — допиши число"); return; }
+    if ((md.tab === "shared" || md.tab === "cash") && md.date > E.todayISO()) { toast("Дата в будущем — " + (md.tab === "shared" ? "общая трата" : "наличка") + " может быть только сегодня или раньше"); return; }
     if (md.tab === "spend" || md.tab === "income") {
       var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
       if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет"); return; }

@@ -653,7 +653,7 @@
         fm.onsubmit = function (e) {
           e.preventDefault();
           var t = fm.q.value.trim(); if (!t) return;
-          var inc = fm.dataset.kind === "income", ph = Plus.phParse(t), ci = Plus.phCat(ph.words, inc);
+          var inc = fm.dataset.kind === "income", ph = Plus.phParse(t, true), ci = Plus.phCat(ph.words, inc);
           if (!ph.cents) { toast("Не вижу сумму — допиши число"); return; }
           var firstInc = cats().find(function (c) { return c.block === "income" && !c.archived; });
           var cat = ci ? ci.id : inc ? (firstInc && firstInc.id) : defaultCat();
