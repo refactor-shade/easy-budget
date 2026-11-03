@@ -1495,7 +1495,9 @@ button.hero-cap:hover { text-decoration: underline dotted; text-decoration-thick
 /* «−» / «+» (вставить знак в формулу) — только у строки в работе: иначе 9 пар кнопок выглядят как счётчики (B11).
    Место остаётся (visibility), прячутся с задержкой — нажатие на телефоне успевает сработать */
 .rcl-row .rc-ops { opacity: 0; visibility: hidden; transition: opacity .15s, visibility 0s linear .3s; }
-.rcl-row:focus-within .rc-ops, .rcl-row:hover .rc-ops { opacity: 1; visibility: visible; transition-delay: 0s; }
+.rcl-row:focus-within .rc-ops { opacity: 1; visibility: visible; transition-delay: 0s; }
+/* по наведению — только с мышью: на телефоне первое касание включало :hover (показывало «− +»), и iOS не отдавал клик кнопке «было …» — нажимать приходилось дважды */
+@media (hover: hover) { .rcl-row:hover .rc-ops { opacity: 1; visibility: visible; transition-delay: 0s; } }
 .rc-sign { flex: none; width: 28px; height: 40px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 17px; cursor: pointer; }
 .rc-sign:hover, .rc-sign:active { color: var(--ink); background: var(--surface-2); }
 .rc-sign:disabled { opacity: .4; cursor: default; }
@@ -1579,6 +1581,8 @@ button.tl-row:hover .tl-top b { color: var(--accent); }
 .tl-exps li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .tl-exps li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-exps li b { flex: none; white-space: nowrap; font-weight: 600; }
+.tl-exps li span { flex: 1 1 auto; }
+.tl-exps .tl-rc { flex: none; font-size: 13px; padding: 0 2px; white-space: nowrap; }
 .tl-pick { max-height: 172px; overflow: auto; margin-top: 6px; }
 
 .util-card td:first-child { white-space: nowrap; }
