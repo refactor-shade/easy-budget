@@ -427,6 +427,32 @@
     return (y.recurring || []).filter(function (o) { return o.id !== rule.id && o.catId === rule.catId && !((o.to || year + "-12-31") < start || (o.from || year + "-01-01") > end); });
   }
 
+  // Регулярные копируются в следующий год один раз — при его создании. Поменяла правило в прошлом году
+  // (закончила подписку с ноября) — в уже созданных годах осталась старая копия. carryPlan находит в следующих годах
+  // копию именно этого правила (та же строка, сумма и недели, весь год с января) — или, для нового правила, годы без него;
+  // carryApply ставит туда want с января. Другие правила той же строки не трогаем
+  function inForceAtEnd(r, year) { var end = year + "-12-31"; return (r.from || year + "-01-01") <= end && (!r.to || r.to >= end); }
+  function carryPlan(state, year, before, want) {
+    var same = function (a, b) { return a.catId === b.catId && a.cents === b.cents && String(a.weeks || "").trim() === String(b.weeks || "").trim(); };
+    var catId = before ? before.catId : want[0] && want[0].catId; if (!catId) return [];
+    return Object.keys(state.years).filter(function (k) { return Number(k) > Number(year) && !state.years[k].archived; }).sort().map(function (k) {
+      var rs = state.years[k].recurring || [], copy = function (r) { return (!r.from || r.from <= k + "-01-01") && !r.to; };
+      var match = before ? rs.filter(function (r) { return same(r, before) && copy(r); }) : [];
+      if (before && !match.length) return null;
+      var left = rs.filter(function (r) { return match.indexOf(r) < 0 && r.catId === catId; });
+      if (!before && want.every(function (w) { return left.some(function (r) { return same(r, w); }); })) return null;
+      if (before && match.length && want.length && want.every(function (w) { return same(w, before); })) return null;
+      return { year: k, replace: match.map(function (r) { return r.id; }), have: match };
+    }).filter(Boolean);
+  }
+  function carryApply(state, plan, want) {
+    (plan || []).forEach(function (p) {
+      var ny = state.years[p.year]; if (!ny || ny.archived) return;
+      ny.recurring = (ny.recurring || []).filter(function (r) { return p.replace.indexOf(r.id) < 0; })
+        .concat((want || []).map(function (r) { return Object.assign({}, r, { id: uid("r"), from: p.year + "-01-01", to: null }); }));
+    });
+  }
+
   // Новый год из прошлого: старт = остатки на 31.12, регулярные копируются
   function createYear(state, year, opts) {
     opts = opts || {};
@@ -630,7 +656,7 @@
     genWeeks: genWeeks, daysInMonth: daysInMonth, normNum: normNum, parseNum: parseNum, weekOfDate: weekOfDate, weekTitle: weekTitle, todayISO: todayISO, addDays: addDays,
     evalExpr: evalExpr, exprCents: exprCents, fmt: fmt, eur: eur,
     yearCells: yearCells, compute: compute, startOf: startOf, capitalOf: capitalOf, monthly: monthly,
-    categoryTotals: categoryTotals, setEntry: setEntry, changeRuleFrom: changeRuleFrom, createYear: createYear,
+    categoryTotals: categoryTotals, setEntry: setEntry, changeRuleFrom: changeRuleFrom, inForceAtEnd: inForceAtEnd, carryPlan: carryPlan, carryApply: carryApply, createYear: createYear,
     catsById: catsById, ruleMatches: ruleMatches, trimOverlaps: trimOverlaps, overlaps: overlaps, accountActive: accountActive, uid: uid,
     findRepeats: findRepeats, applyRepeat: applyRepeat,
     addToCell: addToCell, cashToPlan: cashToPlan, weekEnv: weekEnv, splitEnv: splitEnv, lowGoesNeg: lowGoesNeg, logSpend: logSpend, stripFromCell: stripFromCell, removeLogged: removeLogged,

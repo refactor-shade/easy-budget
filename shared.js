@@ -284,6 +284,8 @@
   ];
   // Коммуналка: свет, вода, газ из «Жильё и счета» — без аренды и без интернета/телефона
   var RENT_RE = /rent|аренд|квартплат/i, NET_RE = /internet|интернет|wifi|wi-fi|lowi|movistar|vodafone|orange|digi|телефон|phone/i;
+  // интернет и телефон из «Жилья и счетов» (Lowi и т. п.): в коммуналку и в жильё не считаем — у них своя строка плана
+  function isNetBill(e, learned) { return e.kind === "expense" && catOf(e, learned) === "Жильё и счета" && NET_RE.test(e.desc || ""); }
   function isUtility(e, learned) { return e.kind === "expense" && catOf(e, learned) === "Жильё и счета" && !RENT_RE.test(e.desc || "") && !NET_RE.test(e.desc || ""); }
   function utilityCat(state) {
     var ok = function (c) { return !c.archived && c.block !== "income" && c.block !== "savings"; };
@@ -370,6 +372,6 @@
   root.BudgetShared = {
     SHARED_CATS: SHARED_CATS, FOOD: FOOD, FUN: FUN, guessCategory: guessCategory, looksLikeTransfer: looksLikeTransfer, spreadGap: spreadGap, parseCSV: parseCSV,
     importSplitwise: importSplitwise, computeSplit: computeSplit, makeExpense: makeExpense, makeSettlement: makeSettlement, mergeExpenses: mergeExpenses, balance: balance, toEur: toEur, catOf: catOf,
-    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, isUtility: isUtility, utilityCat: utilityCat, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat, personalCatFor: personalCatFor, planCatsFor: planCatsFor,
+    monthlyShares: monthlyShares, coverage: coverage, norm: norm, toLog: toLog, isUtility: isUtility, isNetBill: isNetBill, utilityCat: utilityCat, coverageGaps: coverageGaps, guessPersonalCat: guessPersonalCat, personalCatFor: personalCatFor, planCatsFor: planCatsFor,
   };
 })(typeof window !== "undefined" ? window : this);
