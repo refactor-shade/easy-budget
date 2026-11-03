@@ -448,7 +448,7 @@
     var md = plusModel();
     if (!plusUi.text.trim()) { m.querySelector("#plusQ").focus(); return; }
     if (!md.cents) { toast("Не вижу сумму — допиши число"); return; }
-    if ((md.tab === "shared" || md.tab === "cash") && md.date > E.todayISO()) { toast("Дата в будущем — " + (md.tab === "shared" ? "общая трата" : "наличка") + " может быть только сегодня или раньше"); return; }
+    if ((md.tab === "shared" || md.tab === "cash") && md.date > E.todayISO()) { toast("У " + (md.tab === "shared" ? "общей траты" : "налички") + " не может быть даты в будущем"); return; }
     if (md.tab === "spend" || md.tab === "income") {
       var wk = E.weekOfDate(md.date), ys = wk && String(wk.year);
       if (!wk || !state.years[ys] || state.years[ys].archived) { toast("Плана на эту дату нет"); return; }

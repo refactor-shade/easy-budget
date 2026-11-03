@@ -865,8 +865,27 @@
   };
 
   // Панель регулярной траты: новая или правка периода (сумма, недели, с, по) + «сумма меняется с месяца»
+  // правило поменяла в одном году — в уже созданных следующих годах осталась его старая копия: предложить поменять и там.
+  // before — каким правило было (null — новое), want — что из него действует на 31.12
+  function offerCarry(y, before, want) {
+    want = want.filter(function (r) { return E.inForceAtEnd(r, y); });
+    if (!before && !want.length) return;
+    var plan = E.carryPlan(state, y, before, want); if (!plan.length) return;
+    var catId = before ? before.catId : want[0].catId, c = state.categories.find(function (x) { return x.id === catId; }) || {}, yrs = plan.map(function (p) { return p.year; }).join(", ");
+    // неделю показываем, только если сумма та же, а поменялась неделя — иначе «−2,99 €, будет 0 €» понятнее
+    var wk = function (r) { return String(r.weeks).trim() === "все" ? "каждую неделю" : r.weeks + "-я неделя"; };
+    var sameSum = before && want.length && before.cents === want[0].cents;
+    var one = function (r) { return E.fmt(r.cents, { cur: cur(c) }) + (sameSum ? " · " + wk(r) : ""); };
+    var q = !before ? tpl("Добавить «{n}» и в {y}?", { n: catName(catId), y: yrs })
+      : !want.length ? tpl("Убрать «{n}» и из {y}?", { n: catName(catId), y: yrs }) + " " + tpl("Там всё ещё стоит {h}.", { h: one(before) })
+      : tpl("Поменять «{n}» и в {y}?", { n: catName(catId), y: yrs }) + " " + tpl("Там сейчас {h}, будет {w}.", { h: one(before), w: one(want[0]) });
+    askConfirm(q, !before ? "Добавить" : !want.length ? "Убрать" : "Поменять",
+      function () { E.carryApply(state, plan, want); closeModal(); changed(); toast("В " + yrs + " тоже"); }, { cancel: "Не надо", danger: false });
+  }
   function ruleSheet(y, ru, catId) {
     var yr = state.years[y], isNew = !ru;
+    // правило, которое действует на 31.12, скопировано в следующий год — после правки предложим поменять копию
+    var before = ru && E.inForceAtEnd(ru, y) ? { catId: ru.catId, cents: ru.cents, weeks: ru.weeks } : null, carry = isNew || !!before;
     var d = ru ? { catId: ru.catId, expr: numShow(absIfPlain(ru.expr || String(ru.cents / 100))), weeks: ru.weeks || "все", from: ru.from && ru.from > y + "-01-01" ? ru.from : y + "-01-01", to: ru.to && ru.to < y + "-12-31" ? ru.to : "" }
       : { catId: catId || state.settings.lastCat || (cats().find(function (c) { return !c.archived && c.block !== "income"; }) || {}).id, expr: "", weeks: "1", from: E.todayISO().slice(0, 4) === y ? y + "-" + E.todayISO().slice(5, 7) + "-01" : y + "-01-01", to: "" };
     var mode = "fix";
@@ -881,8 +900,16 @@
     }
     function draw(m) {
       var body = tpl("<h2>{h}</h2>", { h: isNew ? "Регулярная трата или доход" : catName(d.catId) });
-      if (multi) body += tpl("<div class='seg rg-seg'><button type='button' class='{a}' data-mode='fix'>Изменить период</button><button type='button' class='{b}' data-mode='split'>Сумма поменялась</button></div>", { a: mode === "fix" ? "on" : "", b: mode === "split" ? "on" : "" });
-      if (mode === "split") {
+      // «Закончить» — для любой существующей (подписка, аренда, зарплата): с какого месяца её больше нет, без «По» и «Удалить» (Катя: «сложно»)
+      if (ru) body += tpl("<div class='seg rg-seg'><button type='button' class='{a}' data-mode='fix'>Изменить период</button>{!sp}<button type='button' class='{c}' data-mode='stop'>Закончить</button></div>", {
+        a: mode === "fix" ? "on" : "", c: mode === "stop" ? "on" : "", sp: multi ? tpl("<button type='button' class='{b}' data-mode='split'>Сумма поменялась</button>", { b: mode === "split" ? "on" : "" }) : "" });
+      if (mode === "stop") {
+        var nowM = y + "-" + E.todayISO().slice(5, 7) + "-01", first = d.from.slice(0, 7) + "-01", next = E.todayISO().slice(0, 4) === y ? (nowM > first ? nowM : first) : first;
+        var opts = E.MONTHS.map(function (mm, i) { var v = y + "-" + (i < 9 ? "0" : "") + (i + 1) + "-01"; return v >= first && (!d.to || v <= d.to) ? o(v, v === first ? "с " + E.MONTHS_GEN[i] + " — совсем" : "с " + E.MONTHS_GEN[i], v === next) : ""; }).join("");
+        body += tpl("<p class='small muted' style='margin:0 0 10px'>Сейчас {now} · {per}. До выбранного месяца всё останется как было.</p>" +
+          "<div class='form-grid'><label class='f' style='grid-column:1/-1'>Больше не будет<select id='rsStop'>{!opts}</select></label></div>", {
+            now: E.fmt(ru.cents, { cur: cur(state.categories.find(function (c) { return c.id === d.catId; }) || {}) }), per: rulePeriod(ru, y), opts: opts });
+      } else if (mode === "split") {
         var opts = E.MONTHS.map(function (mm, i) { var v = y + "-" + (i < 9 ? "0" : "") + (i + 1) + "-01"; return v > d.from && (!d.to || v <= d.to) ? o(v, "с " + E.MONTHS_GEN[i], v === y + "-" + E.todayISO().slice(5, 7) + "-01") : ""; }).join("");
         body += tpl("<p class='small muted' style='margin:0 0 10px'>Сейчас {now} · {per}. До выбранного месяца останется старая сумма, дальше — новая.</p>" +
           "<div class='form-grid'><label class='f'>Новая сумма<input type='text' id='rsNew' inputmode='decimal' value='{e}'></label><label class='f'>Действует<select id='rsFrom'>{!opts}</select></label></div>", {
@@ -894,7 +921,7 @@
             cat: isNew ? tpl("<label class='f' style='grid-column:1/-1'>Категория<select id='rsCat'>{!o}</select></label>", { o: catOptions(d.catId) }) : "", e: d.expr, from: mFrom(d.from), to: mTo(d.to), wk: wkChips() });
       }
       m.querySelector(".m-body").innerHTML = body;
-      m.querySelector("[data-act=del]").hidden = isNew || mode === "split";
+      m.querySelector("[data-act=del]").hidden = isNew || mode !== "fix";
       m.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = function () { read(m); mode = b.dataset.mode; draw(m); }; });
       m.querySelectorAll("[data-wk]").forEach(function (b) {
         b.onclick = function () {
@@ -927,10 +954,17 @@
       m.querySelector("[data-act=cancel]").onclick = closeModal;
       m.querySelector("[data-act=del]").onclick = function () {
         askConfirm("Удалить «" + catName(ru.catId) + "» " + rulePeriod(ru, y) + "? Суммы этого периода пропадут из плана " + y + " года. Вписанное вручную останется.", "Удалить", function () {
-          yr.recurring = yr.recurring.filter(function (x) { return x.id !== ru.id; }); closeModal(); changed(); toast("Удалено");
+          yr.recurring = yr.recurring.filter(function (x) { return x.id !== ru.id; }); closeModal(); changed(); toast("Удалено"); if (carry) offerCarry(y, before, []);
         });
       };
       m.querySelector("[data-act=ok]").onclick = function () {
+        if (mode === "stop") {
+          var st = m.querySelector("#rsStop").value; if (!st) { toast("Выбери месяц"); return; }
+          var whole = st <= (ru.from || y + "-01-01");
+          if (whole) yr.recurring = yr.recurring.filter(function (x) { return x.id !== ru.id; }); else ru.to = E.addDays(st, -1);
+          closeModal(); changed(); toast("«" + catName(ru.catId) + "» — " + (whole ? "в " + y + " больше нет" : "с " + E.MONTHS_GEN[Number(st.slice(5, 7)) - 1] + " больше нет"));
+          if (carry) offerCarry(y, before, []); return;
+        }
         read(m);
         var ex = signFor(d.catId, d.expr), c;
         if (!String(d.expr).trim()) { toast("Впиши сумму"); return; }
@@ -938,8 +972,9 @@
         if (mode === "split") {
           var fromISO = m.querySelector("#rsFrom").value;
           if (!fromISO) { toast("Выбери, с какого месяца"); return; }
-          if (!E.changeRuleFrom(state, y, ru.id, { expr: ex.trim(), cents: c }, fromISO)) { toast("Выбери месяц внутри периода"); return; }
-          closeModal(); changed(); toast("С " + E.MONTHS_GEN[Number(fromISO.slice(5, 7)) - 1] + " — " + E.fmt(c)); return;
+          var nr = E.changeRuleFrom(state, y, ru.id, { expr: ex.trim(), cents: c }, fromISO);
+          if (!nr) { toast("Выбери месяц внутри периода"); return; }
+          closeModal(); changed(); toast("С " + E.MONTHS_GEN[Number(fromISO.slice(5, 7)) - 1] + " — " + E.fmt(c)); if (carry) offerCarry(y, before, [nr]); return;
         }
         if (d.to && d.to < d.from) { toast("Период заканчивается раньше, чем начинается — поправь «По»"); return; }
         var patch = { catId: d.catId, expr: ex.trim(), cents: c, weeks: d.weeks, from: d.from, to: d.to || null };
@@ -949,6 +984,7 @@
         E.trimOverlaps(state, y, rule);
         if (isNew) state.settings.lastCat = d.catId;
         closeModal(); changed(); toast(isNew ? "«" + catName(d.catId) + "» добавлена" : "Сохранено");
+        if (carry) offerCarry(y, before, [rule]);
       };
     });
   }

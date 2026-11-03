@@ -72,7 +72,7 @@
   }
   function tlRowSheet(x, ty, tm, rr) {
     var set = state.settings, calc = sharedForCalc(), mName = E.MONTHS[tm] + " " + ty;
-    var exps = calc.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === ty && Number(e.date.slice(5, 7)) - 1 === tm && x.cats.indexOf(S.catOf(e, calc.learned)) >= 0; })
+    var exps = calc.expenses.filter(function (e) { return e.kind === "expense" && e.date.slice(0, 4) === ty && Number(e.date.slice(5, 7)) - 1 === tm && x.cats.indexOf(S.catOf(e, calc.learned)) >= 0 && (!x.only || x.only(e)); })
       .sort(function (a, b) { return b.share - a.share; });
 
     var picked = x.pids.slice(), over = x.over, skipK = ty + "-" + tm + ":" + x.key;
@@ -275,6 +275,20 @@
       var pids = S.planCatsFor(state, c);
       return { key: c, c: catLabel(c), cats: [c], share: msh.byCat[c][tm] || 0, plan: planOf(pids), pids: pids };
     })).filter(function (x) { return x.share >= 1000; }).sort(function (a2, b2) { return b2.share - a2.share; });
+    // интернет и связь (Lowi) — отдельной строкой: в «Жильё и счета» и в коммуналку не идут, сравниваются со своей строкой плана
+    var netShare = 0, mine = function (e) { return S.toEur(e.share, e.currency, e.date, set); };
+    calc.expenses.forEach(function (e) { if (e.date.slice(0, 4) === ty && Number(e.date.slice(5, 7)) - 1 === tm && S.isNetBill(e, calc.learned)) netShare += mine(e); });
+    if (netShare) {
+      var hz = catRows.find(function (x) { return x.key === "Жильё и счета"; }) || (function () { var x0 = { key: "Жильё и счета", c: catLabel("Жильё и счета"), cats: ["Жильё и счета"], share: (msh.byCat["Жильё и счета"] || [])[tm] || 0, pids: S.planCatsFor(state, "Жильё и счета") }; x0.plan = planOf(x0.pids); return x0; })();
+      hz.share -= netShare; hz.only = function (e) { return !S.isNetBill(e, calc.learned); };
+      var npick = (set.sharedCompare || {}).net;
+      var npids = npick ? npick.filter(function (id) { return state.categories.some(function (c) { return c.id === id; }); }) :
+        state.categories.filter(function (c) { return !c.archived && c.block !== "income" && c.block !== "savings" && c.currency !== "RUB" && /интернет|internet|lowi|связь|phone|телефон/i.test(c.name); }).map(function (c) { return c.id; });
+      catRows = catRows.filter(function (x) { return x !== hz; });
+      if (hz.share >= 1000) catRows.push(hz);
+      if (netShare >= 1000) catRows.push({ key: "net", c: "Интернет и связь", cats: ["Жильё и счета"], only: function (e) { return S.isNetBill(e, calc.learned); }, share: netShare, plan: planOf(npids), pids: npids });
+      catRows.sort(function (a2, b2) { return b2.share - a2.share; });
+    }
     catRows.forEach(function (x) { x.skip = !!(set.tlSkip || {})[skipKey(x.key)]; x.over = rr && x.pids.length && x.share > x.plan ? x.share - x.plan : 0; });
     return { rows: catRows, rr: rr, msh: msh };
   }
@@ -741,8 +755,8 @@
     html += fxMissingHtml();
     // трата с датой в будущем — почти всегда опечатка в годе: в ленте её не видно (лента — за один год), а долг наверху она меняет
     var fut = exps.filter(function (e) { return e.date > E.todayISO(); });
-    if (fut.length) html += tpl("<div class='hint small' style='margin:0 0 14px'><b>{h}</b> Общих трат в будущем не бывает — скорее всего, опечатка в дате. В ленте за этот год их не видно, а в долге они есть.<div class='row' style='margin-top:8px'>{!b}</div></div>", {
-      h: fut.length === 1 ? "Есть трата с датой в будущем." : "Есть траты с датой в будущем: " + fut.length + ".",
+    if (fut.length) html += tpl("<div class='hint small' style='margin:0 0 14px'><b>{h}</b> В ленте её не видно, а в долге она есть. Поправь дату:<div class='row' style='margin-top:8px'>{!b}</div></div>", {
+      h: fut.length === 1 ? "Трата с датой в будущем." : "Траты с датой в будущем: " + fut.length + ".",
       b: fut.slice(0, 5).map(function (e) { return tpl("<button type='button' class='btn sm' data-open='{id}'>{d} · {desc}</button>", { id: e.id, d: e.date.slice(8, 10) + "." + e.date.slice(5, 7) + "." + e.date.slice(0, 4), desc: e.desc || "без описания" }); }).join("") });
     // общие траты и личный план: текущий месяц
     var nowM = Number(E.todayISO().slice(5, 7)) - 1, tl = toLogCount();
@@ -1095,7 +1109,7 @@
         if (!d.desc) { toast("Добавь описание"); q("#exDesc").focus(); return; }
         if (!d.cost) { toast("Впиши сумму"); q("#exCost").focus(); return; }
         // общая трата — уже потраченные деньги: в будущем её не бывает (иначе опечатка в годе прячется из ленты, а долг меняет)
-        if (!d.date || d.date > E.todayISO()) { toast("Дата в будущем — общая трата может быть только сегодня или раньше"); q("#exDate").focus(); return; }
+        if (!d.date || d.date > E.todayISO()) { toast("У общей траты не может быть даты в будущем"); q("#exDate").focus(); return; }
         var sp = split(); if (sp.error) { toast("Деление: " + sp.error); return; }
         var ex = S.makeExpense({ date: d.date, desc: d.desc, cost: d.cost, currency: d.currency, paidByMe: d.paidByMe, myShare: sp.me, cat: d.cat, method: d.method,
           note: d.note, kind: d.kind === "batch" ? "batch" : d.kind, split: { mode: d.mode, values: d.values || {} } });

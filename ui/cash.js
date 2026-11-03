@@ -153,7 +153,7 @@
       if ((k === "spend" || k === "move" || k === "out") && !cur.from) { toast("Откуда?"); return; }
       if ((k === "move" || k === "in" || k === "ext") && !cur.to) { toast("Куда?"); return; }
       if (k === "move" && cur.from === cur.to) { toast("Откуда и куда — одно и то же"); return; }
-      if (cur.date > E.todayISO()) { toast("Дата в будущем — наличка может быть только сегодня или раньше"); return; }
+      if (cur.date > E.todayISO()) { toast("У налички не может быть даты в будущем"); return; }
       var tx = { id: E.uid("t"), ts: Date.now(), date: cur.date, kind: k, cents: cur.cents, from: k === "in" || k === "ext" ? null : cur.from, to: k === "spend" || k === "out" ? null : cur.to, note: cur.note };
       var pp = pv.querySelector("[name=pp]");
       if (pp && pp.checked) {
@@ -314,7 +314,7 @@
         if (!v) { toast("Впиши сумму"); return; }
         v = k === "adjust" ? v : Math.abs(v);
         if (k === "move" && g("ef") === g("et")) { toast("Откуда и куда — одно и то же"); return; }
-        if (g("ed") && g("ed") > E.todayISO()) { toast("Дата в будущем — наличка может быть только сегодня или раньше"); return; }
+        if (g("ed") && g("ed") > E.todayISO()) { toast("У налички не может быть даты в будущем"); return; }
         var delta = v - t.cents;
         if (t.plan && delta && state.years[t.plan.year] && !state.years[t.plan.year].archived) {
           if (t.plan.inside !== undefined) replanCash(t, v); // уже в плане: остаток конверта и то, что сверх, пересчитываются
