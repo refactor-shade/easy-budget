@@ -351,7 +351,8 @@
     var catObj = state.categories.find(function (x) { return x.id === catId; }) || {}, isExp = catObj.block !== "income";
     var shown = entry ? entry.expr : cell ? String(cell.cents / 100) : "";
     var initial = numShow(isExp ? absIfPlain(shown) : shown);
-    td.innerHTML = tpl("<span class='cell-ed'><input type='text' inputmode='decimal' value='{v}' aria-label='Сумма; в расходах минус ставить не нужно'><button type='button' class='cell-more' aria-label='Действия с ячейкой: перенести, не было, копировать' title='Перенести, не было, копировать…'>Меню</button></span>", { v: initial });
+    var touch = !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
+    td.innerHTML = tpl("<span class='cell-ed'><input type='text' inputmode='decimal' value='{v}' aria-label='Сумма; в расходах минус ставить не нужно'><span class='cell-btns'><button type='button' class='cell-more' aria-label='Действия с ячейкой: перенести, не было, копировать, формула' title='Перенести, не было, копировать, формула…'>Меню</button></span></span>", { v: initial });
     var inp = td.querySelector("input"), done = false;
     inp.focus(); inp.select();
     function finish(saveIt) {
@@ -368,11 +369,10 @@
     }
     // «⋯» в открытой ячейке — меню всех действий (cellMenu в ui/core.js). Раньше под ячейкой сразу всплывала полоска
     // «→ след. неделя · Не было · Ещё…» и закрывала строку ниже — туда, куда переходит Enter (23 ноя).
-    var touch = !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
     var mb = td.querySelector(".cell-more");
-    // кнопка «Меню» стоит справа от ячейки: у правого края таблицы сдвигаем таблицу, чтобы её не обрезало
-    var gw = td.closest(".grid-wrap");
-    if (gw) { var br = mb.getBoundingClientRect(), gr = gw.getBoundingClientRect(); if (br.right > gr.right - 4) gw.scrollLeft += br.right - gr.right + 8; }
+    // кнопки стоят справа от ячейки: у правого края таблицы сдвигаем таблицу, чтобы их не обрезало
+    var gw = td.closest(".grid-wrap"), grp = td.querySelector(".cell-btns");
+    if (gw) { var br = grp.getBoundingClientRect(), gr = gw.getBoundingClientRect(); if (br.right > gr.right - 4) gw.scrollLeft += br.right - gr.right + 8; }
     mb.onmousedown = function (e) { e.preventDefault(); }; // поле не теряет фокус до нажатия
     mb.onclick = function (e) { e.stopPropagation(); finish(true); cellMenu(y, catId, w); };
     bindCellKeys(td, inp, y, finish);

@@ -732,10 +732,11 @@ function editCell(year, catId, w) {
   var recCell = E.yearCells(Object.assign({}, state, { years: (function () { var o = {}; o[year] = Object.assign({}, state.years[year], { entries: {} }); return o; })() }), year)[catId][w];
   var raw = entry ? entry.expr : (cell ? (cell.cents / 100).toString() : "");
   modal(tpl("<form method='dialog' class='m-body' id='cellForm'><h2>{name}</h2><div class='sub'>{wk} · {wim}-я неделя месяца</div>{!rec}" +
-    "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула{hint}<input type='text' name='expr' autofocus value='{expr}' placeholder='35+20' inputmode='decimal'></label>" +
+    "<div class='form-grid' style='margin-top:14px'><label class='f' style='grid-column:1/-1'>Сумма или формула{hint}<input type='text' name='expr' autofocus value='{expr}' placeholder='35+20' inputmode='{im}'></label>" +
     "<label class='f' style='grid-column:1/-1'>Заметка <input type='text' name='note' value='{note}' placeholder='что это было'></label></div><div class='small muted' id='cellPreview' style='margin-top:8px'></div></form>{!move}" +
     "<div class='m-foot'>{!clear}<span class='spacer'></span><button class='btn ghost' data-act='cancel'>Отмена</button><button class='btn primary' data-act='save'>Сохранить</button></div>", {
-      name: c.name, wk: E.weekTitle(Number(year), w), wim: wk.wim, hint: c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги",
+      name: c.name, wk: E.weekTitle(Number(year), w), wim: wk.wim, im: window.matchMedia && matchMedia("(pointer: coarse)").matches ? "text" : "decimal", // телефон: обычная клавиатура — в цифровой нет «+» и «−»
+      hint: c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги",
       expr: numShow(c.block === "income" ? raw : absIfPlain(raw)), note: entry ? entry.note : "",
       rec: recCell ? tpl("<div class='hint small'>Регулярная трата: <b>{v}</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>", { v: E.fmt(recCell.cents, { cur: cur(c) }) }) : "",
       move: "", // перенос и «не было» — в меню ячейки «⋯» (cellMenu), здесь не дублируем (23 ноя)
@@ -1228,61 +1229,13 @@ document.addEventListener("click", function (e) {
   try { i.showPicker(); } catch (err) { /* не во фрейме / уже открыт — тогда работает как раньше */ }
 });
 
-// Полоска «+ − × ÷» над клавиатурой телефона (23 ноя). У цифровой клавиатуры iPhone (inputmode=decimal) нет знаков —
-// формулы в Плане (120+35, 300/2) с телефона было не ввести. Только в разделе «План» (23 ноя).
+// Телефон, ввод в ячейку Плана (23 ноя): пока клавиатура открыта, нижняя панель «Главная / План / …» и круглая «+»
+// не всплывают над ней — экрана и так мало. Полоску знаков «+ − × ÷» убрали: на iPhone вместе с системной строкой
+// «∧ ∨ ✓» она съедала пол-экрана и сдвигала таблицу. Формулы с телефона — в «Меню → Формула и заметка…» (там обычная клавиатура).
 (function () {
   if (!(window.matchMedia && matchMedia("(pointer: coarse)").matches)) return;
-  var bar = null, cur = null, OPS = [["+", "+"], ["−", "-"], ["×", "*"], ["÷", "/"]]; // без скобок: нужны редко, полоска должна быть лёгкой
-  function place() {
-    if (!bar) return;
-    var vv = window.visualViewport, bottom = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    bar.style.bottom = bottom + "px";
-  }
-  function show(inp) {
-    cur = inp;
-    if (!bar) {
-      bar = document.createElement("div"); bar.className = "op-bar"; bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Знаки для формулы");
-      bar.innerHTML = OPS.map(function (o) { return tpl("<button type='button' data-ins='{v}' aria-label='Вставить {l}'>{l}</button>", { v: o[1], l: o[0] }); }).join("");
-      bar.addEventListener("mousedown", function (e) { e.preventDefault(); }); // поле не теряет фокус, клавиатура не прячется
-      bar.addEventListener("click", function (e) {
-        var b = e.target.closest("[data-ins]"); if (!b || !cur) return;
-        var s = cur.selectionStart, en = cur.selectionEnd, v = cur.value;
-        if (s === null || s === undefined) { s = en = v.length; }
-        cur.value = v.slice(0, s) + b.dataset.ins + v.slice(en);
-        try { cur.setSelectionRange(s + 1, s + 1); } catch (err) { /* ок */ }
-        cur.dispatchEvent(new Event("input", { bubbles: true })); cur.focus();
-      });
-      document.body.appendChild(bar);
-      if (window.visualViewport) { visualViewport.addEventListener("resize", place); visualViewport.addEventListener("scroll", place); }
-    }
-    place(); bar.classList.add("on"); document.body.classList.add("op-on");
-    keepVisible(); setTimeout(keepVisible, 350); // клавиатура выезжает ~300 мс
-  }
-  // 23 ноя, iPhone: открытая ячейка оказывалась под клавиатурой — iOS докручивает до поля, но не знает про нашу полоску
-  // и свою строку «∧ ∨ ✓». Докручиваем сами: сначала таблицу (у неё своя прокрутка), потом страницу.
-  // Видимая часть — visualViewport (без клавиатуры) минус полоска знаков.
-  var kvT = null;
-  function keepVisible() {
-    if (!cur || !bar || !document.body.contains(cur)) return;
-    var vv = window.visualViewport, top = vv ? vv.offsetTop : 0, bottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - bar.offsetHeight - 10;
-    var r = cur.getBoundingClientRect(), d = r.bottom - bottom;
-    var wrap = cur.closest(".grid-wrap");
-    if (d > 0 && wrap) { var s0 = wrap.scrollTop; wrap.scrollTop = s0 + d; d -= wrap.scrollTop - s0; }
-    if (d > 0) window.scrollBy(0, d);
-    r = cur.getBoundingClientRect();
-    if (r.top < top + 8) { var u = top + 8 - r.top; if (wrap) { var s1 = wrap.scrollTop; wrap.scrollTop = Math.max(0, s1 - u); u -= s1 - wrap.scrollTop; } if (u > 0) window.scrollBy(0, -u); }
-  }
-  if (window.visualViewport) visualViewport.addEventListener("resize", function () { clearTimeout(kvT); kvT = setTimeout(keepVisible, 80); });
-  document.addEventListener("focusin", function (e) {
-    var i = e.target;
-    if (!i || i.tagName !== "INPUT" || i.getAttribute("inputmode") !== "decimal" || i.disabled || i.readOnly) return;
-    // 23 ноя: только в разделе «План» — ячейки таблицы и суммы «Регулярных» (окно правила: #rsE, #rsNew).
-    // Окна «Внести» (и по фразе, и по полям) — не План, даже если открыты оттуда
-    var route = (location.hash || "#home").slice(1).split("?")[0];
-    if (routeGroup(route) !== "plan" || !(i.closest("#main") || i.id === "rsE" || i.id === "rsNew")) return;
-    show(i);
-  });
+  document.addEventListener("focusin", function (e) { var i = e.target; if (i && i.tagName === "INPUT" && i.closest("#gridWrap")) document.body.classList.add("op-on"); });
   document.addEventListener("focusout", function () {
-    setTimeout(function () { var a = document.activeElement; if (bar && !(a && a.tagName === "INPUT" && a === cur)) { bar.classList.remove("on"); document.body.classList.remove("op-on"); cur = null; } }, 0);
+    setTimeout(function () { var a = document.activeElement; if (!(a && a.tagName === "INPUT" && a.closest("#gridWrap"))) document.body.classList.remove("op-on"); }, 0);
   });
 })();
