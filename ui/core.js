@@ -1256,7 +1256,23 @@ document.addEventListener("click", function (e) {
       if (window.visualViewport) { visualViewport.addEventListener("resize", place); visualViewport.addEventListener("scroll", place); }
     }
     place(); bar.classList.add("on"); document.body.classList.add("op-on");
+    keepVisible(); setTimeout(keepVisible, 350); // клавиатура выезжает ~300 мс
   }
+  // 23 ноя, iPhone: открытая ячейка оказывалась под клавиатурой — iOS докручивает до поля, но не знает про нашу полоску
+  // и свою строку «∧ ∨ ✓». Докручиваем сами: сначала таблицу (у неё своя прокрутка), потом страницу.
+  // Видимая часть — visualViewport (без клавиатуры) минус полоска знаков.
+  var kvT = null;
+  function keepVisible() {
+    if (!cur || !bar || !document.body.contains(cur)) return;
+    var vv = window.visualViewport, top = vv ? vv.offsetTop : 0, bottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - bar.offsetHeight - 10;
+    var r = cur.getBoundingClientRect(), d = r.bottom - bottom;
+    var wrap = cur.closest(".grid-wrap");
+    if (d > 0 && wrap) { var s0 = wrap.scrollTop; wrap.scrollTop = s0 + d; d -= wrap.scrollTop - s0; }
+    if (d > 0) window.scrollBy(0, d);
+    r = cur.getBoundingClientRect();
+    if (r.top < top + 8) { var u = top + 8 - r.top; if (wrap) { var s1 = wrap.scrollTop; wrap.scrollTop = Math.max(0, s1 - u); u -= s1 - wrap.scrollTop; } if (u > 0) window.scrollBy(0, -u); }
+  }
+  if (window.visualViewport) visualViewport.addEventListener("resize", function () { clearTimeout(kvT); kvT = setTimeout(keepVisible, 80); });
   document.addEventListener("focusin", function (e) {
     var i = e.target;
     if (!i || i.tagName !== "INPUT" || i.getAttribute("inputmode") !== "decimal" || i.disabled || i.readOnly) return;
