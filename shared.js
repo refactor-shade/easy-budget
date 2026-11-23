@@ -98,14 +98,14 @@
 
   // Куда довписать недостающую сумму: в недели, где ушло больше, чем стоит в плане (по порядку), — там, где деньги и ушли.
   // paid, plan — центы по неделям месяца (массивы одной длины, plan ≥ 0); gap — сколько не хватает (центы, > 0).
-  // Возвращает [{i, cents}] — индекс недели и сумма (кратна 1 €, в сумме = gap, округлённому до евро)
+  // Возвращает [{i, cents}] — индекс недели и сумма (в сумме = gap, до цента)
   function spreadGap(paid, plan, gap) {
-    var total = Math.round(gap / 100) * 100, left = total, out = [];
+    var total = Math.round(gap), left = total, out = [];
     if (total <= 0) return out;
     var lastPaid = -1;
     for (var i = 0; i < paid.length; i++) {
       if (paid[i] > 0) lastPaid = i;
-      var ex = Math.round(Math.max(0, paid[i] - plan[i]) / 100) * 100;
+      var ex = Math.round(Math.max(0, paid[i] - plan[i]));
       if (ex > 0 && left > 0) { var c = Math.min(ex, left); out.push({ i: i, cents: c }); left -= c; }
     }
     if (left > 0) {

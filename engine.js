@@ -146,8 +146,12 @@
   function fmt(cents, opts) {
     if (cents === null || cents === undefined || isNaN(cents)) return "";
     opts = opts || {};
+    // Финансовое правило (23 ноя): сумма всегда точная, до цента. Копейки показываем, только если они есть:
+    // 1 234 € · 1 234,50 € · 1 234,05 €. Старое { dec: 0 } больше не округляет — округлять можно только явно { whole: true }
+    // (подписи осей графиков, где важна форма, а не сумма).
+    cents = Math.round(cents);
     var v = cents / 100;
-    var dec = opts.dec !== undefined ? opts.dec : (Math.round(v) === v ? 0 : 2);
+    var dec = opts.whole ? 0 : (cents % 100 === 0 ? 0 : 2);
     var s = Math.abs(v).toFixed(dec).replace(".", ",");
     var parts = s.split(",");
     // тысячи — обычным неразрывным пробелом: узкий (U+202F) в мелком тексте почти не виден («+1280»)

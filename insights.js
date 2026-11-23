@@ -8,7 +8,7 @@
   var E = root.BudgetEngine;
 
   // ---------- форматирование ----------
-  function r100(c) { return Math.round(c / 100) * 100; }
+  function r100(c) { return Math.round(c); } // до цента: суммы точные (E.fmt)
   function eur(c) { return E.eur(r100(c), { dec: 0 }); }
   function eurP(c) { return E.eur(r100(c), { dec: 0, plus: true }); }
   function pct(x) { var v = Math.round(x * 100); return (v < 0 ? "−" : "") + Math.abs(v) + "%"; }

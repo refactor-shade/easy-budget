@@ -1332,6 +1332,13 @@ body.scrolled::before { box-shadow: 0 1px 0 var(--line); }
 .rs-ok { margin-top: 14px; }
 .rs-ok h2 { margin: 0 0 4px; color: var(--accent); }
 .rs-ok p { margin: 0; }
+/* остаток из «Налички» / «Общих» поменялся после ввода (23 ноя) */
+.rs-drift { margin-top: 14px; border-left: 3px solid var(--accent); }
+.rs-drift h2 { margin: 0 0 4px; }
+.rs-drift p { margin: 0 0 6px; }
+.rs-drift-l { margin: 0 0 10px; padding-left: 18px; }
+.rs-drift-l li { margin: 2px 0; }
+.rs-drift-l s { color: var(--muted); }
 .rs-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; }
 .rs-foot .btn { height: 46px; padding: 0 20px; border-radius: 14px; }
 .rs-foot .btn.primary { flex: 1; max-width: 260px; }
@@ -1741,3 +1748,33 @@ dialog.modal:focus { outline: none; }
 .pw-row b.neg { color: var(--neg); }
 .pw-warn { font-size: 13px; color: var(--neg); }
 .pw-warn .linkish { font-size: 13px; }
+
+/* Полоска знаков над клавиатурой телефона (ui/core.js, 23 ноя) */
+.op-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; display: none; gap: 6px; padding: 4px 8px; background: var(--surface-2); border-top: 1px solid var(--line); }
+.op-bar.on { display: flex; }
+.op-bar button { flex: 1; min-height: 36px; border: 0; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 20px; }
+.op-bar button:active { background: var(--accent-soft); }
+body.op-on .fab, body.op-on .nav-plus { visibility: hidden; } /* круглая «+» не выглядывает из-за полоски знаков */
+/* полоска под ячейкой на телефоне: «Копировать / Вставить» — второй строкой (23 ноя) */
+.cell-acts.two { flex-wrap: wrap; width: max-content; max-width: calc(100vw - 40px); }
+.cell-acts .ca-br { flex-basis: 100%; height: 0; }
+
+/* Ячейка Плана в правке: поле + «⋯» (меню действий, 23 ноя) */
+table.g td.v .cell-ed { display: block; position: relative; }
+table.g td.v .cell-ed .cell-more { position: absolute; z-index: 5; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.18); border: 1px solid var(--line-strong); }
+.cell-more { flex: none; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer; }
+.cell-more:hover { background: var(--accent-soft); color: var(--accent); }
+@media (pointer: coarse) { .cell-more { width: 32px; height: 28px; } }
+/* меню ячейки */
+.cm h2 { margin-bottom: 2px; }
+.cm-sub { margin: 0 0 10px; }
+.cm-g { display: flex; flex-direction: column; border-top: 1px solid var(--line); padding: 6px 0; }
+.cm-i { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 4px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.cm-i:hover, .cm-i:focus-visible { background: var(--surface-2); }
+.cm-i small { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.cm-i.danger { color: var(--neg); }
+.cm-date { display: flex; gap: 8px; align-items: center; padding: 4px 4px 8px; }
+.cm-date input { flex: 1; }
+/* куда ушла сумма после переноса / вставки */
+@keyframes cellFlash { 0%, 40% { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); } 100% { background: transparent; box-shadow: none; } }
+table.g td.cell-flash { animation: cellFlash 1.6s ease-out; }
