@@ -179,7 +179,7 @@
       for (var j = 0; j < p; j++) { var mm = m - j; if (mm >= 0) { fact[mm] += v / p; if (mm < firstM) firstM = mm; } }
     });
     var past = []; for (m = firstM; m < nowM; m++) past.push(m);
-    var last6 = past.slice(-6), avg = last6.length ? Math.round(last6.reduce(function (t, m) { return t + fact[m]; }, 0) / last6.length / 100) * 100 : 0;
+    var last6 = past.slice(-6), avg = last6.length ? Math.round(last6.reduce(function (t, m) { return t + fact[m]; }, 0) / last6.length) : 0;
     // план считает, когда деньги ушли со счёта (так сходится Сверка) — и сравниваем с тем же: оплачено в этом месяце
     var firstPaid = 12; for (m = 0; m < 12; m++) if (paid[m]) { firstPaid = m; break; }
     var start = Math.min(firstPaid, past.length ? past[0] : 12), shown = []; for (m = start; m <= nowM; m++) shown.push(m);
@@ -187,10 +187,10 @@
     var listIn = function (ms) { var w = ms.map(function (x) { return IN_M[x]; }); return w.length > 1 ? w.slice(0, -1).join(", ") + " и " + w[w.length - 1] : w[0]; };
     var gapsU = shown.filter(function (m) { return ucat && paid[m] - plan[m] >= 500; });
     var overU = shown.filter(function (m) { return ucat && m < nowM && plan[m] - paid[m] >= 500; }); // в плане больше, чем ушло (прошлые месяцы)
-    var c0 = function (v) { return Math.round(v / 100); };
+    var c0 = function (v) { return E.fmt(v); };
     // среднее — по закончившимся месяцам (текущий ещё идёт)
     var done = shown.filter(function (m) { return m < nowM; });
-    var avgOf = function (arr) { return done.length ? Math.round(done.reduce(function (t, m) { return t + arr[m]; }, 0) / done.length / 100) : "—"; };
+    var avgOf = function (arr) { return done.length ? E.fmt(done.reduce(function (t, m) { return t + arr[m]; }, 0) / done.length) : "—"; };
     var row = function (label, cells, avgCell) { return tpl("<tr><td>{l}</td>{!cells}{!avg}</tr>", { l: label, cells: cells, avg: avgCell }); };
     var table = shown.length ? tpl("<div class='tbl-wrap' style='margin-top:10px'><table class='t'><thead><tr><th></th>{!ths}<th class='n'>в среднем</th></tr></thead><tbody>{!r1}{!r2}</tbody></table></div>", {
       ths: shown.map(function (m) { return tpl("<th class='n'>{m}</th>", { m: E.MONTHS_SHORT[m] }); }).join(""),
@@ -539,10 +539,10 @@
     // 8. графики
     var capVals = mine.months.map(function (m, i) { return { me: m.cap, them: both ? theirs.months[i].cap : null }; });
     html += tpl("<div class='grid2 section'><div class='card'><h2>{t} по месяцам</h2>", { t: both ? "Капитал вместе" : "Капитал" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, stacked: true, title: "Капитал по месяцам", status: E.MONTHS.map(function (_, m) { return monthStatus(y, m); }),
-      fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+      fmt: function (v) { return E.eur(Math.round(v * 100)); },
       series: [{ name: meName, color: "var(--series-1)", values: capVals.map(function (c) { return c.me === null ? 0 : c.me / 100; }) }].concat(both ? [{ name: pName, color: "var(--series-2)", values: capVals.map(function (c) { return c.them === null ? 0 : c.them / 100; }) }] : []) }) + "</div>";
     html += tpl("<div class='card'><h2>Доходы и расходы{b}</h2>", { b: both ? " вдвоём" : "" }) + C.bars({ labels: E.MONTHS, short: E.MONTHS_SHORT, title: "Доходы и расходы по месяцам", status: E.MONTHS.map(function (_, m) { return monthStatus(y, m); }),
-      fmt: function (v) { return E.eur(Math.round(v) * 100, { dec: 0 }); },
+      fmt: function (v) { return E.eur(Math.round(v * 100)); },
       series: [{ name: "доходы", color: "var(--series-1)", values: mine.months.map(function (_, i) { return sum("income", i) / 100; }) }, { name: "расходы", color: "var(--series-2)", values: mine.months.map(function (_, i) { return sum("total", i) / 100; }) }] }) + "</div></div>";
     if (ui.us && ui.us.level === "full") html += "<div class='section row'><button class='btn' id='openPartner'>Открыть её бюджет целиком</button></div>";
     $main.innerHTML = html;

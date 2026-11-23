@@ -69,8 +69,8 @@
     var due = !ro ? INS.monthDue(state, E.todayISO()) : null, ms = null;
     if (due && state.settings.monthSeen !== due.key) {
       ms = INS.month(state, due.year, due.month);
-      var nb0 = ms.numbers, pct = nb0.income > 0 ? Math.round(nb0.net / nb0.income * 100) : null;
-      todo.unshift({ ic: "◷", h: "Итог " + E.MONTHS_GEN[due.month] + " готов", p: (nb0.dcap === null ? "" : "Капитал " + eur(rnd(nb0.dcap), { dec: 0, plus: true }) + ", ") + (pct === null ? "посмотри, как прошёл месяц" : "осталось " + pct + "% доходов"), act: "month" });
+      var nb0 = ms.numbers, sh0 = nb0.income > 0 ? nb0.net / nb0.income : null; // доля, оставшаяся от доходов
+      todo.unshift({ ic: "◷", h: "Итог " + E.MONTHS_GEN[due.month] + " готов", p: (nb0.dcap === null ? "" : "Капитал " + eur(rnd(nb0.dcap), { dec: 0, plus: true }) + ", ") + (sh0 === null ? "посмотри, как прошёл месяц" : "осталось " + pct(sh0) + " доходов") /* pct(): настоящий минус «−11%», не дефис */, act: "month" });
     }
 
     // скрытые пункты: про конкретную неделю/месяц — навсегда, остальные — на неделю

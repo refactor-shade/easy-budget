@@ -177,14 +177,31 @@ function draftSnap() { return JSON.stringify(state, function (k, v) { return k =
 function draftKey(y, w) { return y + ":" + w; }
 function inDraft() { return !!(state && state._draftKey && view.who === "me"); }
 function draftOf(y, w) { var d = myState && myState.recDraft; return d && d.key === draftKey(y, w) ? d : null; }
+// отпечаток бюджета: поменялся — черновик надо пересобрать (правили План, Наличку, Общие → в Сверке должны быть новые цифры)
+function mineSig() { return myState ? JSON.stringify([myState.years, myState.cash || null, myState.settings, myState.accounts, myState.categories]) : ""; }
+function cloneJ(x) { return x === undefined ? undefined : JSON.parse(JSON.stringify(x)); }
 function buildDraftState(d) {
   var s = JSON.parse(JSON.stringify(myState)); delete s.recDraft;
   // с чего черновик начался: основа для слияния тех частей, которые ещё не правили (см. persistDraft)
   ui.draftOrig = { years: JSON.parse(JSON.stringify(s.years)), cash: JSON.parse(JSON.stringify(s.cash || null)) };
-  Object.keys(d.years || {}).forEach(function (yy) { s.years[yy] = JSON.parse(JSON.stringify(d.years[yy])); });
-  if (d.cash) s.cash = JSON.parse(JSON.stringify(d.cash));
+  // 23 ноя: раньше копия года из черновика целиком закрывала бюджет — правки Плана и Налички, сделанные после начала сверки,
+  // в Сверку не попадали. Теперь сливаем: правки сверки (черновик против базы) + всё, что поменялось в бюджете с тех пор.
+  // База сдвигается на нынешний бюджет, черновик — на слитую копию: сохраняем их вместе, чтобы после перезагрузки слияние не решило,
+  // что новую правку бюджета «удалили».
+  Object.keys(d.years || {}).forEach(function (yy) {
+    var mine = s.years[yy];
+    var merged = d.base && d.base[yy] && mine ? SU.merge3(d.base[yy], d.years[yy], mine).data : d.years[yy];
+    s.years[yy] = cloneJ(merged);
+    if (mine && d.base) { d.base[yy] = cloneJ(mine); d.years[yy] = cloneJ(merged); }
+  });
+  if (d.cash) {
+    var mc = s.cash, mcash = d.baseCash !== undefined && mc ? SU.merge3(d.baseCash, d.cash, mc).data : d.cash;
+    s.cash = cloneJ(mcash);
+    if (d.baseCash !== undefined && mc) { d.baseCash = cloneJ(mc); d.cash = cloneJ(mcash); }
+  }
   if (d.settings) Object.assign(s.settings, JSON.parse(JSON.stringify(d.settings)));
   s._draftKey = d.key; s._ver = Date.now();
+  ui.draftSig = mineSig();
   return s;
 }
 // включить черновик для недели (если он есть), иначе — настоящий бюджет
@@ -192,7 +209,11 @@ function useDraft(y, w) {
   if (view.who !== "me" || !myState) return;
   var d = draftOf(y, w);
   if (!d) { if (state !== myState) state = myState; return; }
-  if (!ui.draftState || ui.draftState._draftKey !== d.key || ui.draftAt !== d.at) { ui.draftState = buildDraftState(d); ui.draftAt = d.at; state = ui.draftState; draftUndoBase = draftSnap(); }
+  if (!ui.draftState || ui.draftState._draftKey !== d.key || ui.draftAt !== d.at || ui.draftSig !== mineSig()) {
+    // правки самой сверки сначала — в черновик, потом пересобираем поверх нового бюджета
+    if (ui.draftState && ui.draftState._draftKey === d.key && state === ui.draftState) persistDraft();
+    ui.draftState = buildDraftState(d); ui.draftAt = d.at; state = ui.draftState; draftUndoBase = draftSnap();
+  }
   state = ui.draftState;
 }
 function startDraft(y, w) {
@@ -430,7 +451,8 @@ function afterRender(route) {
 // ---------- утилиты ----------
 function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function eur(c, o) { return E.eur(c, o); }
-function rnd(c) { return c === null || c === undefined ? null : Math.round(c / 100) * 100; }
+// раньше округляла до евро; теперь — до цента: в финансовом приложении суммы показываем точно (см. E.fmt)
+function rnd(c) { return c === null || c === undefined ? null : Math.round(c); }
 // Изменение (капитал за неделю, с начала месяца): рост — зелёным «↗», снижение — спокойным цветом «↘».
 // Красный — только для того, что требует действия (расхождение больше порога, минус в остатке, выше плана)
 function trendHtml(c, opts) {
@@ -716,7 +738,7 @@ function editCell(year, catId, w) {
       name: c.name, wk: E.weekTitle(Number(year), w), wim: wk.wim, hint: c.block === "income" ? "" : " — минус ставить не нужно, «+» — если вернули деньги",
       expr: numShow(c.block === "income" ? raw : absIfPlain(raw)), note: entry ? entry.note : "",
       rec: recCell ? tpl("<div class='hint small'>Регулярная трата: <b>{v}</b>. Сумма, вписанная вручную, заменит её в этой неделе.</div>", { v: E.fmt(recCell.cents, { cur: cur(c) }) }) : "",
-      move: cell && cell.cents < 0 && c.block !== "savings" ? "<div class='row' style='margin:0 22px 12px'><button class='btn sm' data-act='move'>Не потратила — перенести или убрать</button></div>" : "",
+      move: "", // перенос и «не было» — в меню ячейки «⋯» (cellMenu), здесь не дублируем (23 ноя)
       clear: entry ? tpl("<button class='btn ghost danger' data-act='clear'>{t}</button>", { t: recCell ? "Вернуть регулярную" : "Удалить" }) : "" }),
   function (m) {
     var inp = m.querySelector("[name=expr]"), pv = m.querySelector("#cellPreview");
@@ -741,6 +763,69 @@ function editCell(year, catId, w) {
   });
 }
 
+
+// ===== Меню ячейки Плана «⋯» (23 ноя) =====
+// Одно место для всех действий с ячейкой: перенести, «не было», копировать / вставить, формула и заметка, удалить.
+// Раньше то же было в трёх местах: полоска под каждой открытой ячейкой (закрывала строку ниже), «Ещё…» и окно в окне «Не потратила».
+// На телефоне окно выезжает снизу (так устроены все окна приложения), на компьютере — по центру. Открывается «⋯» в ячейке
+// или правым кликом. ui.cellClip — своя копия суммы (без запроса доступа к буферу), в системный буфер тоже кладём.
+function cellMenu(year, catId, w) {
+  if (RO()) { toast("Сейчас открыт чужой бюджет (" + view.name + ") — только просмотр"); return; }
+  var r = E.compute(state, year), cell = r.cells[catId][w], c = state.categories.find(function (x) { return x.id === catId; }) || {};
+  var wk = r.weeks[w], entry = (state.years[year].entries[catId] || {})[w], has = !!(cell && cell.cents), clip = ui.cellClip || null;
+  var recCell = entry ? E.yearCells(Object.assign({}, state, { years: (function () { var o = {}; o[year] = Object.assign({}, state.years[year], { entries: {} }); return o; })() }), year)[catId][w] : null;
+  var next = E.addDays(wk.to, 1), month = E.addDays(wk.from, 28), canMove = has && c.block !== "savings";
+  var item = function (act, label, sub, cls) { return tpl("<button type='button' class='cm-i{c}' data-cm='{a}'><span>{l}</span>{!s}</button>", { a: act, l: label, c: cls ? " " + cls : "", s: sub ? tpl("<small>{s}</small>", { s: sub }) : "" }); };
+  var html = tpl("<div class='m-body cm'><h2>{n}</h2><p class='small muted cm-sub'>{wk} · {v}</p>", { n: c.name || "", wk: shortWeek(year, w), v: has ? E.fmt(cell.cents, { cur: cur(c) }) : "пусто" });
+  if (canMove) html += "<div class='cm-g'>" + item("next", "На следующую неделю", shortWeek(String(E.weekOfDate(next) ? E.weekOfDate(next).year : year), E.weekOfDate(next) ? E.weekOfDate(next).idx : w)) +
+    item("month", "Через месяц") + item("date", "На другую дату…") + "<div class='cm-date' hidden><input type='date' id='cmD' value='" + next + "'><button type='button' class='btn sm' data-cm='dateGo'>Перенести</button></div>" +
+    item("skip", "Не было", "убрать из этой недели") + "</div>";
+  html += "<div class='cm-g'>" + (has ? item("copy", "Копировать", E.fmt(Math.abs(cell.cents))) : "") + (clip ? item("paste", "Вставить " + clip.label, "сюда, в " + shortWeek(year, w)) : "") +
+    item("edit", "Формула и заметка…") + (entry ? item("clear", recCell ? "Вернуть регулярную" : "Удалить", recCell ? "регулярная: " + E.fmt(recCell.cents) : "", recCell ? "" : "danger") : "") + "</div></div>";
+  modal(html, function (m) {
+    function moved(res) {
+      if (!res) return; if (res.err) { toast(res.err); return; }
+      closeModal(); changed(false, "«" + c.name + "» → " + shortWeek(res.year, res.week)); flashCell(res.year, catId, res.week);
+    }
+    m.querySelectorAll("[data-cm]").forEach(function (b) {
+      b.onclick = function () {
+        var a = b.dataset.cm;
+        if (a === "next") return moved(moveCell(year, catId, w, next));
+        if (a === "month") return moved(moveCell(year, catId, w, month));
+        if (a === "date") { var d = m.querySelector(".cm-date"); d.hidden = false; b.hidden = true; var di = d.querySelector("input"); di.focus(); try { di.showPicker(); } catch (err) { /* ок */ } return; }
+        if (a === "dateGo") return moved(moveCell(year, catId, w, m.querySelector("#cmD").value));
+        if (a === "skip") { skipCell(year, catId, w); closeModal(); changed(false, "«" + c.name + "»: не было, " + shortWeek(year, w)); return; }
+        if (a === "copy") {
+          // копируем сумму, не формулу: «155,50», а не «-(120+35,5)»; знак ставит строка, куда вставляешь
+          var abs = Math.abs(cell.cents), txt = E.fmt(abs).replace(/ /g, "");
+          ui.cellClip = { text: txt, label: E.fmt(abs) };
+          try { if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(function () {}); } catch (err) { /* только своя копия */ }
+          closeModal(); toast("Скопировано: " + ui.cellClip.label); return;
+        }
+        if (a === "paste") { E.setEntry(state, year, catId, String(w), signFor(catId, clip.text)); closeModal(); changed(false, "Вставлено: " + clip.label); flashCell(year, catId, w); return; }
+        if (a === "edit") { closeModal(); editCell(year, catId, w); return; }
+        if (a === "clear") { E.setEntry(state, year, catId, String(w), ""); closeModal(); changed(false, recCell ? "Вернула регулярную" : "Удалено"); }
+      };
+    });
+  });
+}
+// подсветить ячейку, куда ушла сумма (после переноса / вставки), и показать её
+function flashCell(year, catId, w) {
+  setTimeout(function () {
+    var td = document.querySelector("#gridWrap td[data-c='" + catId + "'][data-w='" + w + "']");
+    if (!td || String(ui.gridYear || year) !== String(year)) return;
+    td.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // слева закреплены названия строк — ячейка не должна оказаться под ними
+    var wrap = document.getElementById("gridWrap"), stick = 0;
+    // ширины, не offsetLeft: у прилипших столбцов offsetLeft уже со сдвигом прокрутки
+    td.parentNode.querySelectorAll(".sticky, .sticky2").forEach(function (s) { stick += s.offsetWidth; });
+    if (wrap) {
+      if (td.offsetLeft - wrap.scrollLeft < stick) wrap.scrollLeft = Math.max(0, td.offsetLeft - stick - 8);
+      else if (td.offsetLeft + td.offsetWidth - wrap.scrollLeft > wrap.clientWidth) wrap.scrollLeft = td.offsetLeft + td.offsetWidth - wrap.clientWidth + 8;
+    }
+    td.classList.remove("cell-flash"); void td.offsetWidth; td.classList.add("cell-flash");
+  }, 60);
+}
 
 // Плановую трату не совершила: перенести на другую неделю или убрать
 function skipCell(y, catId, w, note) { E.setEntry(state, y, catId, String(w), "0", note || "не было"); }
@@ -1132,3 +1217,56 @@ function loadSheetLink() {
 
 // линия под полосой статус-бара появляется, только когда страница прокручена
 window.addEventListener("scroll", function () { document.body.classList.toggle("scrolled", window.scrollY > 4); }, { passive: true });
+
+// Поле даты открывает календарь по клику в любом месте (23 ноя). В Chrome на компьютере календарь открывался только по крошечной
+// иконке справа в поле — а в чипе «Сегодня ▾» поле прозрачное и растянуто на весь чип, иконку не видно: «работает в одном пикселе».
+// Только мышь/тачпад: на телефоне календарь и так открывается касанием.
+document.addEventListener("click", function (e) {
+  var i = e.target;
+  if (!i || i.tagName !== "INPUT" || !/^(date|month|time|datetime-local)$/.test(i.type) || i.disabled || i.readOnly) return;
+  if (typeof i.showPicker !== "function" || !(window.matchMedia && matchMedia("(pointer: fine)").matches)) return;
+  try { i.showPicker(); } catch (err) { /* не во фрейме / уже открыт — тогда работает как раньше */ }
+});
+
+// Полоска «+ − × ÷» над клавиатурой телефона (23 ноя). У цифровой клавиатуры iPhone (inputmode=decimal) нет знаков —
+// формулы в Плане (120+35, 300/2) с телефона было не ввести. Только в разделе «План» (23 ноя).
+(function () {
+  if (!(window.matchMedia && matchMedia("(pointer: coarse)").matches)) return;
+  var bar = null, cur = null, OPS = [["+", "+"], ["−", "-"], ["×", "*"], ["÷", "/"]]; // без скобок: нужны редко, полоска должна быть лёгкой
+  function place() {
+    if (!bar) return;
+    var vv = window.visualViewport, bottom = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    bar.style.bottom = bottom + "px";
+  }
+  function show(inp) {
+    cur = inp;
+    if (!bar) {
+      bar = document.createElement("div"); bar.className = "op-bar"; bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Знаки для формулы");
+      bar.innerHTML = OPS.map(function (o) { return tpl("<button type='button' data-ins='{v}' aria-label='Вставить {l}'>{l}</button>", { v: o[1], l: o[0] }); }).join("");
+      bar.addEventListener("mousedown", function (e) { e.preventDefault(); }); // поле не теряет фокус, клавиатура не прячется
+      bar.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-ins]"); if (!b || !cur) return;
+        var s = cur.selectionStart, en = cur.selectionEnd, v = cur.value;
+        if (s === null || s === undefined) { s = en = v.length; }
+        cur.value = v.slice(0, s) + b.dataset.ins + v.slice(en);
+        try { cur.setSelectionRange(s + 1, s + 1); } catch (err) { /* ок */ }
+        cur.dispatchEvent(new Event("input", { bubbles: true })); cur.focus();
+      });
+      document.body.appendChild(bar);
+      if (window.visualViewport) { visualViewport.addEventListener("resize", place); visualViewport.addEventListener("scroll", place); }
+    }
+    place(); bar.classList.add("on"); document.body.classList.add("op-on");
+  }
+  document.addEventListener("focusin", function (e) {
+    var i = e.target;
+    if (!i || i.tagName !== "INPUT" || i.getAttribute("inputmode") !== "decimal" || i.disabled || i.readOnly) return;
+    // 23 ноя: только в разделе «План» — ячейки таблицы и суммы «Регулярных» (окно правила: #rsE, #rsNew).
+    // Окна «Внести» (и по фразе, и по полям) — не План, даже если открыты оттуда
+    var route = (location.hash || "#home").slice(1).split("?")[0];
+    if (routeGroup(route) !== "plan" || !(i.closest("#main") || i.id === "rsE" || i.id === "rsNew")) return;
+    show(i);
+  });
+  document.addEventListener("focusout", function () {
+    setTimeout(function () { var a = document.activeElement; if (bar && !(a && a.tagName === "INPUT" && a === cur)) { bar.classList.remove("on"); document.body.classList.remove("op-on"); cur = null; } }, 0);
+  });
+})();
