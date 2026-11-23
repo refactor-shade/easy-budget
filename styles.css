@@ -1749,19 +1749,16 @@ dialog.modal:focus { outline: none; }
 .pw-warn { font-size: 13px; color: var(--neg); }
 .pw-warn .linkish { font-size: 13px; }
 
-/* Полоска знаков над клавиатурой телефона (ui/core.js, 23 ноя) */
-.op-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; display: none; gap: 6px; padding: 4px 8px; background: var(--surface-2); border-top: 1px solid var(--line); }
-.op-bar.on { display: flex; }
-.op-bar button { flex: 1; min-height: 36px; border: 0; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 20px; }
-.op-bar button:active { background: var(--accent-soft); }
-body.op-on .fab, body.op-on .nav-plus { visibility: hidden; } /* круглая «+» не выглядывает из-за полоски знаков */
+/* Пока вводишь в ячейку Плана на телефоне — нижняя панель и круглая «+» не всплывают над клавиатурой (23 ноя) */
+body.op-on .nav, body.op-on .fab, body.op-on .nav-plus { display: none; }
 /* полоска под ячейкой на телефоне: «Копировать / Вставить» — второй строкой (23 ноя) */
 .cell-acts.two { flex-wrap: wrap; width: max-content; max-width: calc(100vw - 40px); }
 .cell-acts .ca-br { flex-basis: 100%; height: 0; }
 
 /* Ячейка Плана в правке: поле + «⋯» (меню действий, 23 ноя) */
 table.g td.v .cell-ed { display: block; position: relative; }
-table.g td.v .cell-ed .cell-more { position: absolute; z-index: 5; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.25); border: 1.5px solid var(--accent); }
+table.g td.v .cell-ed .cell-btns { position: absolute; z-index: 5; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 6px; display: flex; gap: 4px; }
+table.g td.v .cell-ed .cell-btns button { box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .cell-more { flex: none; width: auto; height: 26px; padding: 0 10px; white-space: nowrap; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; line-height: 1; cursor: pointer; } /* заметная в обеих темах: зелёная, как кнопки действий (23 ноя: тёмная на тёмном сливалась) */
 .cell-more:hover { filter: brightness(1.1); }
 @media (pointer: coarse) { .cell-more { height: 32px; padding: 0 12px; font-size: 14px; } }
